@@ -28,7 +28,6 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-
   web:
     build:
       context: .
@@ -55,12 +54,11 @@ services:
       bot:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
-      start_period: 10s
-
+      start_period: 30s
   frontend:
     build:
       context: .
