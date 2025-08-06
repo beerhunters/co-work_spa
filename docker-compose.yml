@@ -1,0 +1,73 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
+      - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
+      - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+      - BOT_LINK=${BOT_LINK}
+      - INVITE_LINK=${INVITE_LINK}
+      - GROUP_ID=${GROUP_ID}
+      - FOR_LOGS=${FOR_LOGS}
+      - ADMIN_LOGIN=${ADMIN_LOGIN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    volumes:
+      - ./data:/data
+      - ./utils:/app/utils
+      - ./models:/app/models
+      - ./bot:/app/bot
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "test", "-f", "/data/bot_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - ADMIN_LOGIN=${ADMIN_LOGIN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
+      - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
+      - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - ./utils:/app/utils
+      - ./models:/app/models
+      - ./static:/app/static
+    restart: unless-stopped
+    depends_on:
+      bot:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy

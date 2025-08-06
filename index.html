@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.7.2/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.22.9/babel.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@mui/material@5.16.7/dist/index.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@mui/material@5.16.7/dist/index.umd.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { AppBar, Toolbar, Typography, Button, Container, Tabs, Tab, Box, List, ListItem, ListItemText, Paper, TextField, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, IconButton } = window['@mui/material'];
+        const { Delete, Edit } = window['@mui/icons-material'];
+
+        function App() {
+            const [isAuthenticated, setIsAuthenticated] = useState(false);
+            const [login, setLogin] = useState("");
+            const [password, setPassword] = useState("");
+            const [users, setUsers] = useState([]);
+            const [bookings, setBookings] = useState([]);
+            const [tariffs, setTariffs] = useState([]);
+            const [promocodes, setPromocodes] = useState([]);
+            const [tickets, setTickets] = useState([]);
+            const [notifications, setNotifications] = useState([]);
+            const [newsletters, setNewsletters] = useState([]);
+            const [section, setSection] = useState("login");
+            const [lastNotificationId, setLastNotificationId] = useState(null);
+            const [openDialog, setOpenDialog] = useState(false);
+            const [dialogType, setDialogType] = useState("");
+            const [editId, setEditId] = useState(null);
+            const [formData, setFormData] = useState({});
+
+            const handleLogin = () => {
+                axios.post("http://web:8000/login", { login, password })
+                    .then(() => {
+                        setIsAuthenticated(true);
+                        setSection("dashboard");
+                    })
+                    .catch(error => alert("Ошибка входа: " + error.response.data.detail));
+            };
+
+            const handleLogout = () => {
+                axios.get("http://web:8000/logout")
+                    .then(() => {
+                        setIsAuthenticated(false);
+                        setSection("login");
+                    });
+            };
+
+            const fetchNotifications = () => {
+                axios.get(`http://web:8000/get_notifications${lastNotificationId ? `?since_id=${lastNotificationId}` : ''}`)
+                    .then(res => {
+                        if (res.data.length > 0) {
+                            setNotifications(prev => [...res.data, ...prev]);
+                            setLastNotificationId(Math.max(...res.data.map(n => n.id)));
+                        }
+                    })
+                    .catch(error => console.error("Ошибка получения уведомлений:", error));
+            };
+
+            useEffect(() => {
+                if (isAuthenticated) {
+                    axios.get("http://web:8000/users").then(res => setUsers(res.data));
+                    axios.get("http://web:8000/bookings").then(res => setBookings(res.data));
+                    axios.get("http://web:8000/tariffs").then(res => setTariffs(res.data));
+                    axios.get("http://web:8000/promocodes").then(res => setPromocodes(res.data));
+                    axios.get("http://web:8000/tickets").then(res => setTickets(res.data));
+                    axios.get("http://web:8000/notifications").then(res => {
+                        setNotifications(res.data);
+                        setLastNotificationId(Math.max(...res.data.map(n => n.id), 0));
+                    });
+                    axios.get("http://web:8000/newsletters").then(res => setNewsletters(res.data));
+                    const interval = setInterval(fetchNotifications, 10000); // Проверка новых уведомлений каждые 10 секунд
+                    return () => clearInterval(interval);
+                }
+            }, [isAuthenticated]);
+
+            const handleOpenDialog = (type, item = null) => {
+                setDialogType(type);
+                setEditId(item ? item.id : null);
+                setFormData(item || {});
+                setOpenDialog(true);
+            };
+
+            const handleCloseDialog = () => {
+                setOpenDialog(false);
+                setFormData({});
+                setEditId(null);
+            };
+
+            const handleFormChange = (field, value) => {
+                setFormData(prev => ({ ...prev, [field]: value }));
+            };
+
+            const handleSubmit = () => {
+                const url = editId ? `http://web:8000/${dialogType}/${editId}/edit` : `http://web:8000/${dialogType}/new`;
+                const method = editId ? 'post' : 'post';
+                axios[method](url, formData)
+                    .then(() => {
+                        // Обновление данных после успешной операции
+                        axios.get(`http://web:8000/${dialogType}s`).then(res => {
+                            if (dialogType === 'user') setUsers(res.data);
+                            if (dialogType === 'booking') setBookings(res.data);
+                            if (dialogType === 'tariff') setTariffs(res.data);
+                            if (dialogType === 'promocode') setPromocodes(res.data);
+                            if (dialogType === 'ticket') setTickets(res.data);
+                            if (dialogType === 'newsletter') setNewsletters(res.data);
+                        });
+                        handleCloseDialog();
+                    })
+                    .catch(error => alert(`Ошибка: ${error.response.data.detail}`));
+            };
+
+            const handleDelete = (type, id) => {
+                if (window.confirm(`Удалить ${type} #${id}?`)) {
+                    axios.delete(`http://web:8000/${type}/${id}/delete`)
+                        .then(() => {
+                            if (type === 'user') setUsers(users.filter(u => u.id !== id));
+                            if (type === 'booking') setBookings(bookings.filter(b => b.id !== id));
+                            if (type === 'tariff') setTariffs(tariffs.filter(t => t.id !== id));
+                            if (type === 'promocode') setPromocodes(promocodes.filter(p => p.id !== id));
+                            if (type === 'ticket') setTickets(tickets.filter(t => t.id !== id));
+                            if (type === 'notification') setNotifications(notifications.filter(n => n.id !== id));
+                        })
+                        .catch(error => alert(`Ошибка удаления: ${error.response.data.detail}`));
+                }
+            };
+
+            const handleMarkAllRead = () => {
+                axios.post("http://web:8000/notifications/mark_all_read")
+                    .then(() => {
+                        setNotifications(notifications.map(n => ({ ...n, is_read: true })));
+                    })
+                    .catch(error => alert(`Ошибка: ${error.response.data.detail}`));
+            };
+
+            const handleClearNotifications = () => {
+                if (window.confirm("Очистить все уведомления?")) {
+                    axios.post("http://web:8000/notifications/clear")
+                        .then(() => setNotifications([]))
+                        .catch(error => alert(`Ошибка: ${error.response.data.detail}`));
+                }
+            };
+
+            const renderLogin = () => (
+                <Container maxWidth="sm" sx={{ mt: 5 }}>
+                    <Paper elevation={3} sx={{ p: 4 }}>
+                        <Typography variant="h4" align="center" gutterBottom>
+                            Вход
+                        </Typography>
+                        <TextField
+                            fullWidth
+                            label="Логин"
+                            value={login}
+                            onChange={(e) => setLogin(e.target.value)}
+                            margin="normal"
+                            variant="outlined"
+                        />
+                        <TextField
+                            fullWidth
+                            label="Пароль"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            margin="normal"
+                            variant="outlined"
+                        />
+                        <Button
+                            fullWidth
+                            variant="contained"
+                            color="primary"
+                            onClick={handleLogin}
+                            sx={{ mt: 2 }}
+                        >
+                            Войти
+                        </Button>
+                    </Paper>
+                </Container>
+            );
+
+            const renderFormDialog = () => (
+                <Dialog open={openDialog} onClose={handleCloseDialog}>
+                    <DialogTitle>{editId ? `Редактировать ${dialogType}` : `Создать ${dialogType}`}</DialogTitle>
+                    <DialogContent>
+                        {dialogType === "user" && (
+                            <>
+                                <TextField
+                                    fullWidth
+                                    label="Telegram ID"
+                                    type="number"
+                                    value={formData.telegram_id || ""}
+                                    onChange={(e) => handleFormChange("telegram_id", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="ФИО"
+                                    value={formData.full_name || ""}
+                                    onChange={(e) => handleFormChange("full_name", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Телефон"
+                                    value={formData.phone || ""}
+                                    onChange={(e) => handleFormChange("phone", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Email"
+                                    value={formData.email || ""}
+                                    onChange={(e) => handleFormChange("email", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Username"
+                                    value={formData.username || ""}
+                                    onChange={(e) => handleFormChange("username", e.target.value)}
+                                    margin="normal"
+                                />
+                            </>
+                        )}
+                        {dialogType === "booking" && (
+                            <>
+                                <TextField
+                                    fullWidth
+                                    label="ID пользователя"
+                                    type="number"
+                                    value={formData.user_id || ""}
+                                    onChange={(e) => handleFormChange("user_id", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="ID тарифа"
+                                    type="number"
+                                    value={formData.tariff_id || ""}
+                                    onChange={(e) => handleFormChange("tariff_id", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Дата визита"
+                                    type="date"
+                                    value={formData.visit_date || ""}
+                                    onChange={(e) => handleFormChange("visit_date", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Время визита"
+                                    type="time"
+                                    value={formData.visit_time || ""}
+                                    onChange={(e) => handleFormChange("visit_time", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Длительность (часы)"
+                                    type="number"
+                                    value={formData.duration || ""}
+                                    onChange={(e) => handleFormChange("duration", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="ID промокода"
+                                    type="number"
+                                    value={formData.promocode_id || ""}
+                                    onChange={(e) => handleFormChange("promocode_id", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Сумма"
+                                    type="number"
+                                    value={formData.amount || ""}
+                                    onChange={(e) => handleFormChange("amount", parseFloat(e.target.value))}
+                                    margin="normal"
+                                />
+                                <Select
+                                    fullWidth
+                                    value={formData.paid || false}
+                                    onChange={(e) => handleFormChange("paid", e.target.value)}
+                                    margin="normal"
+                                >
+                                    <MenuItem value={true}>Оплачено</MenuItem>
+                                    <MenuItem value={false}>Не оплачено</MenuItem>
+                                </Select>
+                                <Select
+                                    fullWidth
+                                    value={formData.confirmed || false}
+                                    onChange={(e) => handleFormChange("confirmed", e.target.value)}
+                                    margin="normal"
+                                >
+                                    <MenuItem value={true}>Подтверждено</MenuItem>
+                                    <MenuItem value={false}>Не подтверждено</MenuItem>
+                                </Select>
+                            </>
+                        )}
+                        {dialogType === "tariff" && (
+                            <>
+                                <TextField
+                                    fullWidth
+                                    label="Название"
+                                    value={formData.name || ""}
+                                    onChange={(e) => handleFormChange("name", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Описание"
+                                    value={formData.description || ""}
+                                    onChange={(e) => handleFormChange("description", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Цена"
+                                    type="number"
+                                    value={formData.price || ""}
+                                    onChange={(e) => handleFormChange("price", parseFloat(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Назначение"
+                                    value={formData.purpose || ""}
+                                    onChange={(e) => handleFormChange("purpose", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="ID сервиса"
+                                    type="number"
+                                    value={formData.service_id || ""}
+                                    onChange={(e) => handleFormChange("service_id", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <Select
+                                    fullWidth
+                                    value={formData.is_active || false}
+                                    onChange={(e) => handleFormChange("is_active", e.target.value)}
+                                    margin="normal"
+                                >
+                                    <MenuItem value={true}>Активен</MenuItem>
+                                    <MenuItem value={false}>Неактивен</MenuItem>
+                                </Select>
+                            </>
+                        )}
+                        {dialogType === "promocode" && (
+                            <>
+                                <TextField
+                                    fullWidth
+                                    label="Название"
+                                    value={formData.name || ""}
+                                    onChange={(e) => handleFormChange("name", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Скидка (%)"
+                                    type="number"
+                                    value={formData.discount || ""}
+                                    onChange={(e) => handleFormChange("discount", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Количество использований"
+                                    type="number"
+                                    value={formData.usage_quantity || ""}
+                                    onChange={(e) => handleFormChange("usage_quantity", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Дата истечения"
+                                    type="date"
+                                    value={formData.expiration_date ? formData.expiration_date.split("T")[0] : ""}
+                                    onChange={(e) => handleFormChange("expiration_date", e.target.value)}
+                                    margin="normal"
+                                />
+                                <Select
+                                    fullWidth
+                                    value={formData.is_active || false}
+                                    onChange={(e) => handleFormChange("is_active", e.target.value)}
+                                    margin="normal"
+                                >
+                                    <MenuItem value={true}>Активен</MenuItem>
+                                    <MenuItem value={false}>Неактивен</MenuItem>
+                                </Select>
+                            </>
+                        )}
+                        {dialogType === "ticket" && (
+                            <>
+                                <TextField
+                                    fullWidth
+                                    label="ID пользователя"
+                                    type="number"
+                                    value={formData.user_id || ""}
+                                    onChange={(e) => handleFormChange("user_id", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Описание"
+                                    multiline
+                                    rows={4}
+                                    value={formData.description || ""}
+                                    onChange={(e) => handleFormChange("description", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="ID фото"
+                                    value={formData.photo_id || ""}
+                                    onChange={(e) => handleFormChange("photo_id", e.target.value)}
+                                    margin="normal"
+                                />
+                                <Select
+                                    fullWidth
+                                    value={formData.status || "Открыта"}
+                                    onChange={(e) => handleFormChange("status", e.target.value)}
+                                    margin="normal"
+                                >
+                                    <MenuItem value="Открыта">Открыта</MenuItem>
+                                    <MenuItem value="В работе">В работе</MenuItem>
+                                    <MenuItem value="Закрыта">Закрыта</MenuItem>
+                                </Select>
+                                <TextField
+                                    fullWidth
+                                    label="Комментарий"
+                                    value={formData.comment || ""}
+                                    onChange={(e) => handleFormChange("comment", e.target.value)}
+                                    margin="normal"
+                                />
+                            </>
+                        )}
+                        {dialogType === "newsletter" && (
+                            <>
+                                <TextField
+                                    fullWidth
+                                    label="Сообщение"
+                                    multiline
+                                    rows={4}
+                                    value={formData.message || ""}
+                                    onChange={(e) => handleFormChange("message", e.target.value)}
+                                    margin="normal"
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Количество получателей"
+                                    type="number"
+                                    value={formData.recipient_count || ""}
+                                    onChange={(e) => handleFormChange("recipient_count", parseInt(e.target.value))}
+                                    margin="normal"
+                                />
+                            </>
+                        )}
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={handleCloseDialog}>Отмена</Button>
+                        <Button onClick={handleSubmit} variant="contained" color="primary">
+                            {editId ? "Сохранить" : "Создать"}
+                        </Button>
+                    </DialogActions>
+                </Dialog>
+            );
+
+            const renderDashboard = () => (
+                <Box sx={{ flexGrow: 1 }}>
+                    <AppBar position="static">
+                        <Toolbar>
+                            <Typography variant="h6" sx={{ flexGrow: 1 }}>
+                                Админ-панель
+                            </Typography>
+                            <Button color="inherit" onClick={handleLogout}>
+                                Выйти
+                            </Button>
+                        </Toolbar>
+                    </AppBar>
+                    <Container maxWidth="lg" sx={{ mt: 4 }}>
+                        <Tabs
+                            value={section}
+                            onChange={(e, newValue) => setSection(newValue)}
+                            variant="scrollable"
+                            scrollButtons="auto"
+                        >
+                            <Tab label="Пользователи" value="users" />
+                            <Tab label="Брони" value="bookings" />
+                            <Tab label="Тарифы" value="tariffs" />
+                            <Tab label="Промокоды" value="promocodes" />
+                            <Tab label="Тикеты" value="tickets" />
+                            <Tab label="Уведомления" value="notifications" />
+                            <Tab label="Рассылки" value="newsletters" />
+                        </Tabs>
+                        <Box sx={{ mt: 3 }}>
+                            {section === "users" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Пользователи
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={() => handleOpenDialog("user")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Добавить пользователя
+                                    </Button>
+                                    <List>
+                                        {users.map(user => (
+                                            <ListItem
+                                                key={user.id}
+                                                secondaryAction={
+                                                    <Box>
+                                                        <IconButton onClick={() => handleOpenDialog("user", user)}>
+                                                            <Edit />
+                                                        </IconButton>
+                                                        <IconButton onClick={() => handleDelete("user", user.id)}>
+                                                            <Delete />
+                                                        </IconButton>
+                                                    </Box>
+                                                }
+                                                sx={{ bgcolor: 'background.paper', mb: 1, borderRadius: 1 }}
+                                            >
+                                                <ListItemText
+                                                    primary={user.full_name || "Без имени"}
+                                                    secondary={`ID: ${user.id}, Telegram: ${user.telegram_id}`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                            {section === "bookings" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Брони
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={() => handleOpenDialog("booking")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Добавить бронь
+                                    </Button>
+                                    <List>
+                                        {bookings.map(booking => (
+                                            <ListItem
+                                                key={booking.id}
+                                                secondaryAction={
+                                                    <Box>
+                                                        <IconButton onClick={() => handleOpenDialog("booking", booking)}>
+                                                            <Edit />
+                                                        </IconButton>
+                                                        <IconButton onClick={() => handleDelete("booking", booking.id)}>
+                                                            <Delete />
+                                                        </IconButton>
+                                                    </Box>
+                                                }
+                                                sx={{ bgcolor: 'background.paper', mb: 1, borderRadius: 1 }}
+                                            >
+                                                <ListItemText
+                                                    primary={`Бронь #${booking.id}`}
+                                                    secondary={`Дата: ${new Date(booking.visit_date).toLocaleDateString()}, Подтверждено: ${booking.confirmed ? "Да" : "Нет"}`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                            {section === "tariffs" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Тарифы
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={() => handleOpenDialog("tariff")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Добавить тариф
+                                    </Button>
+                                    <List>
+                                        {tariffs.map(tariff => (
+                                            <ListItem
+                                                key={tariff.id}
+                                                secondaryAction={
+                                                    <Box>
+                                                        <IconButton onClick={() => handleOpenDialog("tariff", tariff)}>
+                                                            <Edit />
+                                                        </IconButton>
+                                                        <IconButton onClick={() => handleDelete("tariff", tariff.id)}>
+                                                            <Delete />
+                                                        </IconButton>
+                                                    </Box>
+                                                }
+                                                sx={{ bgcolor: 'background.paper', mb: 1, borderRadius: 1 }}
+                                            >
+                                                <ListItemText
+                                                    primary={tariff.name}
+                                                    secondary={`Назначение: ${tariff.purpose}, Цена: ${tariff.price}`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                            {section === "promocodes" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Промокоды
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={() => handleOpenDialog("promocode")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Добавить промокод
+                                    </Button>
+                                    <List>
+                                        {promocodes.map(promocode => (
+                                            <ListItem
+                                                key={promocode.id}
+                                                secondaryAction={
+                                                    <Box>
+                                                        <IconButton onClick={() => handleOpenDialog("promocode", promocode)}>
+                                                            <Edit />
+                                                        </IconButton>
+                                                        <IconButton onClick={() => handleDelete("promocode", promocode.id)}>
+                                                            <Delete />
+                                                        </IconButton>
+                                                    </Box>
+                                                }
+                                                sx={{ bgcolor: 'background.paper', mb: 1, borderRadius: 1 }}
+                                            >
+                                                <ListItemText
+                                                    primary={promocode.name}
+                                                    secondary={`Скидка: ${promocode.discount}%, Активен: ${promocode.is_active ? "Да" : "Нет"}`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                            {section === "tickets" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Тикеты
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={() => handleOpenDialog("ticket")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Добавить тикет
+                                    </Button>
+                                    <List>
+                                        {tickets.map(ticket => (
+                                            <ListItem
+                                                key={ticket.id}
+                                                secondaryAction={
+                                                    <Box>
+                                                        <IconButton onClick={() => handleOpenDialog("ticket", ticket)}>
+                                                            <Edit />
+                                                        </IconButton>
+                                                        <IconButton onClick={() => handleDelete("ticket", ticket.id)}>
+                                                            <Delete />
+                                                        </IconButton>
+                                                    </Box>
+                                                }
+                                                sx={{ bgcolor: 'background.paper', mb: 1, borderRadius: 1 }}
+                                            >
+                                                <ListItemText
+                                                    primary={`Тикет #${ticket.id}`}
+                                                    secondary={`Статус: ${ticket.status}, Описание: ${ticket.description.substring(0, 50)}...`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                            {section === "notifications" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Уведомления
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={handleMarkAllRead}
+                                        sx={{ mb: 2, mr: 2 }}
+                                    >
+                                        Отметить все как прочитанные
+                                    </Button>
+                                    <Button
+                                        variant="contained"
+                                        color="secondary"
+                                        onClick={handleClearNotifications}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Очистить уведомления
+                                    </Button>
+                                    <List>
+                                        {notifications.map(notification => (
+                                            <ListItem
+                                                key={notification.id}
+                                                secondaryAction={
+                                                    <IconButton onClick={() => handleDelete("notification", notification.id)}>
+                                                        <Delete />
+                                                    </IconButton>
+                                                }
+                                                sx={{
+                                                    bgcolor: notification.is_read ? 'background.paper' : 'warning.light',
+                                                    mb: 1,
+                                                    borderRadius: 1
+                                                }}
+                                            >
+                                                <ListItemText
+                                                    primary={notification.message}
+                                                    secondary={`Прочитано: ${notification.is_read ? "Да" : "Нет"}`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                            {section === "newsletters" && (
+                                <Box>
+                                    <Typography variant="h5" gutterBottom>
+                                        Рассылки
+                                    </Typography>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        onClick={() => handleOpenDialog("newsletter")}
+                                        sx={{ mb: 2 }}
+                                    >
+                                        Добавить рассылку
+                                    </Button>
+                                    <List>
+                                        {newsletters.map(newsletter => (
+                                            <ListItem
+                                                key={newsletter.id}
+                                                sx={{ bgcolor: 'background.paper', mb: 1, borderRadius: 1 }}
+                                            >
+                                                <ListItemText
+                                                    primary={newsletter.message}
+                                                    secondary={`Получатели: ${newsletter.recipient_count}`}
+                                                />
+                                            </ListItem>
+                                        ))}
+                                    </List>
+                                </Box>
+                            )}
+                        </Box>
+                    </Container>
+                    {renderFormDialog()}
+                </Box>
+            );
+
+            return section === "login" ? renderLogin() : renderDashboard();
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
