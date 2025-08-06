@@ -1,32 +1,23 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Box, Flex, VStack, HStack, Text, Icon, Button, Tabs, TabList, Tab, TabPanels, TabPanel, Grid, GridItem, Heading, useToast, IconButton, Menu, MenuButton, MenuList, MenuItem, Badge } from '@chakra-ui/react';
+import { ChakraProvider, Box, Flex, VStack, HStack, Text, Icon, Button, Tabs, TabList, Tab, TabPanels, TabPanel, Grid, GridItem, Heading, useToast, IconButton, Menu, MenuButton, MenuList, MenuItem, Badge } from '@chakra-ui/react';
 import { FaTachometerAlt, FaUsers, FaCalendarCheck, FaTags, FaGift, FaTicketAlt, FaBell, FaEnvelope, FaSignOutAlt, FaBuilding } from 'react-icons/fa';
 import Chart from 'chart.js/auto';
 import './App.css';
 
-// Типы для данных
-interface User { id: number; telegram_id: number; full_name?: string; phone?: string; email?: string; username?: string; successful_bookings: number; language_code: string; invited_count: number; reg_date?: string; first_join_time: string; agreed_to_terms: boolean; avatar?: string; referrer_id?: number }
-interface Booking { id: number; user_id: number; tariff_id: number; visit_date: string; visit_time?: string; duration?: number; promocode_id?: number; amount: number; payment_id?: string; paid: boolean; rubitime_id?: string; confirmed: boolean }
-interface Tariff { id: number; name: string; description: string; price: number; purpose?: string; service_id?: number; is_active: boolean }
-interface Promocode { id: number; name: string; discount: number; usage_quantity: number; expiration_date?: string; is_active: boolean }
-interface Ticket { id: number; user_id: number; description: string; photo_id?: string; status: string; comment?: string; created_at: string; updated_at: string }
-interface Notification { id: number; user_id: number; message: string; type: string; created_at: string; is_read: boolean; booking_id?: number; ticket_id?: number; target_url?: string }
-
-// Основной компонент приложения
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [login, setLogin] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [section, setSection] = useState<string>('login');
-  const [users, setUsers] = useState<User[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [tariffs, setTariffs] = useState<Tariff[]>([]);
-  const [promocodes, setPromocodes] = useState<Promocode[]>([]);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [newsletters, setNewsletters] = useState<any[]>([]);
-  const [lastNotificationId, setLastNotificationId] = useState<number>(0);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [login, setLogin] = useState('');
+  const [password, setPassword] = useState('');
+  const [section, setSection] = useState('login');
+  const [users, setUsers] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [tariffs, setTariffs] = useState([]);
+  const [promocodes, setPromocodes] = useState([]);
+  const [tickets, setTickets] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [newsletters, setNewsletters] = useState([]);
+  const [lastNotificationId, setLastNotificationId] = useState(0);
   const toast = useToast();
 
   // Загрузка данных
@@ -38,7 +29,7 @@ function App() {
         { url: '/tariffs', setter: setTariffs },
         { url: '/promocodes', setter: setPromocodes },
         { url: '/tickets', setter: setTickets },
-        { url: '/notifications', setter: (data: Notification[]) => {
+        { url: '/notifications', setter: (data) => {
             setNotifications(data);
             setLastNotificationId(Math.max(...data.map(n => n.id), 0));
           }
@@ -60,10 +51,10 @@ function App() {
     try {
       const res = await axios.get(`http://localhost/api/notifications/check_new?since_id=${lastNotificationId}`, { withCredentials: true });
       if (res.data.status === 'success' && res.data.recent_notifications.length > 0) {
-        const newNotifications = res.data.recent_notifications.filter((n: Notification) => !n.is_read);
+        const newNotifications = res.data.recent_notifications.filter(n => !n.is_read);
         setNotifications(prev => [...newNotifications, ...prev]);
-        setLastNotificationId(Math.max(...res.data.recent_notifications.map((n: Notification) => n.id), lastNotificationId));
-        newNotifications.forEach((n: Notification) => {
+        setLastNotificationId(Math.max(...res.data.recent_notifications.map(n => n.id), lastNotificationId));
+        newNotifications.forEach(n => {
           toast({
             title: 'Новое уведомление',
             description: n.message,
@@ -104,7 +95,7 @@ function App() {
   };
 
   // Пометка уведомления как прочитанного
-  const markNotificationRead = async (notificationId: number, targetUrl?: string) => {
+  const markNotificationRead = async (notificationId, targetUrl) => {
     try {
       await axios.post(`http://localhost/api/notifications/mark_read/${notificationId}`, {}, { withCredentials: true });
       setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n));
@@ -328,18 +319,20 @@ function App() {
   };
 
   return (
-    <Box>
-      {isAuthenticated && (
-        <>
-          <Navbar />
-          <Flex>
-            <Sidebar />
-            <Box flex={1} p={4}>{renderSection()}</Box>
-          </Flex>
-        </>
-      )}
-      {!isAuthenticated && <Login />}
-    </Box>
+    <ChakraProvider>
+      <Box>
+        {isAuthenticated && (
+          <>
+            <Navbar />
+            <Flex>
+              <Sidebar />
+              <Box flex={1} p={4}>{renderSection()}</Box>
+            </Flex>
+          </>
+        )}
+        {!isAuthenticated && <Login />}
+      </Box>
+    </ChakraProvider>
   );
 }
 
