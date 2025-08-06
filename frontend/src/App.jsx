@@ -141,30 +141,51 @@ function App() {
             const day = date.getDay() === 0 ? 6 : date.getDay() - 1;
             acc[day] = (acc[day] || 0) + 1;
             return acc;
+          }, Array(7).fill(0)),
+          userCounts: users.reduce((acc, u) => {
+            const date = new Date(u.created_at);
+            const day = date.getDay() === 0 ? 6 : date.getDay() - 1;
+            acc[day] = (acc[day] || 0) + 1;
+            return acc;
           }, Array(7).fill(0))
         };
         new Chart(ctx, {
           type: 'line',
           data: {
             labels: bookingsData.labels,
-            datasets: [{
-              label: 'Бронирования',
-              data: bookingsData.counts,
-              borderColor: 'rgba(99, 102, 241, 1)',
-              backgroundColor: 'rgba(99, 102, 241, 0.2)',
-              fill: true,
-              tension: 0.4
-            }]
+            datasets: [
+              {
+                label: 'Бронирования',
+                data: bookingsData.counts,
+                borderColor: 'rgba(99, 102, 241, 1)',
+                backgroundColor: 'rgba(99, 102, 241, 0.2)',
+                fill: true,
+                tension: 0.4
+              },
+              {
+                label: 'Новые пользователи',
+                data: bookingsData.userCounts,
+                borderColor: 'rgba(34, 197, 94, 1)',
+                backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                fill: true,
+                tension: 0.4
+              }
+            ]
           },
           options: {
             responsive: true,
-            plugins: { legend: { display: true, position: 'top' }, tooltip: { mode: 'index', intersect: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            plugins: {
+              legend: { display: true, position: 'top' },
+              tooltip: { mode: 'index', intersect: false }
+            },
+            scales: {
+              y: { beginAtZero: true, ticks: { precision: 0 } }
+            }
           }
         });
       }
     }
-  }, [bookings, section]);
+  }, [bookings, users, section]);
 
   // Компонент боковой панели
   const Sidebar = () => (
@@ -208,7 +229,7 @@ function App() {
               {notifications.filter(n => !n.is_read).length}
             </Badge>
           </MenuButton>
-          <MenuList className="notification-dropdown" maxH="500px" overflowY="auto">
+          <MenuList bg="white" color="gray.800" maxH="500px" overflowY="auto">
             <HStack px={4} py={2} bgGradient="linear(to-r, #f8fafc, #e2e8f0)" justify="space-between">
               <Text fontWeight="semibold">Уведомления</Text>
               <Button size="sm" variant="outline" onClick={markAllNotificationsRead}>Пометить все как прочитанные</Button>
@@ -219,11 +240,16 @@ function App() {
               notifications.slice(0, 5).map(n => (
                 <MenuItem
                   key={n.id}
+                  bg={n.is_read ? 'white' : 'gray.50'}
+                  color="gray.800"
                   className={`notification-item ${n.is_read ? 'read' : 'unread'}`}
                   onClick={() => markNotificationRead(n.id, n.target_url)}
                 >
                   <HStack spacing={3}>
-                    <Icon as={n.type === 'user' ? FaUsers : n.type === 'booking' ? FaCalendarCheck : n.type === 'ticket' ? FaTicketAlt : FaBell} color={n.type === 'user' ? 'green.500' : n.type === 'booking' ? 'blue.500' : n.type === 'ticket' ? 'yellow.500' : 'gray.500'} />
+                    <Icon
+                      as={n.type === 'user' ? FaUsers : n.type === 'booking' ? FaCalendarCheck : n.type === 'ticket' ? FaTicketAlt : FaBell}
+                      color={n.type === 'user' ? 'green.500' : n.type === 'booking' ? 'blue.500' : n.type === 'ticket' ? 'yellow.500' : 'gray.500'}
+                    />
                     <VStack align="start" spacing={0}>
                       <Text fontSize="sm">{n.message}</Text>
                       <Text fontSize="xs" color="gray.500">{new Date(n.created_at).toLocaleString('ru-RU')}</Text>
@@ -232,7 +258,7 @@ function App() {
                 </MenuItem>
               ))
             )}
-            <MenuItem as="a" href="/notifications" textAlign="center">Все уведомления</MenuItem>
+            <MenuItem as="a" href="/notifications" textAlign="center" color="gray.800">Все уведомления</MenuItem>
           </MenuList>
         </Menu>
         <Button leftIcon={<Icon as={FaSignOutAlt} />} variant="ghost" onClick={handleLogout}>Выход</Button>
@@ -280,7 +306,7 @@ function App() {
       </Grid>
       <Box className="card">
         <Box p={4}>
-          <Text fontWeight="semibold" mb={2}>Активность бронирований за неделю</Text>
+          <Text fontWeight="semibold" mb={2}>Активность за неделю</Text>
           <canvas id="bookingsChart" height="100"></canvas>
         </Box>
       </Box>

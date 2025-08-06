@@ -139,3 +139,15 @@ body {
     left: 0;
   }
 }
+/* Стили для боковой панели */
+.sidebar .nav-link:hover {
+  background-color: #6366f1; /* Индиго при наведении */
+  color: white; /* Белый текст при наведении */
+  transition: all 0.2s ease-in-out;
+}
+
+/* Стили для активного таба */
+.sidebar .nav-link.active {
+  background-color: #4f46e5; /* Тёмный индиго для активного таба */
+  color: white;
+}

@@ -1,94 +1,180 @@
-from typing import Optional, Dict
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import asyncio
 import os
-import aiohttp
-from utils.logger import get_logger
-from yookassa import Payment
-import pytz
+from datetime import datetime
+from typing import Optional, Tuple
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+import aiohttp
+import pytz
+from dotenv import load_dotenv
+from yookassa import Payment, Configuration
+
+from utils.logger import get_logger
+
+# Тихая настройка логгера для модуля
 logger = get_logger(__name__)
+
+load_dotenv()
+
+# Конфигурация YooKassa
+Configuration.account_id = os.getenv("YOKASSA_ACCOUNT_ID")
+Configuration.secret_key = os.getenv("YOKASSA_SECRET_KEY")
+
+
+# Конфигурация Rubitime
 RUBITIME_API_KEY = os.getenv("RUBITIME_API_KEY")
 RUBITIME_BASE_URL = "https://rubitime.ru/api2/"
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 ADMIN_URL = "https://t.me/partacoworking"
+
 RULES = "https://parta-works.ru/main_rules"
+
+# btn_back = ⬅️ Назад
+# rules_button = 📄 Общие правила
+# contact_admin_button = 📞 Связаться с Администратором
 
 
 def create_user_keyboard() -> InlineKeyboardMarkup:
-    """Создает клавиатуру для пользователя.
-
-    Returns:
-        InlineKeyboardMarkup с кнопками.
-
-    Сложность: O(1).
     """
+    Создаёт инлайн-клавиатуру для начала регистрации.
+    """
+    logger.debug("Создание инлайн-клавиатуры для пользователя")
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Забронировать", callback_data="book")],
-            [InlineKeyboardButton(text="Техподдержка", callback_data="ticket")],
-            [InlineKeyboardButton(text="Информация", callback_data="info")],
+            [InlineKeyboardButton(text="📍 Забронировать", callback_data="booking")],
+            [InlineKeyboardButton(text="🛠️ Helpdesk", callback_data="helpdesk")],
+            [InlineKeyboardButton(text="❔ Информация", callback_data="info")],
+            [
+                InlineKeyboardButton(
+                    text="👥 Пригласить друга", callback_data="invite_friend"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📞 Связаться с Администратором", url=ADMIN_URL
+                )
+            ],
         ]
     )
     return keyboard
 
 
 def create_back_keyboard() -> InlineKeyboardMarkup:
-    """Создает клавиатуру с кнопкой "Назад".
-
-    Returns:
-        InlineKeyboardMarkup с кнопкой.
-
-    Сложность: O(1).
     """
+    Создаёт инлайн-клавиатуру для начала регистрации.
+    """
+    logger.debug("Создание инлайн-клавиатуры для возврата")
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Назад", callback_data="main_menu")]
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ]
     )
     return keyboard
 
 
 async def rubitime(method: str, extra_params: dict) -> Optional[str]:
-    """Отправляет запрос к Rubitime API.
+    """
+    Выполнение запроса к Rubitime API.
 
     Args:
-        method: Метод API.
-        extra_params: Дополнительные параметры.
+        method: Метод API ('create_record', 'update_record', 'get_record', 'remove_record').
+        extra_params: Дополнительные параметры для запроса.
 
     Returns:
-        ID записи или None при ошибке.
+        Optional[str]: ID записи (для create_record) или None.
+    """
+    if method == "create_record":
+        url = f"{RUBITIME_BASE_URL}create-record"
+        params = {
+            "branch_id": 12595,
+            "cooperator_id": 25786,
+            "created_at": datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            "status": 0,
+            "source": "Telegram",
+            **extra_params,
+        }
+    else:
+        logger.error(f"Неизвестный метод Rubitime: {method}")
+        return None
 
-    Сложность: O(1) для сетевого запроса.
+    params["rk"] = RUBITIME_API_KEY
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(url, json=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("status") == "ok":
+                        if method == "create_record":
+                            record_id = data.get("data", {}).get("id")
+                            logger.debug(f"Создано в Rubitime: ID {record_id}")
+                            return record_id
+                        logger.debug(f"Запрос Rubitime успешен: {method}")
+                        return None
+                    else:
+                        logger.warning(
+                            f"Ошибка Rubitime: {data.get('message', 'Неизвестная ошибка')}"
+                        )
+                        return None
+                else:
+                    logger.error(
+                        f"Ошибка HTTP {response.status}: {await response.text()}"
+                    )
+                    return None
+        except Exception as e:
+            logger.error(f"Исключение при запросе к Rubitime: {str(e)}")
+            return None
+
+
+async def create_payment(
+    description: str, amount: float
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Создание платежа через YooKassa.
+
+    Args:
+        description: Описание платежа.
+        amount: Сумма платежа.
+
+    Returns:
+        Tuple[Optional[str], Optional[str]]: ID платежа и URL для оплаты или (None, None) при ошибке.
     """
     try:
-        async with aiohttp.ClientSession() as session:
-            url = f"{RUBITIME_BASE_URL}{method.replace('_', '-')}"
-            params = {"api_key": RUBITIME_API_KEY, **extra_params}
-            async with session.post(url, json=params) as response:
-                if response.status != 200:
-                    logger.error(f"Ошибка Rubitime API: {response.status}")
-                    return None
-                data = await response.json()
-                return data.get("data", {}).get("id")
+        payment = Payment.create(
+            {
+                "amount": {"value": f"{amount:.2f}", "currency": "RUB"},
+                "confirmation": {
+                    "type": "redirect",
+                    "return_url": os.getenv("BOT_LINK"),
+                },
+                "capture": True,
+                "description": description,
+            }
+        )
+        logger.debug(
+            f"Платёж создан: id={payment.id}, url={payment.confirmation.confirmation_url}"
+        )
+        return payment.id, payment.confirmation.confirmation_url
     except Exception as e:
-        logger.error(f"Ошибка при запросе к Rubitime: {str(e)}")
-        return None
+        logger.error(f"Ошибка создания платежа: {str(e)}")
+        return None, None
 
 
 async def check_payment_status(payment_id: str) -> Optional[str]:
-    """Проверяет статус платежа через Yookassa.
+    """
+    Проверка статуса платежа через YooKassa.
 
     Args:
         payment_id: ID платежа.
 
     Returns:
-        Статус платежа или None при ошибке.
-
-    Сложность: O(1).
+        Optional[str]: Статус платежа ('succeeded', 'canceled', etc.) или None при ошибке.
     """
     try:
-        payment = await Payment.find_one(payment_id)
-        return payment.status if payment else None
+        payment = await asyncio.get_event_loop().run_in_executor(
+            None, Payment.find_one, payment_id
+        )
+        return payment.status
     except Exception as e:
-        logger.error(f"Ошибка при проверке статуса платежа {payment_id}: {str(e)}")
+        logger.error(f"Ошибка проверки статуса платежа {payment_id}: {str(e)}")
         return None
