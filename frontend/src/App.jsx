@@ -402,22 +402,16 @@ function App() {
   useEffect(() => {
     if (isAuthenticated) {
       const notificationInterval = setInterval(fetchNotifications, 10000);
-      const statsInterval = setInterval(() => {
-        if (section === 'dashboard') {
-          fetchDashboardStats();
-        }
-      }, 10000);
-
       return () => {
         clearInterval(notificationInterval);
-        clearInterval(statsInterval);
       };
     }
   }, [isAuthenticated, lastNotificationId, section]);
 
   // График инициализируется только один раз при наличии данных
   useEffect(() => {
-    if (section === 'dashboard' && chartRef.current && users.length > 0 && !isChartInitialized) {
+    if (section === 'dashboard' && chartRef.current && users.length > 0) {
+
       const userRegistrationCounts = users.reduce((acc, u) => {
         if (u.reg_date || u.first_join_time) {
           const date = new Date(u.reg_date || u.first_join_time);
@@ -426,8 +420,8 @@ function App() {
         }
         return acc;
       }, Array(7).fill(0));
-
       const ctx = chartRef.current.getContext('2d');
+      if (chartInstanceRef.current) chartInstanceRef.current.destroy();
       chartInstanceRef.current = new Chart(ctx, {
         type: 'line',
         data: {
