@@ -34,6 +34,7 @@ services:
       dockerfile: Dockerfile.web
     environment:
       - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_JWT=${SECRET_KEY_JWT}
       - ADMIN_LOGIN=${ADMIN_LOGIN}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - LOG_LEVEL=${LOG_LEVEL}

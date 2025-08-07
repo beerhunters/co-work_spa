@@ -1,19 +1,24 @@
 import os
-import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime, date, time
-from typing import List, Optional
-
 import pytz
-from fastapi import Depends, FastAPI, HTTPException, status, Query
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from datetime import datetime, timedelta, date, time
+from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import (
+    HTTPBasic,
+    HTTPBasicCredentials,
+    HTTPBearer,
+    HTTPAuthorizationCredentials,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
-from werkzeug.security import check_password_hash
-
+from werkzeug.security import check_password_hash, generate_password_hash
+from utils.logger import get_logger
+from utils.bot_instance import get_bot
 from models.models import (
+    Session as DBSession,
     Admin,
     User,
     Tariff,
@@ -22,27 +27,25 @@ from models.models import (
     Newsletter,
     Ticket,
     Notification,
+    TicketStatus,
+    format_booking_notification,
+    format_ticket_notification,
     init_db,
     create_admin,
-    Session as DBSession,
-    format_booking_notification,
-    TicketStatus,
-    format_ticket_notification,
 )
-from utils.logger import get_logger
+from aiogram import Bot
+from yookassa import Payment
+import aiohttp
+import jwt
+from jwt.exceptions import InvalidTokenError
 
 logger = get_logger(__name__)
-
 app = FastAPI()
 
-# Настройка CORS
+# Добавляем CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ],
+    allow_origins=["http://localhost", "http://localhost:80", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,21 +55,32 @@ MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
-try:
-    from aiogram import Bot
+# JWT Configuration
+SECRET_KEY_JWT = os.getenv("SECRET_KEY_JWT", "your-secret-key-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_HOURS = 24
 
+try:
     bot = Bot(token=BOT_TOKEN)
-except Exception as e:
-    logger.error(f"Ошибка инициализации бота: {e}")
+except:
     bot = None
 
 RUBITIME_API_KEY = os.getenv("RUBITIME_API_KEY")
 RUBITIME_BASE_URL = "https://rubitime.ru/api2/"
 
+# Security
+security = HTTPBearer()
 
+
+# Pydantic models
 class AdminBase(BaseModel):
     login: str
     password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
 
 
 class UserBase(BaseModel):
@@ -141,22 +155,16 @@ class TicketBase(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class NotificationBase(BaseModel):
     id: int
     user_id: int
     message: str
+    created_at: datetime
     booking_id: Optional[int]
     ticket_id: Optional[int]
     target_url: Optional[str]
     is_read: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class BookingCreate(BaseModel):
@@ -167,6 +175,9 @@ class BookingCreate(BaseModel):
     duration: Optional[int] = None
     promocode_id: Optional[int] = None
     amount: float
+    payment_id: Optional[str] = None
+    paid: bool = False
+    confirmed: bool = False
 
 
 class TicketCreate(BaseModel):
@@ -181,9 +192,33 @@ class NotificationUpdate(BaseModel):
     is_read: bool = True
 
 
-@app.get("/")
-async def root():
-    return {"message": "Admin Panel API"}
+# JWT functions
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY_JWT, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return username
+    except InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def get_db():
@@ -194,846 +229,493 @@ def get_db():
         db.close()
 
 
-security = HTTPBasic()
+# Routes
+@app.get("/")
+async def root():
+    return {"message": "API is running"}
 
 
-def get_current_admin(
-    credentials: HTTPBasicCredentials = Depends(security), db: Session = Depends(get_db)
-):
-    admin = db.query(Admin).filter(Admin.login == credentials.username).first()
-    if not admin or not check_password_hash(admin.password, credentials.password):
-        raise HTTPException(status_code=401, detail="Неверные учетные данные")
-    return admin
-
-
-async def rubitime(method: str, extra_params: dict) -> Optional[str]:
-    try:
-        import aiohttp
-
-        url = f"{RUBITIME_BASE_URL}create-record"
-        params = {"api_key": RUBITIME_API_KEY, **extra_params}
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=params) as response:
-                data = await response.json()
-                return data.get("id")
-    except Exception as e:
-        logger.error(f"Ошибка Rubitime API: {e}")
-        return None
-
-
-async def check_payment_status(payment_id: str) -> Optional[str]:
-    try:
-        from yookassa import Payment
-
-        payment = await Payment.find_one(payment_id)
-        return payment.status
-    except Exception as e:
-        logger.error(f"Ошибка проверки платежа: {e}")
-        return None
-
-
-@app.post("/login", response_model=dict)
+@app.post("/login", response_model=TokenResponse)
 async def login(credentials: AdminBase, db: Session = Depends(get_db)):
     admin = db.query(Admin).filter(Admin.login == credentials.login).first()
     if not admin or not check_password_hash(admin.password, credentials.password):
-        raise HTTPException(status_code=401, detail="Неверные учетные данные")
-    return {"message": "Успешный вход"}
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    access_token = create_access_token(data={"sub": admin.login})
+    return {"access_token": access_token}
+
+
+@app.get("/verify_token")
+async def verify_token_endpoint(username: str = Depends(verify_token)):
+    return {"valid": True, "username": username}
 
 
 @app.get("/logout")
 async def logout():
-    return {"message": "Успешный выход"}
+    # Token invalidation should be handled on the client side
+    return {"message": "Successfully logged out"}
 
 
+# Protected routes
 @app.get("/users", response_model=List[UserBase])
-async def get_users(page: int = 1, per_page: int = 20, db: Session = Depends(get_db)):
+async def get_users(
+    page: int = 1,
+    per_page: int = 20,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
     users = db.query(User).offset((page - 1) * per_page).limit(per_page).all()
     return users
 
 
 @app.get("/users/{user_id}", response_model=UserBase)
-async def get_user(user_id: int, db: Session = Depends(get_db)):
+async def get_user(
+    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     user = db.query(User).get(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
+        raise HTTPException(status_code=404, detail="User not found")
     return user
 
 
-# @app.get("/bookings", response_model=List[BookingBase])
-# async def get_bookings(
-#     page: int = 1,
-#     per_page: int = 20,
-#     user_query: Optional[str] = None,
-#     date_query: Optional[str] = None,
-#     db: Session = Depends(get_db),
-# ):
-#     query = db.query(Booking)
-#
-#     if user_query:
-#         query = query.join(User).filter(User.full_name.ilike(f"%{user_query}%"))
-#
-#     if date_query:
-#         try:
-#             query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
-#             query = query.filter(Booking.visit_date == query_date)
-#         except ValueError:
-#             raise HTTPException(status_code=400, detail="Неверный формат даты")
-#
-#     bookings = (
-#         query.order_by(desc(Booking.created_at))
-#         .offset((page - 1) * per_page)
-#         .limit(per_page)
-#         .all()
-#     )
-#     return bookings
 @app.get("/bookings", response_model=List[BookingBase])
 async def get_bookings(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=100),
-    user_query: str = Query(None),
-    date_query: str = Query(None),
+    page: int = 1,
+    per_page: int = 20,
+    user_query: Optional[str] = None,
+    date_query: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    _: str = Depends(verify_token),
 ):
-    try:
-        query = db.query(Booking).order_by(Booking.created_at.desc())
+    query = db.query(Booking).order_by(Booking.created_at.desc())
 
-        if user_query:
-            query = query.join(User).filter(User.full_name.ilike(f"%{user_query}%"))
+    if user_query:
+        query = query.join(User).filter(User.full_name.ilike(f"%{user_query}%"))
 
-        if date_query:
-            try:
-                query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
-                query = query.filter(Booking.visit_date == query_date)
-            except ValueError:
-                raise HTTPException(status_code=400, detail="Неверный формат даты")
+    if date_query:
+        query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
+        query = query.filter(Booking.visit_date == query_date)
 
-        bookings = query.offset((page - 1) * per_page).limit(per_page).all()
-        return bookings
-    except Exception as e:
-        logger.error(f"Ошибка получения бронирований: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    bookings = query.offset((page - 1) * per_page).limit(per_page).all()
+    return bookings
 
 
-# @app.get("/bookings/{booking_id}", response_model=BookingBase)
-# async def get_booking(booking_id: int, db: Session = Depends(get_db)):
-#     booking = db.query(Booking).get(booking_id)
-#     if not booking:
-#         raise HTTPException(status_code=404, detail="Бронирование не найдено")
-#     return booking
 @app.get("/bookings/{booking_id}", response_model=BookingBase)
 async def get_booking(
-    booking_id: int,
-    db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
     booking = db.query(Booking).filter(Booking.id == booking_id).first()
     if not booking:
-        raise HTTPException(status_code=404, detail="Бронирование не найдено")
+        raise HTTPException(status_code=404, detail="Booking not found")
     return booking
 
 
-# @app.post("/bookings", response_model=dict)
-# async def create_booking(booking_data: BookingBase, db: Session = Depends(get_db)):
-#     try:
-#         from models.models import create_booking, format_booking_notification
-#
-#         user = db.query(User).get(booking_data.user_id)
-#         if not user:
-#             raise HTTPException(status_code=404, detail="Пользователь не найден")
-#
-#         tariff = db.query(Tariff).get(booking_data.tariff_id)
-#         if not tariff:
-#             raise HTTPException(status_code=404, detail="Тариф не найден")
-#
-#         promocode = None
-#         if booking_data.promocode_id:
-#             promocode = (
-#                 db.query(Promocode)
-#                 .filter(
-#                     Promocode.id == booking_data.promocode_id,
-#                     Promocode.is_active == True,
-#                 )
-#                 .first()
-#             )
-#
-#         amount = booking_data.amount
-#         if promocode:
-#             amount = amount * (1 - promocode.discount / 100)
-#
-#         rubitime_params = {
-#             "service_id": tariff.service_id,
-#             "client_name": user.full_name,
-#             "client_phone": user.phone,
-#             "date": str(booking_data.visit_date),
-#             "time": str(booking_data.visit_time) if booking_data.visit_time else None,
-#             "duration": booking_data.duration,
-#         }
-#
-#         rubitime_id = await rubitime("create_record", rubitime_params)
-#
-#         # Создание платежа через YooKassa
-#         try:
-#             from yookassa import Payment
-#
-#             payment = await Payment.create(
-#                 {
-#                     "amount": {"value": str(amount), "currency": "RUB"},
-#                     "confirmation": {
-#                         "type": "redirect",
-#                         "return_url": "https://example.com/return",
-#                     },
-#                     "description": f"Бронирование {tariff.name}",
-#                 }
-#             )
-#             payment_id = payment.id
-#         except Exception as e:
-#             logger.error(f"Ошибка создания платежа: {e}")
-#             payment_id = None
-#
-#         booking = Booking(
-#             user_id=booking_data.user_id,
-#             tariff_id=booking_data.tariff_id,
-#             visit_date=booking_data.visit_date,
-#             visit_time=booking_data.visit_time,
-#             duration=booking_data.duration,
-#             promocode_id=booking_data.promocode_id,
-#             amount=amount,
-#             payment_id=payment_id,
-#             rubitime_id=rubitime_id,
-#             created_at=datetime.now(MOSCOW_TZ),
-#         )
-#
-#         db.add(booking)
-#         db.commit()
-#         db.refresh(booking)
-#
-#         # Отправка уведомления админу
-#         admin_message = format_booking_notification(
-#             user,
-#             tariff,
-#             {
-#                 "visit_date": booking_data.visit_date,
-#                 "visit_time": booking_data.visit_time,
-#                 "duration": booking_data.duration,
-#                 "amount": amount,
-#                 "promocode_name": promocode.name if promocode else None,
-#                 "discount": promocode.discount if promocode else 0,
-#                 "tariff_purpose": tariff.purpose,
-#             },
-#         )
-#
-#         if bot and ADMIN_TELEGRAM_ID:
-#             try:
-#                 await bot.send_message(
-#                     ADMIN_TELEGRAM_ID, admin_message, parse_mode="HTML"
-#                 )
-#             except Exception as e:
-#                 logger.error(f"Ошибка отправки уведомления админу: {e}")
-#
-#         return {"message": "Бронирование создано", "booking_id": booking.id}
-#
-#     except Exception as e:
-#         logger.error(f"Ошибка создания бронирования: {e}")
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail="Ошибка создания бронирования")
-@app.post("/bookings", response_model=BookingBase)
-async def create_booking_endpoint(
+@app.post("/bookings", response_model=dict)
+async def create_booking(
     booking_data: BookingCreate,
     db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    _: str = Depends(verify_token),
 ):
-    try:
-        user = db.query(User).filter(User.telegram_id == booking_data.user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
+    user = db.query(User).filter(User.telegram_id == booking_data.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-        tariff = db.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
-        if not tariff:
-            raise HTTPException(status_code=404, detail="Тариф не найден")
+    tariff = db.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
 
-        # Рассчитываем итоговую сумму
-        amount = booking_data.amount
-        promocode = None
-        if booking_data.promocode_id:
-            promocode = (
-                db.query(Promocode)
-                .filter(Promocode.id == booking_data.promocode_id)
-                .first()
-            )
-            if promocode and promocode.is_active:
-                amount = amount * (1 - promocode.discount / 100)
-
-        # Создаем запись в Rubitime (если нужно)
-        rubitime_id = None
-        if tariff.service_id:
-            rubitime_params = {
-                "service": tariff.service_id,
-                "date": booking_data.visit_date.strftime("%Y-%m-%d"),
-                "time": (
-                    booking_data.visit_time.strftime("%H:%M")
-                    if booking_data.visit_time
-                    else "09:00"
-                ),
-                "duration": booking_data.duration or 60,
-                "client_name": user.full_name or "Клиент",
-                "client_phone": user.phone or "",
-            }
-            rubitime_id = await rubitime("create_record", rubitime_params)
-
-        # Создаем бронирование
-        booking = Booking(
-            user_id=booking_data.user_id,
-            tariff_id=booking_data.tariff_id,
-            visit_date=booking_data.visit_date,
-            visit_time=booking_data.visit_time,
-            duration=booking_data.duration,
-            promocode_id=booking_data.promocode_id,
-            amount=amount,
-            rubitime_id=rubitime_id,
-            paid=False,
-            confirmed=False,
+    amount = booking_data.amount
+    promocode = None
+    if booking_data.promocode_id:
+        promocode = (
+            db.query(Promocode)
+            .filter(Promocode.id == booking_data.promocode_id)
+            .first()
         )
-
-        db.add(booking)
-        db.flush()  # Получаем ID
-
-        # Создаем уведомление
-        booking_data_dict = {
-            "visit_date": booking_data.visit_date,
-            "visit_time": booking_data.visit_time,
-            "duration": booking_data.duration,
-            "tariff_purpose": tariff.purpose,
-            "amount": amount,
-        }
-
         if promocode:
-            booking_data_dict["promocode_name"] = promocode.name
-            booking_data_dict["discount"] = promocode.discount
+            amount = amount * (1 - promocode.discount / 100)
 
-        admin_message = format_booking_notification(user, tariff, booking_data_dict)
+    rubitime_id = None
+    if RUBITIME_API_KEY:
+        rubitime_params = {
+            "user_id": str(user.telegram_id),
+            "service_id": tariff.service_id,
+            "date": booking_data.visit_date.strftime("%Y-%m-%d"),
+            "time": (
+                booking_data.visit_time.strftime("%H:%M")
+                if booking_data.visit_time
+                else "09:00"
+            ),
+            "duration": booking_data.duration * 60 if booking_data.duration else 540,
+        }
+        rubitime_id = await rubitime("create_record", rubitime_params)
 
-        notification = Notification(
-            user_id=booking_data.user_id,
-            message=admin_message,
-            target_url=f"/bookings/{booking.id}",
-            booking_id=booking.id,
-            is_read=False,
-        )
-        db.add(notification)
+    booking = Booking(
+        user_id=user.id,
+        tariff_id=booking_data.tariff_id,
+        visit_date=booking_data.visit_date,
+        visit_time=booking_data.visit_time,
+        duration=booking_data.duration,
+        promocode_id=booking_data.promocode_id,
+        amount=amount,
+        payment_id=booking_data.payment_id,
+        paid=booking_data.paid,
+        rubitime_id=rubitime_id,
+        confirmed=booking_data.confirmed,
+    )
+    db.add(booking)
+    db.commit()
+    db.refresh(booking)
 
-        # Отправляем уведомление админу в Telegram
+    # Create notification for admin
+    booking_data_dict = {
+        "tariff_purpose": tariff.purpose,
+        "tariff_name": tariff.name,
+        "visit_date": booking_data.visit_date,
+        "visit_time": booking_data.visit_time,
+        "duration": booking_data.duration,
+        "promocode_name": promocode.name if promocode else None,
+        "discount": promocode.discount if promocode else 0,
+        "amount": amount,
+    }
+
+    admin_message = format_booking_notification(user, tariff, booking_data_dict)
+
+    # Create notification in database
+    notification = Notification(
+        user_id=user.id,
+        message=admin_message,
+        booking_id=booking.id,
+        target_url=f"/bookings/{booking.id}",
+    )
+    db.add(notification)
+    db.commit()
+
+    # Send to Telegram if bot is available
+    if bot and ADMIN_TELEGRAM_ID:
         try:
             await bot.send_message(
                 chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
             )
         except Exception as e:
-            logger.error(f"Ошибка отправки уведомления в Telegram: {e}")
+            logger.error(f"Failed to send Telegram notification: {e}")
 
-        db.commit()
-        return booking
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Ошибка создания бронирования: {e}")
-        raise HTTPException(status_code=500, detail="Не удалось создать бронирование")
+    return {"id": booking.id, "message": "Booking created successfully"}
 
 
 @app.put("/bookings/{booking_id}", response_model=dict)
 async def update_booking(
-    booking_id: int, booking_data: BookingBase, db: Session = Depends(get_db)
+    booking_id: int,
+    confirmed: bool,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
     booking = db.query(Booking).get(booking_id)
     if not booking:
-        raise HTTPException(status_code=404, detail="Бронирование не найдено")
+        raise HTTPException(status_code=404, detail="Booking not found")
 
-    for field, value in booking_data.dict(exclude_unset=True).items():
-        if hasattr(booking, field):
-            setattr(booking, field, value)
-
+    booking.confirmed = confirmed
     db.commit()
-    return {"message": "Бронирование обновлено"}
+
+    if bot and confirmed:
+        user = db.query(User).get(booking.user_id)
+        tariff = db.query(Tariff).get(booking.tariff_id)
+        if user and tariff:
+            try:
+                message = f"✅ Ваша бронь подтверждена!\n\n📋 Тариф: {tariff.name}\n📅 Дата: {booking.visit_date}"
+                await bot.send_message(
+                    chat_id=user.telegram_id, text=message, parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send confirmation: {e}")
+
+    return {"message": "Booking updated successfully"}
 
 
 @app.delete("/bookings/{booking_id}", response_model=dict)
-async def delete_booking(booking_id: int, db: Session = Depends(get_db)):
+async def delete_booking(
+    booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     booking = db.query(Booking).get(booking_id)
     if not booking:
-        raise HTTPException(status_code=404, detail="Бронирование не найдено")
-
-    user = db.query(User).get(booking.user_id)
-    tariff = db.query(Tariff).get(booking.tariff_id)
+        raise HTTPException(status_code=404, detail="Booking not found")
 
     db.delete(booking)
     db.commit()
-    return {"message": "Бронирование удалено"}
+    return {"message": "Booking deleted successfully"}
 
 
 @app.get("/tariffs", response_model=List[TariffBase])
-async def get_tariffs(db: Session = Depends(get_db)):
+async def get_tariffs(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     tariffs = db.query(Tariff).all()
     return tariffs
 
 
 @app.get("/tariffs/{tariff_id}", response_model=TariffBase)
-async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
+async def get_tariff(
+    tariff_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     tariff = db.query(Tariff).get(tariff_id)
     if not tariff:
-        raise HTTPException(status_code=404, detail="Тариф не найден")
+        raise HTTPException(status_code=404, detail="Tariff not found")
     return tariff
 
 
 @app.post("/tariffs", response_model=dict)
-async def create_tariff(tariff_data: TariffBase, db: Session = Depends(get_db)):
+async def create_tariff(
+    tariff_data: TariffBase,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
     tariff = Tariff(**tariff_data.dict(exclude={"id"}))
     db.add(tariff)
     db.commit()
-    db.refresh(tariff)
-    return {"message": "Тариф создан", "tariff_id": tariff.id}
-
-
-@app.put("/tariffs/{tariff_id}", response_model=dict)
-async def update_tariff(
-    tariff_id: int, tariff_data: TariffBase, db: Session = Depends(get_db)
-):
-    tariff = db.query(Tariff).get(tariff_id)
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Тариф не найден")
-
-    for field, value in tariff_data.dict(exclude_unset=True, exclude={"id"}).items():
-        if hasattr(tariff, field):
-            setattr(tariff, field, value)
-
-    db.commit()
-    return {"message": "Тариф обновлен"}
+    return {"id": tariff.id, "message": "Tariff created successfully"}
 
 
 @app.delete("/tariffs/{tariff_id}", response_model=dict)
-async def delete_tariff(tariff_id: int, db: Session = Depends(get_db)):
+async def delete_tariff(
+    tariff_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     tariff = db.query(Tariff).get(tariff_id)
     if not tariff:
-        raise HTTPException(status_code=404, detail="Тариф не найден")
+        raise HTTPException(status_code=404, detail="Tariff not found")
 
     db.delete(tariff)
     db.commit()
-    return {"message": "Тариф удален"}
+    return {"message": "Tariff deleted successfully"}
 
 
 @app.get("/promocodes", response_model=List[PromocodeBase])
-async def get_promocodes(db: Session = Depends(get_db)):
+async def get_promocodes(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     promocodes = db.query(Promocode).all()
     return promocodes
 
 
 @app.get("/promocodes/{promocode_id}", response_model=PromocodeBase)
-async def get_promocode(promocode_id: int, db: Session = Depends(get_db)):
+async def get_promocode(
+    promocode_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Промокод не найден")
+        raise HTTPException(status_code=404, detail="Promocode not found")
     return promocode
 
 
 @app.post("/promocodes", response_model=dict)
 async def create_promocode(
-    promocode_data: PromocodeBase, db: Session = Depends(get_db)
+    promocode_data: PromocodeBase,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
     promocode = Promocode(**promocode_data.dict(exclude={"id"}))
     db.add(promocode)
     db.commit()
-    db.refresh(promocode)
-    return {"message": "Промокод создан", "promocode_id": promocode.id}
-
-
-@app.put("/promocodes/{promocode_id}", response_model=dict)
-async def update_promocode(
-    promocode_id: int, promocode_data: PromocodeBase, db: Session = Depends(get_db)
-):
-    promocode = db.query(Promocode).get(promocode_id)
-    if not promocode:
-        raise HTTPException(status_code=404, detail="Промокод не найден")
-
-    for field, value in promocode_data.dict(exclude_unset=True, exclude={"id"}).items():
-        if hasattr(promocode, field):
-            setattr(promocode, field, value)
-
-    db.commit()
-    return {"message": "Промокод обновлен"}
+    return {"id": promocode.id, "message": "Promocode created successfully"}
 
 
 @app.delete("/promocodes/{promocode_id}", response_model=dict)
-async def delete_promocode(promocode_id: int, db: Session = Depends(get_db)):
+async def delete_promocode(
+    promocode_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Промокод не найден")
+        raise HTTPException(status_code=404, detail="Promocode not found")
 
     db.delete(promocode)
     db.commit()
-    return {"message": "Промокод удален"}
+    return {"message": "Promocode deleted successfully"}
 
 
-# @app.get("/tickets", response_model=List[TicketBase])
-# async def get_tickets(
-#     page: int = 1,
-#     per_page: int = 20,
-#     status: Optional[str] = None,
-#     db: Session = Depends(get_db),
-# ):
-#     query = db.query(Ticket).order_by(Ticket.created_at.desc())
-#
-#     if status:
-#         query = query.filter(Ticket.status == status)
-#
-#     tickets = query.offset((page - 1) * per_page).limit(per_page).all()
-#     return tickets
 @app.get("/tickets", response_model=List[TicketBase])
 async def get_tickets(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=100),
-    status: str = Query(None),
+    page: int = 1,
+    per_page: int = 20,
+    status: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    _: str = Depends(verify_token),
 ):
-    try:
-        query = db.query(Ticket).order_by(Ticket.created_at.desc())
+    query = db.query(Ticket).order_by(Ticket.created_at.desc())
 
-        if status:
-            query = query.filter(Ticket.status == status)
+    if status:
+        query = query.filter(Ticket.status == status)
 
-        tickets = query.offset((page - 1) * per_page).limit(per_page).all()
-        return tickets
-    except Exception as e:
-        logger.error(f"Ошибка получения тикетов: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    tickets = query.offset((page - 1) * per_page).limit(per_page).all()
+    return tickets
 
 
-# @app.get("/tickets/{ticket_id}", response_model=TicketBase)
-# async def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
-#     ticket = db.query(Ticket).get(ticket_id)
-#     if not ticket:
-#         raise HTTPException(status_code=404, detail="Тикет не найден")
-#     return ticket
 @app.get("/tickets/{ticket_id}", response_model=TicketBase)
 async def get_ticket(
-    ticket_id: int,
-    db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
-        raise HTTPException(status_code=404, detail="Тикет не найден")
+        raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
 
 
-# @app.post("/tickets", response_model=dict)
-# async def create_ticket(ticket_data: TicketBase, db: Session = Depends(get_db)):
-#     try:
-#         from models.models import format_ticket_notification
-#
-#         user = db.query(User).get(ticket_data.user_id)
-#         if not user:
-#             raise HTTPException(status_code=404, detail="Пользователь не найден")
-#
-#         ticket = Ticket(
-#             user_id=ticket_data.user_id,
-#             description=ticket_data.description,
-#             photo_id=ticket_data.photo_id,
-#             status=ticket_data.status,
-#             comment=ticket_data.comment,
-#             created_at=datetime.now(MOSCOW_TZ),
-#             updated_at=datetime.now(MOSCOW_TZ),
-#         )
-#
-#         db.add(ticket)
-#         db.commit()
-#         db.refresh(ticket)
-#
-#         # Отправка уведомления админу
-#         admin_message = format_ticket_notification(
-#             user,
-#             {
-#                 "description": ticket_data.description,
-#                 "status": ticket_data.status,
-#                 "photo_id": ticket_data.photo_id,
-#             },
-#         )
-#
-#         if bot and ADMIN_TELEGRAM_ID:
-#             try:
-#                 await bot.send_message(
-#                     ADMIN_TELEGRAM_ID, admin_message, parse_mode="HTML"
-#                 )
-#             except Exception as e:
-#                 logger.error(f"Ошибка отправки уведомления админу: {e}")
-#
-#         return {"message": "Тикет создан", "ticket_id": ticket.id}
-#
-#     except Exception as e:
-#         logger.error(f"Ошибка создания тикета: {e}")
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail="Ошибка создания тикета")
-@app.post("/tickets", response_model=TicketBase)
-async def create_ticket_endpoint(
+@app.post("/tickets", response_model=dict)
+async def create_ticket(
     ticket_data: TicketCreate,
     db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    _: str = Depends(verify_token),
 ):
-    try:
-        user = db.query(User).filter(User.telegram_id == ticket_data.user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
+    user = db.query(User).filter(User.telegram_id == ticket_data.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-        # Преобразуем статус в enum
+    try:
         status_enum = TicketStatus.OPEN
         if ticket_data.status:
-            try:
-                status_enum = TicketStatus(ticket_data.status)
-            except ValueError:
-                status_enum = TicketStatus.OPEN
+            status_enum = TicketStatus(ticket_data.status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid ticket status")
 
-        ticket = Ticket(
-            user_id=ticket_data.user_id,
-            description=ticket_data.description,
-            photo_id=ticket_data.photo_id,
-            status=status_enum,
-            comment=ticket_data.comment,
-        )
+    ticket = Ticket(
+        user_id=user.id,
+        description=ticket_data.description,
+        photo_id=ticket_data.photo_id,
+        status=status_enum,
+        comment=ticket_data.comment,
+    )
+    db.add(ticket)
+    db.commit()
+    db.refresh(ticket)
 
-        db.add(ticket)
-        db.flush()  # Получаем ID
+    # Create notification
+    ticket_data_dict = {
+        "description": ticket_data.description,
+        "photo_id": ticket_data.photo_id,
+        "status": status_enum.name,
+    }
 
-        # Создаем уведомление
-        ticket_data_dict = {
-            "description": ticket_data.description,
-            "status": status_enum.value,
-            "photo_id": ticket_data.photo_id,
-        }
+    admin_message = format_ticket_notification(user, ticket_data_dict)
 
-        admin_message = format_ticket_notification(user, ticket_data_dict)
+    notification = Notification(
+        user_id=user.id,
+        message=admin_message,
+        ticket_id=ticket.id,
+        target_url=f"/tickets/{ticket.id}",
+    )
+    db.add(notification)
+    db.commit()
 
-        notification = Notification(
-            user_id=ticket_data.user_id,
-            message=admin_message,
-            target_url=f"/tickets/{ticket.id}",
-            ticket_id=ticket.id,
-            is_read=False,
-        )
-        db.add(notification)
-
-        # Отправляем уведомление админу в Telegram
+    if bot and ADMIN_TELEGRAM_ID:
         try:
             await bot.send_message(
                 chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
             )
         except Exception as e:
-            logger.error(f"Ошибка отправки уведомления в Telegram: {e}")
+            logger.error(f"Failed to send Telegram notification: {e}")
 
-        db.commit()
-        return ticket
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Ошибка создания тикета: {e}")
-        raise HTTPException(status_code=500, detail="Не удалось создать тикет")
+    return {"id": ticket.id, "message": "Ticket created successfully"}
 
 
 @app.put("/tickets/{ticket_id}", response_model=dict)
 async def update_ticket(
-    ticket_id: int, ticket_data: TicketBase, db: Session = Depends(get_db)
+    ticket_id: int,
+    status: str,
+    comment: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
     ticket = db.query(Ticket).get(ticket_id)
     if not ticket:
-        raise HTTPException(status_code=404, detail="Тикет не найден")
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
-    for field, value in ticket_data.dict(exclude_unset=True, exclude={"id"}).items():
-        if hasattr(ticket, field):
-            setattr(ticket, field, value)
+    try:
+        ticket.status = TicketStatus(status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid ticket status")
+
+    if comment:
+        ticket.comment = comment
 
     ticket.updated_at = datetime.now(MOSCOW_TZ)
     db.commit()
-    return {"message": "Тикет обновлен"}
+
+    return {"message": "Ticket updated successfully"}
 
 
 @app.delete("/tickets/{ticket_id}", response_model=dict)
-async def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
+async def delete_ticket(
+    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
     ticket = db.query(Ticket).get(ticket_id)
     if not ticket:
-        raise HTTPException(status_code=404, detail="Тикет не найден")
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
     db.delete(ticket)
     db.commit()
-    return {"message": "Тикет удален"}
+    return {"message": "Ticket deleted successfully"}
 
 
-# @app.get("/notifications", response_model=List[NotificationBase])
-# async def get_notifications(
-#     page: int = 1, per_page: int = 20, db: Session = Depends(get_db)
-# ):
-#     notifications = (
-#         db.query(Notification)
-#         .order_by(desc(Notification.created_at))
-#         .offset((page - 1) * per_page)
-#         .limit(per_page)
-#         .all()
-#     )
-#     return notifications
 @app.get("/notifications", response_model=List[NotificationBase])
 async def get_notifications(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    page: int = 1,
+    per_page: int = 20,
     db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    _: str = Depends(verify_token),
 ):
-    try:
-        notifications = (
-            db.query(Notification)
-            .order_by(Notification.created_at.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
-        return notifications
-    except Exception as e:
-        logger.error(f"Ошибка получения уведомлений: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    notifications = (
+        db.query(Notification)
+        .order_by(Notification.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+    return notifications
 
 
-# @app.get("/notifications/check_new")
-# async def check_new_notifications(
-#     since_id: int = Query(0), db: Session = Depends(get_db)
-# ):
-#     try:
-#         query = db.query(Notification).order_by(desc(Notification.created_at))
-#
-#         if since_id > 0:
-#             query = query.filter(Notification.id > since_id)
-#
-#         notifications = query.limit(10).all()
-#
-#         return {
-#             "recent_notifications": [
-#                 {
-#                     "id": n.id,
-#                     "user_id": n.user_id,
-#                     "message": n.message,
-#                     "booking_id": n.booking_id,
-#                     "ticket_id": n.ticket_id,
-#                     "target_url": n.target_url,
-#                     "is_read": n.is_read,
-#                     "created_at": n.created_at.isoformat(),
-#                 }
-#                 for n in notifications
-#             ]
-#         }
-#     except Exception as e:
-#         logger.error(f"Ошибка получения новых уведомлений: {e}")
-#         return {"recent_notifications": []}
 @app.get("/notifications/check_new")
 async def check_new_notifications(
-    since_id: int = Query(0),
-    db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    since_id: int = 0, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    try:
-        query = db.query(Notification).order_by(Notification.created_at.desc())
+    query = db.query(Notification).order_by(Notification.created_at.desc())
 
-        if since_id > 0:
-            query = query.filter(Notification.id > since_id)
+    if since_id > 0:
+        query = query.filter(Notification.id > since_id)
 
-        notifications = query.limit(5).all()
-
-        return {
-            "recent_notifications": [
-                {
-                    "id": n.id,
-                    "user_id": n.user_id,
-                    "message": n.message,
-                    "target_url": n.target_url,
-                    "is_read": n.is_read,
-                    "created_at": n.created_at,
-                    "booking_id": n.booking_id,
-                    "ticket_id": n.ticket_id,
-                }
-                for n in notifications
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Ошибка проверки новых уведомлений: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    notifications = query.limit(5).all()
+    return {"recent_notifications": notifications}
 
 
-# @app.post("/notifications/mark_read/{notification_id}", response_model=dict)
-# async def mark_notification_read(notification_id: int, db: Session = Depends(get_db)):
-#     notification = db.query(Notification).get(notification_id)
-#     if not notification:
-#         raise HTTPException(status_code=404, detail="Уведомление не найдено")
-#
-#     notification.is_read = True
-#     db.commit()
-#     return {"message": "Уведомление помечено как прочитанное"}
-@app.post("/notifications/mark_read/{notification_id}")
+@app.post("/notifications/mark_read/{notification_id}", response_model=dict)
 async def mark_notification_read(
-    notification_id: int,
-    db: Session = Depends(get_db),
-    current_admin: Admin = Depends(get_current_admin),
+    notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    try:
-        notification = (
-            db.query(Notification).filter(Notification.id == notification_id).first()
-        )
-        if not notification:
-            raise HTTPException(status_code=404, detail="Уведомление не найдено")
+    notification = (
+        db.query(Notification).filter(Notification.id == notification_id).first()
+    )
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
 
-        notification.is_read = True
-        db.commit()
-
-        return {"message": "Уведомление помечено как прочитанное"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка пометки уведомления: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    notification.is_read = True
+    db.commit()
+    return {"message": "Notification marked as read"}
 
 
-# @app.post("/notifications/mark_all_read", response_model=dict)
-# async def mark_all_notifications_read(db: Session = Depends(get_db)):
-#     try:
-#         db.query(Notification).filter(Notification.is_read == False).update(
-#             {"is_read": True}
-#         )
-#         db.commit()
-#         return {"message": "Все уведомления помечены как прочитанные"}
-#     except Exception as e:
-#         logger.error(f"Ошибка пометки всех уведомлений: {e}")
-#         db.rollback()
-#         raise HTTPException(status_code=500, detail="Ошибка пометки уведомлений")
-@app.post("/notifications/mark_all_read")
+@app.post("/notifications/mark_all_read", response_model=dict)
 async def mark_all_notifications_read(
-    db: Session = Depends(get_db), current_admin: Admin = Depends(get_current_admin)
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    try:
-        db.query(Notification).filter(Notification.is_read == False).update(
-            {"is_read": True}
-        )
-        db.commit()
-
-        return {"message": "Все уведомления помечены как прочитанные"}
-    except Exception as e:
-        logger.error(f"Ошибка пометки всех уведомлений: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    db.query(Notification).filter(Notification.is_read == False).update(
+        {"is_read": True}
+    )
+    db.commit()
+    return {"message": "All notifications marked as read"}
 
 
 @app.get("/newsletters", response_model=List[NewsletterBase])
 async def get_newsletters(
-    page: int = 1, per_page: int = 20, db: Session = Depends(get_db)
+    page: int = 1,
+    per_page: int = 20,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
     newsletters = (
         db.query(Newsletter)
-        .order_by(desc(Newsletter.created_at))
+        .order_by(Newsletter.created_at.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)
         .all()
@@ -1043,18 +725,66 @@ async def get_newsletters(
 
 @app.post("/newsletters", response_model=dict)
 async def create_newsletter(
-    newsletter_data: NewsletterBase, db: Session = Depends(get_db)
+    message: str, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    newsletter = Newsletter(
-        message=newsletter_data.message,
-        created_at=datetime.now(MOSCOW_TZ),
-        recipient_count=newsletter_data.recipient_count,
-    )
+    users = db.query(User).all()
 
+    newsletter = Newsletter(message=message, recipient_count=len(users))
     db.add(newsletter)
     db.commit()
-    db.refresh(newsletter)
-    return {"message": "Рассылка создана", "newsletter_id": newsletter.id}
+
+    if bot:
+        for user in users:
+            try:
+                await bot.send_message(
+                    chat_id=user.telegram_id, text=message, parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Failed to send newsletter to {user.telegram_id}: {e}")
+
+    return {"id": newsletter.id, "message": "Newsletter sent successfully"}
+
+
+# Dashboard stats endpoint
+@app.get("/dashboard/stats")
+async def get_dashboard_stats(
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    total_users = db.query(User).count()
+    total_bookings = db.query(Booking).count()
+    # Count only open tickets (not closed)
+    open_tickets = db.query(Ticket).filter(Ticket.status != TicketStatus.CLOSED).count()
+
+    return {
+        "total_users": total_users,
+        "total_bookings": total_bookings,
+        "open_tickets": open_tickets,
+    }
+
+
+async def rubitime(method: str, extra_params: dict) -> Optional[str]:
+    if not RUBITIME_API_KEY:
+        return None
+
+    url = f"{RUBITIME_BASE_URL}create-record"
+    params = {"api_key": RUBITIME_API_KEY, **extra_params}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=params) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data.get("data", {}).get("id")
+
+    return None
+
+
+async def check_payment_status(payment_id: str) -> Optional[str]:
+    try:
+        payment = await Payment.find_one(payment_id)
+        return payment.status if payment else None
+    except Exception as e:
+        logger.error(f"Failed to check payment status: {e}")
+        return None
 
 
 @app.on_event("startup")
@@ -1063,4 +793,4 @@ async def startup_event():
     admin_login = os.getenv("ADMIN_LOGIN", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
     create_admin(admin_login, admin_password)
-    logger.info("Приложение запущено")
+    logger.info("Application started successfully")
