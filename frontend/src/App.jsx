@@ -326,14 +326,12 @@ function App() {
     }
   };
 
-  // Auto-refresh для уведомлений и статистики
+  // Auto-refresh для уведомлений
   useEffect(() => {
     if (isAuthenticated) {
       const notificationInterval = setInterval(fetchNotifications, 10000);
-      const statsInterval = setInterval(fetchDashboardStats, 10000);
       return () => {
         clearInterval(notificationInterval);
-        clearInterval(statsInterval);
       };
     }
   }, [isAuthenticated, lastNotificationId]);
