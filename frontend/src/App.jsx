@@ -1,119 +1,1411 @@
+// import React, { useState, useEffect, useRef } from 'react';
+// import { ChakraProvider, Box, Flex, VStack, HStack, Text, Input, Button, Heading, useToast, Badge, Icon, Avatar, Divider, Tabs, TabList, TabPanels, Tab, TabPanel, Table, Thead, Tbody, Tr, Th, Td, TableContainer, Card, CardBody, CardHeader, Stat, StatLabel, StatNumber, StatHelpText, StatArrow, IconButton, Menu, MenuButton, MenuList, MenuItem, Spinner, Center, SimpleGrid, useColorModeValue, Container, Stack, Spacer, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, useDisclosure, FormControl, FormLabel, Textarea, Select } from '@chakra-ui/react';
+// import { FiBell, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiSend, FiLogOut, FiHome, FiCheck, FiX, FiEye, FiEdit, FiTrash, FiMoreVertical, FiPlus, FiRefreshCw, FiUsers, FiShoppingBag, FiMessageCircle, FiTrendingUp, FiMail, FiPhone, FiClock, FiDollarSign, FiInfo, FiImage } from 'react-icons/fi';
+// import axios from 'axios';
+// import Chart from 'chart.js/auto';
+//
+// // Вспомогательная функция для получения токена из localStorage
+// const getAuthToken = () => localStorage.getItem('authToken');
+//
+// // Настройка axios для автоматического добавления токена
+// axios.interceptors.request.use(
+//   config => {
+//     const token = getAuthToken();
+//     if (token) {
+//       config.headers.Authorization = `Bearer ${token}`;
+//     }
+//     return config;
+//   },
+//   error => Promise.reject(error)
+// );
+//
+// const Login = ({ login, setLogin, password, setPassword, handleLogin, isLoading }) => {
+//   const handleKeyPress = (e) => {
+//     if (e.key === 'Enter' && !isLoading) {
+//       handleLogin();
+//     }
+//   };
+//
+//   const bgGradient = useColorModeValue(
+//     'linear(to-br, blue.50, purple.50)',
+//     'linear(to-br, gray.900, purple.900)'
+//   );
+//
+//   return (
+//     <Center minH="100vh" bgGradient={bgGradient}>
+//       <Container maxW="lg" py={12}>
+//         <Card
+//           maxW="md"
+//           mx="auto"
+//           boxShadow="2xl"
+//           borderRadius="xl"
+//           overflow="hidden"
+//         >
+//           <Box
+//             bgGradient="linear(to-r, blue.500, purple.600)"
+//             p={6}
+//             color="white"
+//           >
+//             <VStack spacing={2}>
+//               <Icon as={FiUsers} boxSize={12} />
+//               <Heading size="lg">Панель администратора</Heading>
+//               <Text fontSize="sm" opacity={0.9}>Войдите в систему управления</Text>
+//             </VStack>
+//           </Box>
+//           <CardBody p={8}>
+//             <VStack spacing={5}>
+//               <Input
+//                 size="lg"
+//                 placeholder="Логин"
+//                 value={login}
+//                 onChange={e => setLogin(e.target.value)}
+//                 onKeyPress={handleKeyPress}
+//                 isDisabled={isLoading}
+//                 borderRadius="lg"
+//                 _focus={{
+//                   borderColor: 'purple.500',
+//                   boxShadow: '0 0 0 1px purple.500'
+//                 }}
+//               />
+//               <Input
+//                 size="lg"
+//                 type="password"
+//                 placeholder="Пароль"
+//                 value={password}
+//                 onChange={e => setPassword(e.target.value)}
+//                 onKeyPress={handleKeyPress}
+//                 isDisabled={isLoading}
+//                 borderRadius="lg"
+//                 _focus={{
+//                   borderColor: 'purple.500',
+//                   boxShadow: '0 0 0 1px purple.500'
+//                 }}
+//               />
+//               <Button
+//                 size="lg"
+//                 bgGradient="linear(to-r, blue.500, purple.600)"
+//                 color="white"
+//                 w="full"
+//                 onClick={handleLogin}
+//                 isLoading={isLoading}
+//                 loadingText="Вход..."
+//                 borderRadius="lg"
+//                 _hover={{
+//                   bgGradient: "linear(to-r, blue.600, purple.700)",
+//                   transform: 'translateY(-2px)',
+//                   boxShadow: 'lg',
+//                 }}
+//                 transition="all 0.2s"
+//               >
+//                 Войти в систему
+//               </Button>
+//             </VStack>
+//           </CardBody>
+//         </Card>
+//       </Container>
+//     </Center>
+//   );
+// };
+//
+// function App() {
+//   const [isAuthenticated, setIsAuthenticated] = useState(false);
+//   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+//   const [isLoading, setIsLoading] = useState(false);
+//   const [login, setLogin] = useState('');
+//   const [password, setPassword] = useState('');
+//   const [section, setSection] = useState('dashboard');
+//   const [users, setUsers] = useState([]);
+//   const [bookings, setBookings] = useState([]);
+//   const [tariffs, setTariffs] = useState([]);
+//   const [promocodes, setPromocodes] = useState([]);
+//   const [tickets, setTickets] = useState([]);
+//   const [notifications, setNotifications] = useState([]);
+//   const [newsletters, setNewsletters] = useState([]);
+//   const [hasNewNotifications, setHasNewNotifications] = useState(false);
+//   const [selectedItem, setSelectedItem] = useState(null);
+//   const [dashboardStats, setDashboardStats] = useState({
+//     total_users: 0,
+//     total_bookings: 0,
+//     open_tickets: 0
+//   });
+//   const [lastNotificationId, setLastNotificationId] = useState(0);
+//   const [isChartInitialized, setIsChartInitialized] = useState(false);
+//   const toast = useToast();
+//   const chartRef = useRef(null);
+//   const chartInstanceRef = useRef(null);
+//   const { isOpen, onOpen, onClose } = useDisclosure();
+//
+//   // Проверка валидности токена при загрузке
+//   useEffect(() => {
+//     const checkAuth = async () => {
+//       const token = getAuthToken();
+//       if (token) {
+//         try {
+//           await axios.get('http://localhost/api/verify_token', { withCredentials: true });
+//           setIsAuthenticated(true);
+//           setSection('dashboard');
+//           fetchInitialData();
+//         } catch (error) {
+//           localStorage.removeItem('authToken');
+//           setIsAuthenticated(false);
+//         }
+//       }
+//       setIsCheckingAuth(false);
+//     };
+//     checkAuth();
+//   }, []);
+//
+//   // Загрузка начальных данных
+//   const fetchInitialData = async () => {
+//     const endpoints = [
+//       { url: '/users', setter: setUsers },
+//       { url: '/bookings', setter: setBookings },
+//       { url: '/tariffs', setter: setTariffs },
+//       { url: '/promocodes', setter: setPromocodes },
+//       { url: '/tickets', setter: setTickets },
+//       { url: '/newsletters', setter: setNewsletters },
+//       { url: '/notifications', setter: (data) => {
+//         setNotifications(data);
+//         if (data.length > 0) {
+//           setLastNotificationId(Math.max(...data.map(n => n.id), 0));
+//         }
+//       }},
+//       { url: '/dashboard/stats', setter: setDashboardStats }
+//     ];
+//
+//     try {
+//       await Promise.all(endpoints.map(async ({ url, setter }) => {
+//         try {
+//           const res = await axios.get(`http://localhost/api${url}`, { withCredentials: true });
+//           setter(res.data);
+//         } catch (error) {
+//           console.error(`Ошибка загрузки ${url}:`, error);
+//         }
+//       }));
+//     } catch (err) {
+//       console.error('Ошибка загрузки данных:', err);
+//       toast({ title: 'Ошибка', description: 'Не удалось загрузить данные', status: 'error', duration: 5000, isClosable: true });
+//     }
+//   };
+//
+//   // Загрузка данных для конкретной вкладки
+//   const fetchSectionData = async (sectionName) => {
+//     try {
+//       let url = '';
+//       let setter = null;
+//
+//       switch(sectionName) {
+//         case 'users':
+//           url = '/users';
+//           setter = setUsers;
+//           break;
+//         case 'bookings':
+//           url = '/bookings';
+//           setter = setBookings;
+//           break;
+//         case 'tariffs':
+//           url = '/tariffs';
+//           setter = setTariffs;
+//           break;
+//         case 'promocodes':
+//           url = '/promocodes';
+//           setter = setPromocodes;
+//           break;
+//         case 'tickets':
+//           url = '/tickets';
+//           setter = setTickets;
+//           break;
+//         case 'notifications':
+//           url = '/notifications';
+//           setter = setNotifications;
+//           break;
+//         case 'newsletters':
+//           url = '/newsletters';
+//           setter = setNewsletters;
+//           break;
+//         case 'dashboard':
+//           url = '/dashboard/stats';
+//           setter = setDashboardStats;
+//           break;
+//       }
+//
+//       if (url && setter) {
+//         const res = await axios.get(`http://localhost/api${url}`, { withCredentials: true });
+//         setter(res.data);
+//       }
+//     } catch (error) {
+//       console.error(`Ошибка загрузки данных для ${sectionName}:`, error);
+//     }
+//   };
+//
+//   // При смене вкладки загружаем данные
+//   useEffect(() => {
+//     if (isAuthenticated) {
+//       fetchSectionData(section);
+//     }
+//   }, [section, isAuthenticated]);
+//
+//   const fetchNotifications = async () => {
+//     try {
+//       const res = await axios.get(`http://localhost/api/notifications/check_new?since_id=${lastNotificationId}`, { withCredentials: true });
+//       if (res.data.recent_notifications && res.data.recent_notifications.length > 0) {
+//         const newNotifications = res.data.recent_notifications.filter(n => !n.is_read);
+//         if (newNotifications.length > 0) {
+//           setNotifications(prev => [...newNotifications, ...prev]);
+//           setLastNotificationId(Math.max(...res.data.recent_notifications.map(n => n.id), lastNotificationId));
+//           setHasNewNotifications(true);
+//
+//           newNotifications.forEach(n => {
+//             toast({
+//               title: 'Новое уведомление',
+//               description: n.message.substring(0, 100),
+//               status: 'info',
+//               duration: 5000,
+//               isClosable: true,
+//               position: 'top-right',
+//             });
+//           });
+//         }
+//       }
+//     } catch (err) {
+//       console.error('Ошибка получения уведомлений:', err);
+//     }
+//   };
+//
+//   const fetchDashboardStats = async () => {
+//     try {
+//       const res = await axios.get('http://localhost/api/dashboard/stats', { withCredentials: true });
+//       setDashboardStats(res.data);
+//     } catch (err) {
+//       console.error('Ошибка получения статистики:', err);
+//     }
+//   };
+//
+//   const handleLogin = async () => {
+//     setIsLoading(true);
+//     try {
+//       const res = await axios.post('http://localhost/api/login', { login, password }, { withCredentials: true });
+//       localStorage.setItem('authToken', res.data.access_token);
+//       setIsAuthenticated(true);
+//       setSection('dashboard');
+//       fetchInitialData();
+//       toast({
+//         title: 'Успешный вход',
+//         description: 'Добро пожаловать в панель администратора',
+//         status: 'success',
+//         duration: 3000,
+//         position: 'top-right',
+//       });
+//     } catch (error) {
+//       toast({
+//         title: 'Ошибка входа',
+//         description: error.response?.data?.detail || error.message,
+//         status: 'error',
+//         duration: 5000,
+//         isClosable: true,
+//         position: 'top-right',
+//       });
+//     } finally {
+//       setIsLoading(false);
+//     }
+//   };
+//
+//   const handleLogout = async () => {
+//     try {
+//       await axios.get('http://localhost/api/logout', { withCredentials: true });
+//       localStorage.removeItem('authToken');
+//       setIsAuthenticated(false);
+//       setSection('login');
+//       setLogin('');
+//       setPassword('');
+//       // Уничтожаем график при выходе
+//       if (chartInstanceRef.current) {
+//         chartInstanceRef.current.destroy();
+//         chartInstanceRef.current = null;
+//         setIsChartInitialized(false);
+//       }
+//       toast({
+//         title: 'Выход выполнен',
+//         description: 'До свидания!',
+//         status: 'info',
+//         duration: 3000,
+//         position: 'top-right',
+//       });
+//     } catch (error) {
+//       console.error('Ошибка выхода:', error);
+//       toast({
+//         title: 'Ошибка',
+//         description: 'Не удалось выйти',
+//         status: 'error',
+//         duration: 5000,
+//         isClosable: true,
+//         position: 'top-right',
+//       });
+//     }
+//   };
+//
+//   const markNotificationRead = async (notificationId, targetUrl) => {
+//     try {
+//       await axios.post(`http://localhost/api/notifications/mark_read/${notificationId}`, {}, { withCredentials: true });
+//       setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n));
+//       if (targetUrl) {
+//         const urlParts = targetUrl.split('/');
+//         if (urlParts.length >= 2) {
+//           setSection(urlParts[1]);
+//         }
+//       }
+//     } catch (error) {
+//       console.error('Ошибка при пометке уведомления:', error);
+//       toast({
+//         title: 'Ошибка',
+//         description: 'Не удалось пометить уведомление как прочитанное',
+//         status: 'error',
+//         duration: 5000,
+//         isClosable: true,
+//         position: 'top-right',
+//       });
+//     }
+//   };
+//
+//   const markAllNotificationsRead = async () => {
+//     try {
+//       await axios.post('http://localhost/api/notifications/mark_all_read', {}, { withCredentials: true });
+//       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+//       setHasNewNotifications(false);
+//       toast({
+//         title: 'Успех',
+//         description: 'Все уведомления помечены как прочитанные',
+//         status: 'success',
+//         duration: 5000,
+//         isClosable: true,
+//         position: 'top-right',
+//       });
+//     } catch (error) {
+//       console.error('Ошибка при пометке всех уведомлений:', error);
+//       toast({
+//         title: 'Ошибка',
+//         description: 'Не удалось пометить уведомления',
+//         status: 'error',
+//         duration: 5000,
+//         isClosable: true,
+//         position: 'top-right',
+//       });
+//     }
+//   };
+//
+//   const openDetailModal = (item, type) => {
+//     setSelectedItem({ ...item, type });
+//     onOpen();
+//   };
+//
+//   // Auto-refresh для уведомлений и статистики дашборда
+//   useEffect(() => {
+//     if (isAuthenticated) {
+//       const notificationInterval = setInterval(fetchNotifications, 10000);
+//       return () => {
+//         clearInterval(notificationInterval);
+//       };
+//     }
+//   }, [isAuthenticated, lastNotificationId, section]);
+//
+//   // График инициализируется только один раз при наличии данных
+//   useEffect(() => {
+//     if (section === 'dashboard' && chartRef.current && users.length > 0) {
+//
+//       const userRegistrationCounts = users.reduce((acc, u) => {
+//         if (u.reg_date || u.first_join_time) {
+//           const date = new Date(u.reg_date || u.first_join_time);
+//           const day = date.getDay() === 0 ? 6 : date.getDay() - 1;
+//           acc[day]++;
+//         }
+//         return acc;
+//       }, Array(7).fill(0));
+//       const ctx = chartRef.current.getContext('2d');
+//       if (chartInstanceRef.current) chartInstanceRef.current.destroy();
+//       chartInstanceRef.current = new Chart(ctx, {
+//         type: 'line',
+//         data: {
+//           labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+//           datasets: [{
+//             label: 'Регистрации пользователей',
+//             data: userRegistrationCounts,
+//             borderColor: 'rgb(147, 51, 234)',
+//             backgroundColor: 'rgba(147, 51, 234, 0.1)',
+//             tension: 0.4,
+//             borderWidth: 3,
+//             pointBackgroundColor: 'rgb(147, 51, 234)',
+//             pointBorderColor: '#fff',
+//             pointBorderWidth: 2,
+//             pointRadius: 5,
+//             pointHoverRadius: 7,
+//           }]
+//         },
+//         options: {
+//           responsive: true,
+//           maintainAspectRatio: false,
+//           plugins: {
+//             legend: {
+//               display: false
+//             },
+//             tooltip: {
+//               backgroundColor: 'rgba(0, 0, 0, 0.8)',
+//               padding: 12,
+//               cornerRadius: 8,
+//             }
+//           },
+//           scales: {
+//             y: {
+//               beginAtZero: true,
+//               grid: {
+//                 color: 'rgba(0, 0, 0, 0.05)',
+//               }
+//             },
+//             x: {
+//               grid: {
+//                 display: false,
+//               }
+//             }
+//           }
+//         }
+//       });
+//       setIsChartInitialized(true);
+//     }
+//   }, [section, users, isChartInitialized]);
+//
+//   // Обновляем индикатор новых уведомлений
+//   useEffect(() => {
+//     const unreadCount = notifications.filter(n => !n.is_read).length;
+//     setHasNewNotifications(unreadCount > 0);
+//   }, [notifications]);
+//
+//   const Sidebar = () => (
+//     <Box
+//       w="260px"
+//       bg="gray.900"
+//       color="white"
+//       minH="100vh"
+//       display="flex"
+//       flexDirection="column"
+//     >
+//       <Box p={6}>
+//         <VStack align="stretch" spacing={1}>
+//           <Flex align="center" mb={6}>
+//             <Icon as={FiHome} boxSize={6} color="purple.400" mr={3} />
+//             <Heading size="md" fontWeight="bold">
+//               Админ панель
+//             </Heading>
+//           </Flex>
+//
+//           {[
+//             { icon: FiTrendingUp, label: 'Дашборд', section: 'dashboard', color: 'purple' },
+//             { icon: FiUser, label: 'Пользователи', section: 'users', color: 'blue' },
+//             { icon: FiCalendar, label: 'Бронирования', section: 'bookings', color: 'green' },
+//             { icon: FiTag, label: 'Тарифы', section: 'tariffs', color: 'cyan' },
+//             { icon: FiPercent, label: 'Промокоды', section: 'promocodes', color: 'orange' },
+//             { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
+//             { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
+//             { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' }
+//           ].map(({ icon: Icon, label, section: sec, color }) => (
+//             <Button
+//               key={sec}
+//               leftIcon={<Icon />}
+//               variant={section === sec ? 'solid' : 'ghost'}
+//               bg={section === sec ? `${color}.600` : 'transparent'}
+//               color={section === sec ? 'white' : 'gray.400'}
+//               justifyContent="flex-start"
+//               onClick={() => setSection(sec)}
+//               _hover={{
+//                 bg: section === sec ? `${color}.700` : 'gray.800',
+//                 color: 'white',
+//               }}
+//               borderRadius="lg"
+//               px={4}
+//               py={6}
+//               fontSize="md"
+//               transition="all 0.2s"
+//             >
+//               {label}
+//             </Button>
+//           ))}
+//         </VStack>
+//       </Box>
+//
+//       <Spacer />
+//
+//       <Box p={6} borderTop="1px" borderColor="gray.700">
+//         <Button
+//           leftIcon={<FiLogOut />}
+//           variant="ghost"
+//           color="red.400"
+//           justifyContent="flex-start"
+//           onClick={handleLogout}
+//           _hover={{
+//             bg: 'red.900',
+//             color: 'red.300',
+//           }}
+//           borderRadius="lg"
+//           px={4}
+//           py={6}
+//           w="full"
+//           fontSize="md"
+//           transition="all 0.2s"
+//         >
+//           Выйти из системы
+//         </Button>
+//       </Box>
+//     </Box>
+//   );
+//
+//   const Navbar = () => (
+//     <Box
+//       bg="white"
+//       px={8}
+//       py={4}
+//       borderBottom="2px"
+//       borderColor="gray.100"
+//       boxShadow="sm"
+//     >
+//       <Flex justify="space-between" align="center">
+//         <Heading size="lg" color="gray.800">
+//           {section === 'dashboard' ? 'Дашборд' :
+//           section === 'users' ? 'Пользователи' :
+//           section === 'bookings' ? 'Бронирования' :
+//           section === 'tariffs' ? 'Тарифы' :
+//           section === 'promocodes' ? 'Промокоды' :
+//           section === 'tickets' ? 'Заявки' :
+//           section === 'notifications' ? 'Уведомления' :
+//           section === 'newsletters' ? 'Рассылка' : ''}
+//         </Heading>
+//         <HStack spacing={4}>
+//           <Menu>
+//             <MenuButton
+//               as={IconButton}
+//               icon={
+//                 <Box position="relative">
+//                   <FiBell size={20} />
+//                   {hasNewNotifications && (
+//                     <Box
+//                       position="absolute"
+//                       top="-2px"
+//                       right="-2px"
+//                       w="10px"
+//                       h="10px"
+//                       bg="red.500"
+//                       borderRadius="full"
+//                       border="2px solid white"
+//                     />
+//                   )}
+//                 </Box>
+//               }
+//               variant="ghost"
+//               borderRadius="lg"
+//               _hover={{ bg: 'gray.100' }}
+//             />
+//             <MenuList
+//               maxH="500px"
+//               overflowY="auto"
+//               boxShadow="xl"
+//               borderRadius="xl"
+//               p={2}
+//             >
+//               <Box p={3}>
+//                 <Flex justify="space-between" align="center" mb={3}>
+//                   <Text fontWeight="bold" fontSize="lg">Уведомления</Text>
+//                   {notifications.filter(n => !n.is_read).length > 0 && (
+//                     <Button
+//                       size="xs"
+//                       colorScheme="purple"
+//                       onClick={markAllNotificationsRead}
+//                       borderRadius="full"
+//                     >
+//                       Прочитать все
+//                     </Button>
+//                   )}
+//                 </Flex>
+//               </Box>
+//               <Divider />
+//               {notifications.length === 0 ? (
+//                 <Box p={8} textAlign="center">
+//                   <Icon as={FiBell} boxSize={10} color="gray.300" mb={2} />
+//                   <Text color="gray.500">Нет уведомлений</Text>
+//                 </Box>
+//               ) : (
+//                 notifications.slice(0, 5).map(n => (
+//                   <MenuItem
+//                     key={n.id}
+//                     onClick={() => markNotificationRead(n.id, n.target_url)}
+//                     bg={n.is_read ? 'white' : 'purple.50'}
+//                     borderRadius="lg"
+//                     mb={1}
+//                     p={3}
+//                     _hover={{
+//                       bg: n.is_read ? 'gray.50' : 'purple.100',
+//                     }}
+//                   >
+//                     <VStack align="stretch" spacing={1} w="full">
+//                       <Text fontSize="sm" fontWeight="medium" noOfLines={2}>
+//                         {n.message}
+//                       </Text>
+//                       <Text fontSize="xs" color="gray.500">
+//                         {new Date(n.created_at).toLocaleString('ru-RU')}
+//                       </Text>
+//                     </VStack>
+//                   </MenuItem>
+//                 ))
+//               )}
+//             </MenuList>
+//           </Menu>
+//           <Avatar
+//             size="md"
+//             name={login || 'Admin'}
+//             bg="purple.500"
+//             color="white"
+//           />
+//         </HStack>
+//       </Flex>
+//     </Box>
+//   );
+//
+//   const Dashboard = () => (
+//     <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//       <VStack spacing={8} align="stretch">
+//         <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
+//           <Card
+//             bgGradient="linear(to-br, blue.400, blue.600)"
+//             color="white"
+//             boxShadow="xl"
+//             borderRadius="xl"
+//             transition="all 0.3s"
+//             _hover={{ transform: 'translateY(-4px)', boxShadow: '2xl' }}
+//           >
+//             <CardBody p={6}>
+//               <Stat>
+//                 <StatLabel fontSize="sm" fontWeight="medium" opacity={0.9}>
+//                   Всего пользователей
+//                 </StatLabel>
+//                 <StatNumber fontSize="3xl" fontWeight="bold" my={2}>
+//                   {dashboardStats.total_users}
+//                 </StatNumber>
+//                 <StatHelpText opacity={0.9}>
+//                   <HStack spacing={1}>
+//                     <Icon as={FiUsers} />
+//                     <Text>Активные пользователи</Text>
+//                   </HStack>
+//                 </StatHelpText>
+//               </Stat>
+//             </CardBody>
+//           </Card>
+//
+//           <Card
+//             bgGradient="linear(to-br, green.400, green.600)"
+//             color="white"
+//             boxShadow="xl"
+//             borderRadius="xl"
+//             transition="all 0.3s"
+//             _hover={{ transform: 'translateY(-4px)', boxShadow: '2xl' }}
+//           >
+//             <CardBody p={6}>
+//               <Stat>
+//                 <StatLabel fontSize="sm" fontWeight="medium" opacity={0.9}>
+//                   Всего бронирований
+//                 </StatLabel>
+//                 <StatNumber fontSize="3xl" fontWeight="bold" my={2}>
+//                   {dashboardStats.total_bookings}
+//                 </StatNumber>
+//                 <StatHelpText opacity={0.9}>
+//                   <HStack spacing={1}>
+//                     <Icon as={FiShoppingBag} />
+//                     <Text>Все бронирования</Text>
+//                   </HStack>
+//                 </StatHelpText>
+//               </Stat>
+//             </CardBody>
+//           </Card>
+//
+//           <Card
+//             bgGradient="linear(to-br, orange.400, orange.600)"
+//             color="white"
+//             boxShadow="xl"
+//             borderRadius="xl"
+//             transition="all 0.3s"
+//             _hover={{ transform: 'translateY(-4px)', boxShadow: '2xl' }}
+//           >
+//             <CardBody p={6}>
+//               <Stat>
+//                 <StatLabel fontSize="sm" fontWeight="medium" opacity={0.9}>
+//                   Открытые заявки
+//                 </StatLabel>
+//                 <StatNumber fontSize="3xl" fontWeight="bold" my={2}>
+//                   {dashboardStats.open_tickets}
+//                 </StatNumber>
+//                 <StatHelpText opacity={0.9}>
+//                   <HStack spacing={1}>
+//                     <Icon as={FiMessageCircle} />
+//                     <Text>Требуют внимания</Text>
+//                   </HStack>
+//                 </StatHelpText>
+//               </Stat>
+//             </CardBody>
+//           </Card>
+//         </SimpleGrid>
+//
+//         <Card
+//           boxShadow="xl"
+//           borderRadius="xl"
+//           overflow="hidden"
+//         >
+//           <CardHeader
+//             bg="white"
+//             borderBottom="2px"
+//             borderColor="gray.100"
+//             p={6}
+//           >
+//             <Flex align="center">
+//               <Icon as={FiTrendingUp} boxSize={6} color="purple.500" mr={3} />
+//               <Heading size="md" color="gray.800">
+//                 Активность пользователей за неделю
+//               </Heading>
+//             </Flex>
+//           </CardHeader>
+//           <CardBody p={6} bg="white">
+//             <Box h="350px">
+//               <canvas ref={chartRef}></canvas>
+//             </Box>
+//           </CardBody>
+//         </Card>
+//       </VStack>
+//     </Box>
+//   );
+//
+//   // Модальное окно для детальной информации
+//   const DetailModal = () => {
+//     if (!selectedItem) return null;
+//
+//     const renderContent = () => {
+//       switch (selectedItem.type) {
+//         case 'user':
+//           return (
+//             <VStack align="stretch" spacing={4}>
+//               <HStack>
+//                 <Icon as={FiUser} />
+//                 <Text fontWeight="bold">Полное имя:</Text>
+//                 <Text>{selectedItem.full_name || 'Не указано'}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiPhone} />
+//                 <Text fontWeight="bold">Телефон:</Text>
+//                 <Text>{selectedItem.phone || 'Не указано'}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiMail} />
+//                 <Text fontWeight="bold">Email:</Text>
+//                 <Text>{selectedItem.email || 'Не указано'}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiInfo} />
+//                 <Text fontWeight="bold">Telegram ID:</Text>
+//                 <Text>{selectedItem.telegram_id}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCalendar} />
+//                 <Text fontWeight="bold">Дата регистрации:</Text>
+//                 <Text>{new Date(selectedItem.reg_date || selectedItem.first_join_time).toLocaleDateString('ru-RU')}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiShoppingBag} />
+//                 <Text fontWeight="bold">Успешных бронирований:</Text>
+//                 <Text>{selectedItem.successful_bookings}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiUsers} />
+//                 <Text fontWeight="bold">Приглашено пользователей:</Text>
+//                 <Text>{selectedItem.invited_count}</Text>
+//               </HStack>
+//             </VStack>
+//           );
+//         case 'booking':
+//           return (
+//             <VStack align="stretch" spacing={4}>
+//               <HStack>
+//                 <Icon as={FiCalendar} />
+//                 <Text fontWeight="bold">Дата визита:</Text>
+//                 <Text>{new Date(selectedItem.visit_date).toLocaleDateString('ru-RU')}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiClock} />
+//                 <Text fontWeight="bold">Время:</Text>
+//                 <Text>{selectedItem.visit_time || 'Весь день'}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiTag} />
+//                 <Text fontWeight="bold">Тариф ID:</Text>
+//                 <Text>{selectedItem.tariff_id}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiDollarSign} />
+//                 <Text fontWeight="bold">Сумма:</Text>
+//                 <Text>{selectedItem.amount} ₽</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCheck} />
+//                 <Text fontWeight="bold">Оплачено:</Text>
+//                 <Badge colorScheme={selectedItem.paid ? 'green' : 'red'}>
+//                   {selectedItem.paid ? 'Да' : 'Нет'}
+//                 </Badge>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCheck} />
+//                 <Text fontWeight="bold">Подтверждено:</Text>
+//                 <Badge colorScheme={selectedItem.confirmed ? 'green' : 'yellow'}>
+//                   {selectedItem.confirmed ? 'Да' : 'Ожидает'}
+//                 </Badge>
+//               </HStack>
+//               {selectedItem.duration && (
+//                 <HStack>
+//                   <Icon as={FiClock} />
+//                   <Text fontWeight="bold">Длительность:</Text>
+//                   <Text>{selectedItem.duration} час(ов)</Text>
+//                 </HStack>
+//               )}
+//             </VStack>
+//           );
+//         case 'ticket':
+//           return (
+//             <VStack align="stretch" spacing={4}>
+//               <Box>
+//                 <HStack mb={2}>
+//                   <Icon as={FiInfo} />
+//                   <Text fontWeight="bold">Описание:</Text>
+//                 </HStack>
+//                 <Text pl={6}>{selectedItem.description}</Text>
+//               </Box>
+//               <HStack>
+//                 <Icon as={FiUser} />
+//                 <Text fontWeight="bold">Пользователь ID:</Text>
+//                 <Text>{selectedItem.user_id}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCheck} />
+//                 <Text fontWeight="bold">Статус:</Text>
+//                 <Badge colorScheme={
+//                   selectedItem.status === 'CLOSED' ? 'red' :
+//                   selectedItem.status === 'IN_PROGRESS' ? 'yellow' : 'green'
+//                 }>
+//                   {selectedItem.status === 'OPEN' ? 'Открыта' :
+//                    selectedItem.status === 'IN_PROGRESS' ? 'В работе' : 'Закрыта'}
+//                 </Badge>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCalendar} />
+//                 <Text fontWeight="bold">Создана:</Text>
+//                 <Text>{new Date(selectedItem.created_at).toLocaleString('ru-RU')}</Text>
+//               </HStack>
+//               {selectedItem.photo_id && (
+//                 <HStack>
+//                   <Icon as={FiImage} />
+//                   <Text fontWeight="bold">Фото прикреплено:</Text>
+//                   <Badge colorScheme="blue">Да</Badge>
+//                 </HStack>
+//               )}
+//               {selectedItem.comment && (
+//                 <Box>
+//                   <HStack mb={2}>
+//                     <Icon as={FiMessageCircle} />
+//                     <Text fontWeight="bold">Комментарий:</Text>
+//                   </HStack>
+//                   <Text pl={6}>{selectedItem.comment}</Text>
+//                 </Box>
+//               )}
+//             </VStack>
+//           );
+//         case 'tariff':
+//           return (
+//             <VStack align="stretch" spacing={4}>
+//               <HStack>
+//                 <Icon as={FiTag} />
+//                 <Text fontWeight="bold">Название:</Text>
+//                 <Text>{selectedItem.name}</Text>
+//               </HStack>
+//               <Box>
+//                 <HStack mb={2}>
+//                   <Icon as={FiInfo} />
+//                   <Text fontWeight="bold">Описание:</Text>
+//                 </HStack>
+//                 <Text pl={6}>{selectedItem.description}</Text>
+//               </Box>
+//               <HStack>
+//                 <Icon as={FiDollarSign} />
+//                 <Text fontWeight="bold">Цена:</Text>
+//                 <Text>{selectedItem.price} ₽</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCheck} />
+//                 <Text fontWeight="bold">Активен:</Text>
+//                 <Badge colorScheme={selectedItem.is_active ? 'green' : 'red'}>
+//                   {selectedItem.is_active ? 'Да' : 'Нет'}
+//                 </Badge>
+//               </HStack>
+//               {selectedItem.purpose && (
+//                 <HStack>
+//                   <Icon as={FiInfo} />
+//                   <Text fontWeight="bold">Назначение:</Text>
+//                   <Text>{selectedItem.purpose}</Text>
+//                 </HStack>
+//               )}
+//             </VStack>
+//           );
+//         case 'promocode':
+//           return (
+//             <VStack align="stretch" spacing={4}>
+//               <HStack>
+//                 <Icon as={FiPercent} />
+//                 <Text fontWeight="bold">Название:</Text>
+//                 <Text>{selectedItem.name}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiPercent} />
+//                 <Text fontWeight="bold">Скидка:</Text>
+//                 <Text>{selectedItem.discount}%</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiUsers} />
+//                 <Text fontWeight="bold">Использовано раз:</Text>
+//                 <Text>{selectedItem.usage_quantity}</Text>
+//               </HStack>
+//               <HStack>
+//                 <Icon as={FiCheck} />
+//                 <Text fontWeight="bold">Активен:</Text>
+//                 <Badge colorScheme={selectedItem.is_active ? 'green' : 'red'}>
+//                   {selectedItem.is_active ? 'Да' : 'Нет'}
+//                 </Badge>
+//               </HStack>
+//               {selectedItem.expiration_date && (
+//                 <HStack>
+//                   <Icon as={FiCalendar} />
+//                   <Text fontWeight="bold">Срок действия до:</Text>
+//                   <Text>{new Date(selectedItem.expiration_date).toLocaleDateString('ru-RU')}</Text>
+//                 </HStack>
+//               )}
+//             </VStack>
+//           );
+//         default:
+//           return null;
+//       }
+//     };
+//
+//     return (
+//       <Modal isOpen={isOpen} onClose={onClose} size="lg">
+//         <ModalOverlay />
+//         <ModalContent>
+//           <ModalHeader>
+//             {selectedItem.type === 'user' ? 'Информация о пользователе' :
+//              selectedItem.type === 'booking' ? 'Информация о бронировании' :
+//              selectedItem.type === 'ticket' ? 'Информация о заявке' :
+//              selectedItem.type === 'tariff' ? 'Информация о тарифе' :
+//              selectedItem.type === 'promocode' ? 'Информация о промокоде' : 'Детали'}
+//           </ModalHeader>
+//           <ModalCloseButton />
+//           <ModalBody pb={6}>
+//             {renderContent()}
+//           </ModalBody>
+//           <ModalFooter>
+//             <Button colorScheme="purple" onClick={onClose}>
+//               Закрыть
+//             </Button>
+//           </ModalFooter>
+//         </ModalContent>
+//       </Modal>
+//     );
+//   };
+//
+//   const renderSection = () => {
+//     switch (section) {
+//       case 'dashboard':
+//         return <Dashboard />;
+//       case 'users':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">Список пользователей</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {users.map(user => (
+//                     <Box
+//                       key={user.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg="white"
+//                       cursor="pointer"
+//                       _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
+//                       transition="all 0.2s"
+//                       onClick={() => openDetailModal(user, 'user')}
+//                     >
+//                       <HStack justify="space-between">
+//                         <VStack align="start" spacing={1}>
+//                           <Text fontWeight="bold">{user.full_name || 'Без имени'}</Text>
+//                           <HStack spacing={4}>
+//                             <Text fontSize="sm" color="gray.600">
+//                               <Icon as={FiPhone} mr={1} />
+//                               {user.phone || 'Не указан'}
+//                             </Text>
+//                             <Text fontSize="sm" color="gray.600">
+//                               <Icon as={FiMail} mr={1} />
+//                               {user.email || 'Не указан'}
+//                             </Text>
+//                           </HStack>
+//                         </VStack>
+//                         <Icon as={FiEye} color="purple.500" />
+//                       </HStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       case 'bookings':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">Бронирования</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {bookings.map(b => (
+//                     <Box
+//                       key={b.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg="white"
+//                       cursor="pointer"
+//                       _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
+//                       transition="all 0.2s"
+//                       onClick={() => openDetailModal(b, 'booking')}
+//                     >
+//                       <HStack justify="space-between">
+//                         <VStack align="start" spacing={1}>
+//                           <Text fontWeight="bold">
+//                             {new Date(b.visit_date).toLocaleDateString('ru-RU')}
+//                           </Text>
+//                           <HStack spacing={4}>
+//                             <Badge colorScheme={b.paid ? 'green' : 'red'}>
+//                               {b.paid ? 'Оплачено' : 'Не оплачено'}
+//                             </Badge>
+//                             <Badge colorScheme={b.confirmed ? 'green' : 'yellow'}>
+//                               {b.confirmed ? 'Подтверждено' : 'Ожидает'}
+//                             </Badge>
+//                             <Text fontSize="sm" color="gray.600">
+//                               {b.amount} ₽
+//                             </Text>
+//                           </HStack>
+//                         </VStack>
+//                         <Icon as={FiEye} color="purple.500" />
+//                       </HStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       case 'tariffs':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">Тарифы</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {tariffs.map(t => (
+//                     <Box
+//                       key={t.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg="white"
+//                       cursor="pointer"
+//                       _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
+//                       transition="all 0.2s"
+//                       onClick={() => openDetailModal(t, 'tariff')}
+//                     >
+//                       <HStack justify="space-between">
+//                         <VStack align="start" spacing={1}>
+//                           <Text fontWeight="bold">{t.name}</Text>
+//                           <HStack spacing={4}>
+//                             <Text fontSize="sm" color="gray.600">
+//                               {t.price} ₽
+//                             </Text>
+//                             <Badge colorScheme={t.is_active ? 'green' : 'red'}>
+//                               {t.is_active ? 'Активен' : 'Неактивен'}
+//                             </Badge>
+//                           </HStack>
+//                         </VStack>
+//                         <Icon as={FiEye} color="purple.500" />
+//                       </HStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       case 'promocodes':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">Промокоды</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {promocodes.map(p => (
+//                     <Box
+//                       key={p.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg="white"
+//                       cursor="pointer"
+//                       _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
+//                       transition="all 0.2s"
+//                       onClick={() => openDetailModal(p, 'promocode')}
+//                     >
+//                       <HStack justify="space-between">
+//                         <VStack align="start" spacing={1}>
+//                           <Text fontWeight="bold">{p.name}</Text>
+//                           <HStack spacing={4}>
+//                             <Text fontSize="sm" color="gray.600">
+//                               Скидка: {p.discount}%
+//                             </Text>
+//                             <Badge colorScheme={p.is_active ? 'green' : 'red'}>
+//                               {p.is_active ? 'Активен' : 'Неактивен'}
+//                             </Badge>
+//                           </HStack>
+//                         </VStack>
+//                         <Icon as={FiEye} color="purple.500" />
+//                       </HStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       case 'tickets':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">Заявки</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {tickets.map(t => (
+//                     <Box
+//                       key={t.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg="white"
+//                       cursor="pointer"
+//                       _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
+//                       transition="all 0.2s"
+//                       onClick={() => openDetailModal(t, 'ticket')}
+//                     >
+//                       <HStack justify="space-between">
+//                         <VStack align="start" spacing={1}>
+//                           <Text fontWeight="bold" noOfLines={1}>
+//                             {t.description}
+//                           </Text>
+//                           <HStack spacing={4}>
+//                             <Badge colorScheme={
+//                               t.status === 'CLOSED' ? 'red' :
+//                               t.status === 'IN_PROGRESS' ? 'yellow' : 'green'
+//                             }>
+//                               {t.status === 'OPEN' ? 'Открыта' :
+//                                t.status === 'IN_PROGRESS' ? 'В работе' : 'Закрыта'}
+//                             </Badge>
+//                             <Text fontSize="sm" color="gray.600">
+//                               {new Date(t.created_at).toLocaleDateString('ru-RU')}
+//                             </Text>
+//                           </HStack>
+//                         </VStack>
+//                         <Icon as={FiEye} color="purple.500" />
+//                       </HStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       case 'notifications':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">Уведомления</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {notifications.map(n => (
+//                     <Box
+//                       key={n.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg={n.is_read ? 'white' : 'purple.50'}
+//                       transition="all 0.2s"
+//                     >
+//                       <VStack align="start" spacing={2}>
+//                         <Text>{n.message}</Text>
+//                         <HStack spacing={4}>
+//                           <Badge colorScheme={n.is_read ? 'gray' : 'purple'}>
+//                             {n.is_read ? 'Прочитано' : 'Новое'}
+//                           </Badge>
+//                           <Text fontSize="sm" color="gray.600">
+//                             {new Date(n.created_at).toLocaleString('ru-RU')}
+//                           </Text>
+//                         </HStack>
+//                       </VStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       case 'newsletters':
+//         return (
+//           <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
+//             <Card borderRadius="xl" boxShadow="xl">
+//               <CardHeader>
+//                 <Heading size="md">История рассылок</Heading>
+//               </CardHeader>
+//               <CardBody>
+//                 <VStack align="stretch" spacing={2}>
+//                   {newsletters.map(n => (
+//                     <Box
+//                       key={n.id}
+//                       p={4}
+//                       borderRadius="lg"
+//                       border="1px"
+//                       borderColor="gray.200"
+//                       bg="white"
+//                     >
+//                       <VStack align="start" spacing={2}>
+//                         <Text>{n.message}</Text>
+//                         <HStack spacing={4}>
+//                           <Text fontSize="sm" color="gray.600">
+//                             <Icon as={FiUsers} mr={1} />
+//                             Отправлено: {n.recipient_count} пользователям
+//                           </Text>
+//                           <Text fontSize="sm" color="gray.600">
+//                             {new Date(n.created_at).toLocaleString('ru-RU')}
+//                           </Text>
+//                         </HStack>
+//                       </VStack>
+//                     </Box>
+//                   ))}
+//                 </VStack>
+//               </CardBody>
+//             </Card>
+//           </Box>
+//         );
+//       default:
+//         return <Dashboard />;
+//     }
+//   };
+//
+//   if (isCheckingAuth) {
+//     return (
+//       <ChakraProvider>
+//         <Center h="100vh" bg="gray.50">
+//           <VStack spacing={4}>
+//             <Spinner size="xl" color="purple.500" thickness="4px" />
+//             <Text color="gray.600">Загрузка...</Text>
+//           </VStack>
+//         </Center>
+//       </ChakraProvider>
+//     );
+//   }
+//
+//   if (!isAuthenticated) {
+//     return (
+//       <ChakraProvider>
+//         <Login
+//           login={login}
+//           setLogin={setLogin}
+//           password={password}
+//           setPassword={setPassword}
+//           handleLogin={handleLogin}
+//           isLoading={isLoading}
+//         />
+//       </ChakraProvider>
+//     );
+//   }
+//
+//   return (
+//     <ChakraProvider>
+//       <Flex minH="100vh" bg="gray.50">
+//         <Sidebar />
+//         <Box flex={1}>
+//           <Navbar />
+//           {renderSection()}
+//         </Box>
+//       </Flex>
+//       <DetailModal />
+//     </ChakraProvider>
+//   );
+// }
+//
+// export default App;
+// App.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { ChakraProvider, Box, Flex, VStack, HStack, Text, Input, Button, Heading, useToast, Badge, Icon, Avatar, Divider, Tabs, TabList, TabPanels, Tab, TabPanel, Table, Thead, Tbody, Tr, Th, Td, TableContainer, Card, CardBody, CardHeader, Stat, StatLabel, StatNumber, StatHelpText, StatArrow, IconButton, Menu, MenuButton, MenuList, MenuItem, Spinner, Center, SimpleGrid, useColorModeValue, Container, Stack, Spacer, Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter, ModalCloseButton, useDisclosure, FormControl, FormLabel, Textarea, Select } from '@chakra-ui/react';
-import { FiBell, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiSend, FiLogOut, FiHome, FiCheck, FiX, FiEye, FiEdit, FiTrash, FiMoreVertical, FiPlus, FiRefreshCw, FiUsers, FiShoppingBag, FiMessageCircle, FiTrendingUp, FiMail, FiPhone, FiClock, FiDollarSign, FiInfo, FiImage } from 'react-icons/fi';
+import { ChakraProvider, useToast, useDisclosure } from '@chakra-ui/react';
 import axios from 'axios';
-import Chart from 'chart.js/auto';
 
-// Вспомогательная функция для получения токена из localStorage
-const getAuthToken = () => localStorage.getItem('authToken');
+// Компоненты
+import Login from './components/Login';
+import Layout from './components/Layout';
+import DetailModal from './components/DetailModal';
 
-// Настройка axios для автоматического добавления токена
-axios.interceptors.request.use(
-  config => {
-    const token = getAuthToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  error => Promise.reject(error)
-);
+// Секции
+import Dashboard from './sections/Dashboard';
+import Users from './sections/Users';
+import Bookings from './sections/Bookings';
+import Tariffs from './sections/Tariffs';
+import Promocodes from './sections/Promocodes';
+import Tickets from './sections/Tickets';
+import Notifications from './sections/Notifications';
+import Newsletters from './sections/Newsletters';
 
-const Login = ({ login, setLogin, password, setPassword, handleLogin, isLoading }) => {
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !isLoading) {
-      handleLogin();
-    }
-  };
-
-  const bgGradient = useColorModeValue(
-    'linear(to-br, blue.50, purple.50)',
-    'linear(to-br, gray.900, purple.900)'
-  );
-
-  return (
-    <Center minH="100vh" bgGradient={bgGradient}>
-      <Container maxW="lg" py={12}>
-        <Card
-          maxW="md"
-          mx="auto"
-          boxShadow="2xl"
-          borderRadius="xl"
-          overflow="hidden"
-        >
-          <Box
-            bgGradient="linear(to-r, blue.500, purple.600)"
-            p={6}
-            color="white"
-          >
-            <VStack spacing={2}>
-              <Icon as={FiUsers} boxSize={12} />
-              <Heading size="lg">Панель администратора</Heading>
-              <Text fontSize="sm" opacity={0.9}>Войдите в систему управления</Text>
-            </VStack>
-          </Box>
-          <CardBody p={8}>
-            <VStack spacing={5}>
-              <Input
-                size="lg"
-                placeholder="Логин"
-                value={login}
-                onChange={e => setLogin(e.target.value)}
-                onKeyPress={handleKeyPress}
-                isDisabled={isLoading}
-                borderRadius="lg"
-                _focus={{
-                  borderColor: 'purple.500',
-                  boxShadow: '0 0 0 1px purple.500'
-                }}
-              />
-              <Input
-                size="lg"
-                type="password"
-                placeholder="Пароль"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                onKeyPress={handleKeyPress}
-                isDisabled={isLoading}
-                borderRadius="lg"
-                _focus={{
-                  borderColor: 'purple.500',
-                  boxShadow: '0 0 0 1px purple.500'
-                }}
-              />
-              <Button
-                size="lg"
-                bgGradient="linear(to-r, blue.500, purple.600)"
-                color="white"
-                w="full"
-                onClick={handleLogin}
-                isLoading={isLoading}
-                loadingText="Вход..."
-                borderRadius="lg"
-                _hover={{
-                  bgGradient: "linear(to-r, blue.600, purple.700)",
-                  transform: 'translateY(-2px)',
-                  boxShadow: 'lg',
-                }}
-                transition="all 0.2s"
-              >
-                Войти в систему
-              </Button>
-            </VStack>
-          </CardBody>
-        </Card>
-      </Container>
-    </Center>
-  );
-};
+// Утилиты
+import {getAuthToken, removeAuthToken, verifyToken} from './utils/auth.js';
+import {fetchSectionData, fetchInitialData, notificationApi, dashboardApi} from './utils/api.js';
 
 function App() {
+  // Состояния
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [section, setSection] = useState('dashboard');
+
+  // Данные
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [tariffs, setTariffs] = useState([]);
@@ -121,166 +1413,109 @@ function App() {
   const [tickets, setTickets] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
-  const [hasNewNotifications, setHasNewNotifications] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [dashboardStats, setDashboardStats] = useState({
     total_users: 0,
     total_bookings: 0,
     open_tickets: 0
   });
+
+  // UI состояния
+  const [hasNewNotifications, setHasNewNotifications] = useState(false);
   const [lastNotificationId, setLastNotificationId] = useState(0);
   const [isChartInitialized, setIsChartInitialized] = useState(false);
+
+  // Refs и hooks
   const toast = useToast();
   const chartRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
+  // Объект с сеттерами для удобства
+  const dataSetters = {
+    users: setUsers,
+    bookings: setBookings,
+    tariffs: setTariffs,
+    promocodes: setPromocodes,
+    tickets: setTickets,
+    notifications: setNotifications,
+    newsletters: setNewsletters,
+    dashboardStats: setDashboardStats
+  };
+
   // Проверка валидности токена при загрузке
   useEffect(() => {
-    const checkAuth = async () => {
-      const token = getAuthToken();
-      if (token) {
-        try {
-          await axios.get('http://localhost/api/verify_token', { withCredentials: true });
-          setIsAuthenticated(true);
-          setSection('dashboard');
-          fetchInitialData();
-        } catch (error) {
-          localStorage.removeItem('authToken');
-          setIsAuthenticated(false);
-        }
+  const checkAuth = async () => {
+    const token = getAuthToken();
+    if (token) {
+      try {
+        await verifyToken(); // теперь используем функцию
+        setIsAuthenticated(true);
+        setSection('dashboard');
+        await fetchInitialData(dataSetters, setLastNotificationId, toast);
+      } catch (error) {
+        removeAuthToken(); // если есть такая функция
+        setIsAuthenticated(false);
       }
-      setIsCheckingAuth(false);
-    };
-    checkAuth();
-  }, []);
-
-  // Загрузка начальных данных
-  const fetchInitialData = async () => {
-    const endpoints = [
-      { url: '/users', setter: setUsers },
-      { url: '/bookings', setter: setBookings },
-      { url: '/tariffs', setter: setTariffs },
-      { url: '/promocodes', setter: setPromocodes },
-      { url: '/tickets', setter: setTickets },
-      { url: '/newsletters', setter: setNewsletters },
-      { url: '/notifications', setter: (data) => {
-        setNotifications(data);
-        if (data.length > 0) {
-          setLastNotificationId(Math.max(...data.map(n => n.id), 0));
-        }
-      }},
-      { url: '/dashboard/stats', setter: setDashboardStats }
-    ];
-
-    try {
-      await Promise.all(endpoints.map(async ({ url, setter }) => {
-        try {
-          const res = await axios.get(`http://localhost/api${url}`, { withCredentials: true });
-          setter(res.data);
-        } catch (error) {
-          console.error(`Ошибка загрузки ${url}:`, error);
-        }
-      }));
-    } catch (err) {
-      console.error('Ошибка загрузки данных:', err);
-      toast({ title: 'Ошибка', description: 'Не удалось загрузить данные', status: 'error', duration: 5000, isClosable: true });
     }
+    setIsCheckingAuth(false);
   };
-
-  // Загрузка данных для конкретной вкладки
-  const fetchSectionData = async (sectionName) => {
-    try {
-      let url = '';
-      let setter = null;
-
-      switch(sectionName) {
-        case 'users':
-          url = '/users';
-          setter = setUsers;
-          break;
-        case 'bookings':
-          url = '/bookings';
-          setter = setBookings;
-          break;
-        case 'tariffs':
-          url = '/tariffs';
-          setter = setTariffs;
-          break;
-        case 'promocodes':
-          url = '/promocodes';
-          setter = setPromocodes;
-          break;
-        case 'tickets':
-          url = '/tickets';
-          setter = setTickets;
-          break;
-        case 'notifications':
-          url = '/notifications';
-          setter = setNotifications;
-          break;
-        case 'newsletters':
-          url = '/newsletters';
-          setter = setNewsletters;
-          break;
-        case 'dashboard':
-          url = '/dashboard/stats';
-          setter = setDashboardStats;
-          break;
-      }
-
-      if (url && setter) {
-        const res = await axios.get(`http://localhost/api${url}`, { withCredentials: true });
-        setter(res.data);
-      }
-    } catch (error) {
-      console.error(`Ошибка загрузки данных для ${sectionName}:`, error);
-    }
-  };
+  checkAuth();
+}, []);
 
   // При смене вкладки загружаем данные
   useEffect(() => {
     if (isAuthenticated) {
-      fetchSectionData(section);
+      fetchSectionData(section, dataSetters);
     }
   }, [section, isAuthenticated]);
 
-  const fetchNotifications = async () => {
-    try {
-      const res = await axios.get(`http://localhost/api/notifications/check_new?since_id=${lastNotificationId}`, { withCredentials: true });
-      if (res.data.recent_notifications && res.data.recent_notifications.length > 0) {
-        const newNotifications = res.data.recent_notifications.filter(n => !n.is_read);
-        if (newNotifications.length > 0) {
-          setNotifications(prev => [...newNotifications, ...prev]);
-          setLastNotificationId(Math.max(...res.data.recent_notifications.map(n => n.id), lastNotificationId));
-          setHasNewNotifications(true);
+  // Auto-refresh для уведомлений
+  useEffect(() => {
+    if (isAuthenticated) {
+      const fetchUpdates = async () => {
+        try {
+          const res = await notificationApi.checkNew(lastNotificationId);
+          const newNotifications = res.recent_notifications?.filter(n => !n.is_read) || [];
 
-          newNotifications.forEach(n => {
-            toast({
-              title: 'Новое уведомление',
-              description: n.message.substring(0, 100),
-              status: 'info',
-              duration: 5000,
-              isClosable: true,
-              position: 'top-right',
+          if (newNotifications.length > 0) {
+            setNotifications(prev => [...newNotifications, ...prev]);
+            setLastNotificationId(Math.max(...res.recent_notifications.map(n => n.id), lastNotificationId));
+            setHasNewNotifications(true);
+
+            newNotifications.forEach(n => {
+              toast({
+                title: 'Новое уведомление',
+                description: n.message.substring(0, 100),
+                status: 'info',
+                duration: 5000,
+                isClosable: true,
+                position: 'top-right',
+              });
             });
-          });
+          }
+          // 📊 Статистика дашборда — только если активна вкладка
+          if (section === 'dashboard') {
+            const stats = await dashboardApi.getStats();
+            setDashboardStats(stats);
+          }
+        } catch (err) {
+          console.error('Ошибка получения уведомлений:', err);
         }
-      }
-    } catch (err) {
-      console.error('Ошибка получения уведомлений:', err);
-    }
-  };
+      };
 
-  const fetchDashboardStats = async () => {
-    try {
-      const res = await axios.get('http://localhost/api/dashboard/stats', { withCredentials: true });
-      setDashboardStats(res.data);
-    } catch (err) {
-      console.error('Ошибка получения статистики:', err);
+      const interval = setInterval(fetchUpdates, 10000);
+      return () => clearInterval(interval);
     }
-  };
+  }, [isAuthenticated, lastNotificationId]);
 
+  // Обновляем индикатор новых уведомлений
+  useEffect(() => {
+    const unreadCount = notifications.filter(n => !n.is_read).length;
+    setHasNewNotifications(unreadCount > 0);
+  }, [notifications]);
+
+  // Обработчики
   const handleLogin = async () => {
     setIsLoading(true);
     try {
@@ -288,7 +1523,7 @@ function App() {
       localStorage.setItem('authToken', res.data.access_token);
       setIsAuthenticated(true);
       setSection('dashboard');
-      fetchInitialData();
+      await fetchInitialData(dataSetters, setLastNotificationId, toast);
       toast({
         title: 'Успешный вход',
         description: 'Добро пожаловать в панель администратора',
@@ -318,12 +1553,13 @@ function App() {
       setSection('login');
       setLogin('');
       setPassword('');
-      // Уничтожаем график при выходе
+
       if (chartInstanceRef.current) {
         chartInstanceRef.current.destroy();
         chartInstanceRef.current = null;
         setIsChartInitialized(false);
       }
+
       toast({
         title: 'Выход выполнен',
         description: 'До свидания!',
@@ -346,8 +1582,12 @@ function App() {
 
   const markNotificationRead = async (notificationId, targetUrl) => {
     try {
-      await axios.post(`http://localhost/api/notifications/mark_read/${notificationId}`, {}, { withCredentials: true });
-      setNotifications(prev => prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n));
+      await notificationApi.markRead(notificationId); // заменили axios на API-метод
+
+      setNotifications(prev =>
+        prev.map(n => (n.id === notificationId ? { ...n, is_read: true } : n))
+      );
+
       if (targetUrl) {
         const urlParts = targetUrl.split('/');
         if (urlParts.length >= 2) {
@@ -369,9 +1609,11 @@ function App() {
 
   const markAllNotificationsRead = async () => {
     try {
-      await axios.post('http://localhost/api/notifications/mark_all_read', {}, { withCredentials: true });
+      await notificationApi.markAllRead(); // заменили axios на API-метод
+
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setHasNewNotifications(false);
+
       toast({
         title: 'Успех',
         description: 'Все уведомления помечены как прочитанные',
@@ -398,950 +1640,65 @@ function App() {
     onOpen();
   };
 
-  // Auto-refresh для уведомлений и статистики дашборда
-  useEffect(() => {
-    if (isAuthenticated) {
-      const notificationInterval = setInterval(fetchNotifications, 10000);
-      return () => {
-        clearInterval(notificationInterval);
-      };
-    }
-  }, [isAuthenticated, lastNotificationId, section]);
-
-  // График инициализируется только один раз при наличии данных
-  useEffect(() => {
-    if (section === 'dashboard' && chartRef.current && users.length > 0) {
-
-      const userRegistrationCounts = users.reduce((acc, u) => {
-        if (u.reg_date || u.first_join_time) {
-          const date = new Date(u.reg_date || u.first_join_time);
-          const day = date.getDay() === 0 ? 6 : date.getDay() - 1;
-          acc[day]++;
-        }
-        return acc;
-      }, Array(7).fill(0));
-      const ctx = chartRef.current.getContext('2d');
-      if (chartInstanceRef.current) chartInstanceRef.current.destroy();
-      chartInstanceRef.current = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-          datasets: [{
-            label: 'Регистрации пользователей',
-            data: userRegistrationCounts,
-            borderColor: 'rgb(147, 51, 234)',
-            backgroundColor: 'rgba(147, 51, 234, 0.1)',
-            tension: 0.4,
-            borderWidth: 3,
-            pointBackgroundColor: 'rgb(147, 51, 234)',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2,
-            pointRadius: 5,
-            pointHoverRadius: 7,
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              display: false
-            },
-            tooltip: {
-              backgroundColor: 'rgba(0, 0, 0, 0.8)',
-              padding: 12,
-              cornerRadius: 8,
-            }
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              grid: {
-                color: 'rgba(0, 0, 0, 0.05)',
-              }
-            },
-            x: {
-              grid: {
-                display: false,
-              }
-            }
-          }
-        }
-      });
-      setIsChartInitialized(true);
-    }
-  }, [section, users, isChartInitialized]);
-
-  // Обновляем индикатор новых уведомлений
-  useEffect(() => {
-    const unreadCount = notifications.filter(n => !n.is_read).length;
-    setHasNewNotifications(unreadCount > 0);
-  }, [notifications]);
-
-  const Sidebar = () => (
-    <Box
-      w="260px"
-      bg="gray.900"
-      color="white"
-      minH="100vh"
-      display="flex"
-      flexDirection="column"
-    >
-      <Box p={6}>
-        <VStack align="stretch" spacing={1}>
-          <Flex align="center" mb={6}>
-            <Icon as={FiHome} boxSize={6} color="purple.400" mr={3} />
-            <Heading size="md" fontWeight="bold">
-              Админ панель
-            </Heading>
-          </Flex>
-
-          {[
-            { icon: FiTrendingUp, label: 'Дашборд', section: 'dashboard', color: 'purple' },
-            { icon: FiUser, label: 'Пользователи', section: 'users', color: 'blue' },
-            { icon: FiCalendar, label: 'Бронирования', section: 'bookings', color: 'green' },
-            { icon: FiTag, label: 'Тарифы', section: 'tariffs', color: 'cyan' },
-            { icon: FiPercent, label: 'Промокоды', section: 'promocodes', color: 'orange' },
-            { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
-            { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
-            { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' }
-          ].map(({ icon: Icon, label, section: sec, color }) => (
-            <Button
-              key={sec}
-              leftIcon={<Icon />}
-              variant={section === sec ? 'solid' : 'ghost'}
-              bg={section === sec ? `${color}.600` : 'transparent'}
-              color={section === sec ? 'white' : 'gray.400'}
-              justifyContent="flex-start"
-              onClick={() => setSection(sec)}
-              _hover={{
-                bg: section === sec ? `${color}.700` : 'gray.800',
-                color: 'white',
-              }}
-              borderRadius="lg"
-              px={4}
-              py={6}
-              fontSize="md"
-              transition="all 0.2s"
-            >
-              {label}
-            </Button>
-          ))}
-        </VStack>
-      </Box>
-
-      <Spacer />
-
-      <Box p={6} borderTop="1px" borderColor="gray.700">
-        <Button
-          leftIcon={<FiLogOut />}
-          variant="ghost"
-          color="red.400"
-          justifyContent="flex-start"
-          onClick={handleLogout}
-          _hover={{
-            bg: 'red.900',
-            color: 'red.300',
-          }}
-          borderRadius="lg"
-          px={4}
-          py={6}
-          w="full"
-          fontSize="md"
-          transition="all 0.2s"
-        >
-          Выйти из системы
-        </Button>
-      </Box>
-    </Box>
-  );
-
-  const Navbar = () => (
-    <Box
-      bg="white"
-      px={8}
-      py={4}
-      borderBottom="2px"
-      borderColor="gray.100"
-      boxShadow="sm"
-    >
-      <Flex justify="space-between" align="center">
-        <Heading size="lg" color="gray.800">
-          {section === 'dashboard' ? 'Дашборд' :
-          section === 'users' ? 'Пользователи' :
-          section === 'bookings' ? 'Бронирования' :
-          section === 'tariffs' ? 'Тарифы' :
-          section === 'promocodes' ? 'Промокоды' :
-          section === 'tickets' ? 'Заявки' :
-          section === 'notifications' ? 'Уведомления' :
-          section === 'newsletters' ? 'Рассылка' : ''}
-        </Heading>
-        <HStack spacing={4}>
-          <Menu>
-            <MenuButton
-              as={IconButton}
-              icon={
-                <Box position="relative">
-                  <FiBell size={20} />
-                  {hasNewNotifications && (
-                    <Box
-                      position="absolute"
-                      top="-2px"
-                      right="-2px"
-                      w="10px"
-                      h="10px"
-                      bg="red.500"
-                      borderRadius="full"
-                      border="2px solid white"
-                    />
-                  )}
-                </Box>
-              }
-              variant="ghost"
-              borderRadius="lg"
-              _hover={{ bg: 'gray.100' }}
-            />
-            <MenuList
-              maxH="500px"
-              overflowY="auto"
-              boxShadow="xl"
-              borderRadius="xl"
-              p={2}
-            >
-              <Box p={3}>
-                <Flex justify="space-between" align="center" mb={3}>
-                  <Text fontWeight="bold" fontSize="lg">Уведомления</Text>
-                  {notifications.filter(n => !n.is_read).length > 0 && (
-                    <Button
-                      size="xs"
-                      colorScheme="purple"
-                      onClick={markAllNotificationsRead}
-                      borderRadius="full"
-                    >
-                      Прочитать все
-                    </Button>
-                  )}
-                </Flex>
-              </Box>
-              <Divider />
-              {notifications.length === 0 ? (
-                <Box p={8} textAlign="center">
-                  <Icon as={FiBell} boxSize={10} color="gray.300" mb={2} />
-                  <Text color="gray.500">Нет уведомлений</Text>
-                </Box>
-              ) : (
-                notifications.slice(0, 5).map(n => (
-                  <MenuItem
-                    key={n.id}
-                    onClick={() => markNotificationRead(n.id, n.target_url)}
-                    bg={n.is_read ? 'white' : 'purple.50'}
-                    borderRadius="lg"
-                    mb={1}
-                    p={3}
-                    _hover={{
-                      bg: n.is_read ? 'gray.50' : 'purple.100',
-                    }}
-                  >
-                    <VStack align="stretch" spacing={1} w="full">
-                      <Text fontSize="sm" fontWeight="medium" noOfLines={2}>
-                        {n.message}
-                      </Text>
-                      <Text fontSize="xs" color="gray.500">
-                        {new Date(n.created_at).toLocaleString('ru-RU')}
-                      </Text>
-                    </VStack>
-                  </MenuItem>
-                ))
-              )}
-            </MenuList>
-          </Menu>
-          <Avatar
-            size="md"
-            name={login || 'Admin'}
-            bg="purple.500"
-            color="white"
-          />
-        </HStack>
-      </Flex>
-    </Box>
-  );
-
-  const Dashboard = () => (
-    <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-      <VStack spacing={8} align="stretch">
-        <SimpleGrid columns={{ base: 1, md: 3 }} spacing={6}>
-          <Card
-            bgGradient="linear(to-br, blue.400, blue.600)"
-            color="white"
-            boxShadow="xl"
-            borderRadius="xl"
-            transition="all 0.3s"
-            _hover={{ transform: 'translateY(-4px)', boxShadow: '2xl' }}
-          >
-            <CardBody p={6}>
-              <Stat>
-                <StatLabel fontSize="sm" fontWeight="medium" opacity={0.9}>
-                  Всего пользователей
-                </StatLabel>
-                <StatNumber fontSize="3xl" fontWeight="bold" my={2}>
-                  {dashboardStats.total_users}
-                </StatNumber>
-                <StatHelpText opacity={0.9}>
-                  <HStack spacing={1}>
-                    <Icon as={FiUsers} />
-                    <Text>Активные пользователи</Text>
-                  </HStack>
-                </StatHelpText>
-              </Stat>
-            </CardBody>
-          </Card>
-
-          <Card
-            bgGradient="linear(to-br, green.400, green.600)"
-            color="white"
-            boxShadow="xl"
-            borderRadius="xl"
-            transition="all 0.3s"
-            _hover={{ transform: 'translateY(-4px)', boxShadow: '2xl' }}
-          >
-            <CardBody p={6}>
-              <Stat>
-                <StatLabel fontSize="sm" fontWeight="medium" opacity={0.9}>
-                  Всего бронирований
-                </StatLabel>
-                <StatNumber fontSize="3xl" fontWeight="bold" my={2}>
-                  {dashboardStats.total_bookings}
-                </StatNumber>
-                <StatHelpText opacity={0.9}>
-                  <HStack spacing={1}>
-                    <Icon as={FiShoppingBag} />
-                    <Text>Все бронирования</Text>
-                  </HStack>
-                </StatHelpText>
-              </Stat>
-            </CardBody>
-          </Card>
-
-          <Card
-            bgGradient="linear(to-br, orange.400, orange.600)"
-            color="white"
-            boxShadow="xl"
-            borderRadius="xl"
-            transition="all 0.3s"
-            _hover={{ transform: 'translateY(-4px)', boxShadow: '2xl' }}
-          >
-            <CardBody p={6}>
-              <Stat>
-                <StatLabel fontSize="sm" fontWeight="medium" opacity={0.9}>
-                  Открытые заявки
-                </StatLabel>
-                <StatNumber fontSize="3xl" fontWeight="bold" my={2}>
-                  {dashboardStats.open_tickets}
-                </StatNumber>
-                <StatHelpText opacity={0.9}>
-                  <HStack spacing={1}>
-                    <Icon as={FiMessageCircle} />
-                    <Text>Требуют внимания</Text>
-                  </HStack>
-                </StatHelpText>
-              </Stat>
-            </CardBody>
-          </Card>
-        </SimpleGrid>
-
-        <Card
-          boxShadow="xl"
-          borderRadius="xl"
-          overflow="hidden"
-        >
-          <CardHeader
-            bg="white"
-            borderBottom="2px"
-            borderColor="gray.100"
-            p={6}
-          >
-            <Flex align="center">
-              <Icon as={FiTrendingUp} boxSize={6} color="purple.500" mr={3} />
-              <Heading size="md" color="gray.800">
-                Активность пользователей за неделю
-              </Heading>
-            </Flex>
-          </CardHeader>
-          <CardBody p={6} bg="white">
-            <Box h="350px">
-              <canvas ref={chartRef}></canvas>
-            </Box>
-          </CardBody>
-        </Card>
-      </VStack>
-    </Box>
-  );
-
-  // Модальное окно для детальной информации
-  const DetailModal = () => {
-    if (!selectedItem) return null;
-
-    const renderContent = () => {
-      switch (selectedItem.type) {
-        case 'user':
-          return (
-            <VStack align="stretch" spacing={4}>
-              <HStack>
-                <Icon as={FiUser} />
-                <Text fontWeight="bold">Полное имя:</Text>
-                <Text>{selectedItem.full_name || 'Не указано'}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiPhone} />
-                <Text fontWeight="bold">Телефон:</Text>
-                <Text>{selectedItem.phone || 'Не указано'}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiMail} />
-                <Text fontWeight="bold">Email:</Text>
-                <Text>{selectedItem.email || 'Не указано'}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiInfo} />
-                <Text fontWeight="bold">Telegram ID:</Text>
-                <Text>{selectedItem.telegram_id}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiCalendar} />
-                <Text fontWeight="bold">Дата регистрации:</Text>
-                <Text>{new Date(selectedItem.reg_date || selectedItem.first_join_time).toLocaleDateString('ru-RU')}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiShoppingBag} />
-                <Text fontWeight="bold">Успешных бронирований:</Text>
-                <Text>{selectedItem.successful_bookings}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiUsers} />
-                <Text fontWeight="bold">Приглашено пользователей:</Text>
-                <Text>{selectedItem.invited_count}</Text>
-              </HStack>
-            </VStack>
-          );
-        case 'booking':
-          return (
-            <VStack align="stretch" spacing={4}>
-              <HStack>
-                <Icon as={FiCalendar} />
-                <Text fontWeight="bold">Дата визита:</Text>
-                <Text>{new Date(selectedItem.visit_date).toLocaleDateString('ru-RU')}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiClock} />
-                <Text fontWeight="bold">Время:</Text>
-                <Text>{selectedItem.visit_time || 'Весь день'}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiTag} />
-                <Text fontWeight="bold">Тариф ID:</Text>
-                <Text>{selectedItem.tariff_id}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiDollarSign} />
-                <Text fontWeight="bold">Сумма:</Text>
-                <Text>{selectedItem.amount} ₽</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiCheck} />
-                <Text fontWeight="bold">Оплачено:</Text>
-                <Badge colorScheme={selectedItem.paid ? 'green' : 'red'}>
-                  {selectedItem.paid ? 'Да' : 'Нет'}
-                </Badge>
-              </HStack>
-              <HStack>
-                <Icon as={FiCheck} />
-                <Text fontWeight="bold">Подтверждено:</Text>
-                <Badge colorScheme={selectedItem.confirmed ? 'green' : 'yellow'}>
-                  {selectedItem.confirmed ? 'Да' : 'Ожидает'}
-                </Badge>
-              </HStack>
-              {selectedItem.duration && (
-                <HStack>
-                  <Icon as={FiClock} />
-                  <Text fontWeight="bold">Длительность:</Text>
-                  <Text>{selectedItem.duration} час(ов)</Text>
-                </HStack>
-              )}
-            </VStack>
-          );
-        case 'ticket':
-          return (
-            <VStack align="stretch" spacing={4}>
-              <Box>
-                <HStack mb={2}>
-                  <Icon as={FiInfo} />
-                  <Text fontWeight="bold">Описание:</Text>
-                </HStack>
-                <Text pl={6}>{selectedItem.description}</Text>
-              </Box>
-              <HStack>
-                <Icon as={FiUser} />
-                <Text fontWeight="bold">Пользователь ID:</Text>
-                <Text>{selectedItem.user_id}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiCheck} />
-                <Text fontWeight="bold">Статус:</Text>
-                <Badge colorScheme={
-                  selectedItem.status === 'CLOSED' ? 'red' :
-                  selectedItem.status === 'IN_PROGRESS' ? 'yellow' : 'green'
-                }>
-                  {selectedItem.status === 'OPEN' ? 'Открыта' :
-                   selectedItem.status === 'IN_PROGRESS' ? 'В работе' : 'Закрыта'}
-                </Badge>
-              </HStack>
-              <HStack>
-                <Icon as={FiCalendar} />
-                <Text fontWeight="bold">Создана:</Text>
-                <Text>{new Date(selectedItem.created_at).toLocaleString('ru-RU')}</Text>
-              </HStack>
-              {selectedItem.photo_id && (
-                <HStack>
-                  <Icon as={FiImage} />
-                  <Text fontWeight="bold">Фото прикреплено:</Text>
-                  <Badge colorScheme="blue">Да</Badge>
-                </HStack>
-              )}
-              {selectedItem.comment && (
-                <Box>
-                  <HStack mb={2}>
-                    <Icon as={FiMessageCircle} />
-                    <Text fontWeight="bold">Комментарий:</Text>
-                  </HStack>
-                  <Text pl={6}>{selectedItem.comment}</Text>
-                </Box>
-              )}
-            </VStack>
-          );
-        case 'tariff':
-          return (
-            <VStack align="stretch" spacing={4}>
-              <HStack>
-                <Icon as={FiTag} />
-                <Text fontWeight="bold">Название:</Text>
-                <Text>{selectedItem.name}</Text>
-              </HStack>
-              <Box>
-                <HStack mb={2}>
-                  <Icon as={FiInfo} />
-                  <Text fontWeight="bold">Описание:</Text>
-                </HStack>
-                <Text pl={6}>{selectedItem.description}</Text>
-              </Box>
-              <HStack>
-                <Icon as={FiDollarSign} />
-                <Text fontWeight="bold">Цена:</Text>
-                <Text>{selectedItem.price} ₽</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiCheck} />
-                <Text fontWeight="bold">Активен:</Text>
-                <Badge colorScheme={selectedItem.is_active ? 'green' : 'red'}>
-                  {selectedItem.is_active ? 'Да' : 'Нет'}
-                </Badge>
-              </HStack>
-              {selectedItem.purpose && (
-                <HStack>
-                  <Icon as={FiInfo} />
-                  <Text fontWeight="bold">Назначение:</Text>
-                  <Text>{selectedItem.purpose}</Text>
-                </HStack>
-              )}
-            </VStack>
-          );
-        case 'promocode':
-          return (
-            <VStack align="stretch" spacing={4}>
-              <HStack>
-                <Icon as={FiPercent} />
-                <Text fontWeight="bold">Название:</Text>
-                <Text>{selectedItem.name}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiPercent} />
-                <Text fontWeight="bold">Скидка:</Text>
-                <Text>{selectedItem.discount}%</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiUsers} />
-                <Text fontWeight="bold">Использовано раз:</Text>
-                <Text>{selectedItem.usage_quantity}</Text>
-              </HStack>
-              <HStack>
-                <Icon as={FiCheck} />
-                <Text fontWeight="bold">Активен:</Text>
-                <Badge colorScheme={selectedItem.is_active ? 'green' : 'red'}>
-                  {selectedItem.is_active ? 'Да' : 'Нет'}
-                </Badge>
-              </HStack>
-              {selectedItem.expiration_date && (
-                <HStack>
-                  <Icon as={FiCalendar} />
-                  <Text fontWeight="bold">Срок действия до:</Text>
-                  <Text>{new Date(selectedItem.expiration_date).toLocaleDateString('ru-RU')}</Text>
-                </HStack>
-              )}
-            </VStack>
-          );
-        default:
-          return null;
-      }
+  // Рендер секций
+  const renderSection = () => {
+    const sectionProps = {
+      openDetailModal,
+      fetchData: () => fetchSectionData(section, dataSetters)
     };
 
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} size="lg">
-        <ModalOverlay />
-        <ModalContent>
-          <ModalHeader>
-            {selectedItem.type === 'user' ? 'Информация о пользователе' :
-             selectedItem.type === 'booking' ? 'Информация о бронировании' :
-             selectedItem.type === 'ticket' ? 'Информация о заявке' :
-             selectedItem.type === 'tariff' ? 'Информация о тарифе' :
-             selectedItem.type === 'promocode' ? 'Информация о промокоде' : 'Детали'}
-          </ModalHeader>
-          <ModalCloseButton />
-          <ModalBody pb={6}>
-            {renderContent()}
-          </ModalBody>
-          <ModalFooter>
-            <Button colorScheme="purple" onClick={onClose}>
-              Закрыть
-            </Button>
-          </ModalFooter>
-        </ModalContent>
-      </Modal>
-    );
-  };
-
-  const renderSection = () => {
     switch (section) {
       case 'dashboard':
-        return <Dashboard />;
+        return (
+          <Dashboard
+            stats={dashboardStats}
+            users={users}
+            chartRef={chartRef}
+            chartInstanceRef={chartInstanceRef}
+            isChartInitialized={isChartInitialized}
+            setIsChartInitialized={setIsChartInitialized}
+            section={section}
+          />
+        );
       case 'users':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">Список пользователей</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {users.map(user => (
-                    <Box
-                      key={user.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg="white"
-                      cursor="pointer"
-                      _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
-                      transition="all 0.2s"
-                      onClick={() => openDetailModal(user, 'user')}
-                    >
-                      <HStack justify="space-between">
-                        <VStack align="start" spacing={1}>
-                          <Text fontWeight="bold">{user.full_name || 'Без имени'}</Text>
-                          <HStack spacing={4}>
-                            <Text fontSize="sm" color="gray.600">
-                              <Icon as={FiPhone} mr={1} />
-                              {user.phone || 'Не указан'}
-                            </Text>
-                            <Text fontSize="sm" color="gray.600">
-                              <Icon as={FiMail} mr={1} />
-                              {user.email || 'Не указан'}
-                            </Text>
-                          </HStack>
-                        </VStack>
-                        <Icon as={FiEye} color="purple.500" />
-                      </HStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Users users={users} {...sectionProps} />;
       case 'bookings':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">Бронирования</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {bookings.map(b => (
-                    <Box
-                      key={b.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg="white"
-                      cursor="pointer"
-                      _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
-                      transition="all 0.2s"
-                      onClick={() => openDetailModal(b, 'booking')}
-                    >
-                      <HStack justify="space-between">
-                        <VStack align="start" spacing={1}>
-                          <Text fontWeight="bold">
-                            {new Date(b.visit_date).toLocaleDateString('ru-RU')}
-                          </Text>
-                          <HStack spacing={4}>
-                            <Badge colorScheme={b.paid ? 'green' : 'red'}>
-                              {b.paid ? 'Оплачено' : 'Не оплачено'}
-                            </Badge>
-                            <Badge colorScheme={b.confirmed ? 'green' : 'yellow'}>
-                              {b.confirmed ? 'Подтверждено' : 'Ожидает'}
-                            </Badge>
-                            <Text fontSize="sm" color="gray.600">
-                              {b.amount} ₽
-                            </Text>
-                          </HStack>
-                        </VStack>
-                        <Icon as={FiEye} color="purple.500" />
-                      </HStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Bookings bookings={bookings} {...sectionProps} />;
       case 'tariffs':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">Тарифы</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {tariffs.map(t => (
-                    <Box
-                      key={t.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg="white"
-                      cursor="pointer"
-                      _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
-                      transition="all 0.2s"
-                      onClick={() => openDetailModal(t, 'tariff')}
-                    >
-                      <HStack justify="space-between">
-                        <VStack align="start" spacing={1}>
-                          <Text fontWeight="bold">{t.name}</Text>
-                          <HStack spacing={4}>
-                            <Text fontSize="sm" color="gray.600">
-                              {t.price} ₽
-                            </Text>
-                            <Badge colorScheme={t.is_active ? 'green' : 'red'}>
-                              {t.is_active ? 'Активен' : 'Неактивен'}
-                            </Badge>
-                          </HStack>
-                        </VStack>
-                        <Icon as={FiEye} color="purple.500" />
-                      </HStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Tariffs tariffs={tariffs} {...sectionProps} />;
       case 'promocodes':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">Промокоды</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {promocodes.map(p => (
-                    <Box
-                      key={p.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg="white"
-                      cursor="pointer"
-                      _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
-                      transition="all 0.2s"
-                      onClick={() => openDetailModal(p, 'promocode')}
-                    >
-                      <HStack justify="space-between">
-                        <VStack align="start" spacing={1}>
-                          <Text fontWeight="bold">{p.name}</Text>
-                          <HStack spacing={4}>
-                            <Text fontSize="sm" color="gray.600">
-                              Скидка: {p.discount}%
-                            </Text>
-                            <Badge colorScheme={p.is_active ? 'green' : 'red'}>
-                              {p.is_active ? 'Активен' : 'Неактивен'}
-                            </Badge>
-                          </HStack>
-                        </VStack>
-                        <Icon as={FiEye} color="purple.500" />
-                      </HStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Promocodes promocodes={promocodes} {...sectionProps} />;
       case 'tickets':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">Заявки</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {tickets.map(t => (
-                    <Box
-                      key={t.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg="white"
-                      cursor="pointer"
-                      _hover={{ bg: 'gray.50', transform: 'translateX(4px)' }}
-                      transition="all 0.2s"
-                      onClick={() => openDetailModal(t, 'ticket')}
-                    >
-                      <HStack justify="space-between">
-                        <VStack align="start" spacing={1}>
-                          <Text fontWeight="bold" noOfLines={1}>
-                            {t.description}
-                          </Text>
-                          <HStack spacing={4}>
-                            <Badge colorScheme={
-                              t.status === 'CLOSED' ? 'red' :
-                              t.status === 'IN_PROGRESS' ? 'yellow' : 'green'
-                            }>
-                              {t.status === 'OPEN' ? 'Открыта' :
-                               t.status === 'IN_PROGRESS' ? 'В работе' : 'Закрыта'}
-                            </Badge>
-                            <Text fontSize="sm" color="gray.600">
-                              {new Date(t.created_at).toLocaleDateString('ru-RU')}
-                            </Text>
-                          </HStack>
-                        </VStack>
-                        <Icon as={FiEye} color="purple.500" />
-                      </HStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Tickets tickets={tickets} {...sectionProps} />;
       case 'notifications':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">Уведомления</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {notifications.map(n => (
-                    <Box
-                      key={n.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg={n.is_read ? 'white' : 'purple.50'}
-                      transition="all 0.2s"
-                    >
-                      <VStack align="start" spacing={2}>
-                        <Text>{n.message}</Text>
-                        <HStack spacing={4}>
-                          <Badge colorScheme={n.is_read ? 'gray' : 'purple'}>
-                            {n.is_read ? 'Прочитано' : 'Новое'}
-                          </Badge>
-                          <Text fontSize="sm" color="gray.600">
-                            {new Date(n.created_at).toLocaleString('ru-RU')}
-                          </Text>
-                        </HStack>
-                      </VStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Notifications notifications={notifications} />;
       case 'newsletters':
-        return (
-          <Box p={8} bg="gray.50" minH="calc(100vh - 80px)">
-            <Card borderRadius="xl" boxShadow="xl">
-              <CardHeader>
-                <Heading size="md">История рассылок</Heading>
-              </CardHeader>
-              <CardBody>
-                <VStack align="stretch" spacing={2}>
-                  {newsletters.map(n => (
-                    <Box
-                      key={n.id}
-                      p={4}
-                      borderRadius="lg"
-                      border="1px"
-                      borderColor="gray.200"
-                      bg="white"
-                    >
-                      <VStack align="start" spacing={2}>
-                        <Text>{n.message}</Text>
-                        <HStack spacing={4}>
-                          <Text fontSize="sm" color="gray.600">
-                            <Icon as={FiUsers} mr={1} />
-                            Отправлено: {n.recipient_count} пользователям
-                          </Text>
-                          <Text fontSize="sm" color="gray.600">
-                            {new Date(n.created_at).toLocaleString('ru-RU')}
-                          </Text>
-                        </HStack>
-                      </VStack>
-                    </Box>
-                  ))}
-                </VStack>
-              </CardBody>
-            </Card>
-          </Box>
-        );
+        return <Newsletters newsletters={newsletters} />;
       default:
-        return <Dashboard />;
+        return (
+          <Dashboard
+            stats={dashboardStats}
+            users={users}
+            chartRef={chartRef}
+            chartInstanceRef={chartInstanceRef}
+            isChartInitialized={isChartInitialized}
+            setIsChartInitialized={setIsChartInitialized}
+            section={section}
+          />
+        );
     }
   };
 
+  // Проверка аутентификации
   if (isCheckingAuth) {
     return (
       <ChakraProvider>
-        <Center h="100vh" bg="gray.50">
-          <VStack spacing={4}>
-            <Spinner size="xl" color="purple.500" thickness="4px" />
-            <Text color="gray.600">Загрузка...</Text>
-          </VStack>
-        </Center>
+        <Login isLoading={true} />
       </ChakraProvider>
     );
   }
 
+  // Страница логина
   if (!isAuthenticated) {
     return (
       <ChakraProvider>
@@ -1357,16 +1714,26 @@ function App() {
     );
   }
 
+  // Основное приложение
   return (
     <ChakraProvider>
-      <Flex minH="100vh" bg="gray.50">
-        <Sidebar />
-        <Box flex={1}>
-          <Navbar />
-          {renderSection()}
-        </Box>
-      </Flex>
-      <DetailModal />
+      <Layout
+        section={section}
+        setSection={setSection}
+        handleLogout={handleLogout}
+        login={login}
+        notifications={notifications}
+        hasNewNotifications={hasNewNotifications}
+        markNotificationRead={markNotificationRead}
+        markAllNotificationsRead={markAllNotificationsRead}
+      >
+        {renderSection()}
+      </Layout>
+      <DetailModal
+        isOpen={isOpen}
+        onClose={onClose}
+        selectedItem={selectedItem}
+      />
     </ChakraProvider>
   );
 }
