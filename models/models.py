@@ -357,7 +357,10 @@ def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
 
 
 def check_and_add_user(
-    telegram_id: int, username: Optional[str] = None, referrer_id: Optional[int] = None
+    telegram_id: int,
+    username: Optional[str] = None,
+    language_code: Optional[str] = None,
+    referrer_id: Optional[int] = None,
 ) -> Tuple[Optional[User], bool]:
     """
     Проверяет, существует ли пользователь в БД, и добавляет его, если не существует.
@@ -365,6 +368,7 @@ def check_and_add_user(
     Args:
         telegram_id: Telegram ID пользователя.
         username: Имя пользователя в Telegram (опционально).
+        language_code: Код языка пользователя (опционально).
         referrer_id: ID реферера (опционально).
 
     Returns:
@@ -384,6 +388,7 @@ def check_and_add_user(
                 telegram_id=telegram_id,
                 username=username,
                 first_join_time=datetime.now(MOSCOW_TZ),
+                language_code=language_code,
                 referrer_id=referrer_id,
                 invited_count=0,
             )
@@ -463,7 +468,6 @@ def add_user(
                 email=email,
                 username=username,
                 successful_bookings=0,
-                language_code="ru",
                 invited_count=0,
                 reg_date=reg_date or datetime.now(MOSCOW_TZ),
                 agreed_to_terms=(

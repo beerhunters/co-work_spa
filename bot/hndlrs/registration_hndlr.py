@@ -166,6 +166,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     result = check_and_add_user(
         telegram_id=message.from_user.id,
         username=message.from_user.username,
+        language_code=message.from_user.language_code,
         referrer_id=ref_id,
     )
 
