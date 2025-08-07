@@ -1,10 +1,8 @@
 import os
-from typing import Optional
 
 from aiogram import Router, Bot, F, Dispatcher
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     Message,
@@ -15,7 +13,6 @@ from aiogram.types import (
 
 from bot.config import create_user_keyboard, create_back_keyboard
 from models.models import create_ticket
-
 from utils.logger import get_logger
 
 # Тихая настройка логгера для модуля
@@ -98,17 +95,10 @@ async def start_helpdesk(
     # Сохраняем telegram_id пользователя
     await state.update_data(telegram_id=callback_query.from_user.id)
     await callback_query.message.edit_text(
-        # await callback_query.message.answer(
         "Опишите вашу проблему или пожелание:",
         reply_markup=create_back_keyboard(),
     )
     logger.info(f"Пользователь {callback_query.from_user.id} начал создание заявки")
-    # try:
-    #     await callback_query.message.delete()
-    # except TelegramBadRequest as e:
-    #     logger.warning(
-    #         f"Не удалось удалить сообщение для пользователя {callback_query.from_user.id}: {str(e)}"
-    #     )
     await callback_query.answer()
 
 
@@ -159,93 +149,133 @@ async def process_add_photo(callback_query: CallbackQuery, state: FSMContext) ->
 
 @router.callback_query(TicketForm.ASK_PHOTO, F.data == "no_photo")
 async def process_skip_photo(callback_query: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    telegram_id = data.get("telegram_id")
-    description = data.get("description")
+    try:
+        data = await state.get_data()
+        telegram_id = data.get("telegram_id")
+        description = data.get("description")
 
-    # Создаем тикет без фото - функция сама вернет красивое сообщение
-    ticket, admin_message, session = create_ticket(
-        telegram_id=telegram_id, description=description, photo_id=None
-    )
-
-    if ticket and admin_message:
-        try:
-            # Отправляем уведомление админу
-            await callback_query.bot.send_message(
-                chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомления админу: {e}")
-        finally:
-            if session:
-                session.close()
-
-        await callback_query.message.edit_text(
-            "✅ Ваша заявка успешно отправлена!\n\n"
-            f"🏷 <b>Номер заявки:</b> #{ticket.id}\n"
-            "📞 Мы свяжемся с вами в ближайшее время для решения вопроса.",
-            reply_markup=create_user_keyboard(),
-            parse_mode="HTML",
+        # Создаем тикет без фото
+        ticket, telegram_message = create_ticket(
+            user_id=telegram_id, description=description, photo_id=None
         )
-    else:
-        if session:
-            session.close()
+
+        if ticket and telegram_message:
+            try:
+                # Отправляем уведомление админу в Telegram
+                await callback_query.bot.send_message(
+                    chat_id=ADMIN_TELEGRAM_ID, text=telegram_message, parse_mode="HTML"
+                )
+                logger.info(f"Уведомление о тикете #{ticket.id} отправлено админу")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу: {e}")
+
+            await callback_query.message.edit_text(
+                "✅ Ваша заявка успешно отправлена!\n\n"
+                f"🏷 <b>Номер заявки:</b> #{ticket.id}\n"
+                "📞 Мы свяжемся с вами в ближайшее время для решения вопроса.",
+                reply_markup=create_user_keyboard(),
+                parse_mode="HTML",
+            )
+            logger.info(
+                f"Тикет #{ticket.id} успешно создан пользователем {telegram_id}"
+            )
+        else:
+            await callback_query.message.edit_text(
+                "❌ Произошла ошибка при отправке заявки. Попробуйте еще раз.",
+                reply_markup=create_user_keyboard(),
+            )
+            logger.error(f"Не удалось создать тикет для пользователя {telegram_id}")
+
+    except Exception as e:
+        logger.error(f"Ошибка в process_skip_photo: {e}")
         await callback_query.message.edit_text(
             "❌ Произошла ошибка при отправке заявки. Попробуйте еще раз.",
             reply_markup=create_user_keyboard(),
         )
+
     await callback_query.answer()
     await state.clear()
 
 
 @router.message(TicketForm.PHOTO, F.content_type == "photo")
 async def process_photo(message: Message, state: FSMContext, bot: Bot) -> None:
-    photo_id = message.photo[-1].file_id
-    data = await state.get_data()
-    telegram_id = data.get("telegram_id")
-    description = data.get("description")
+    try:
+        photo_id = message.photo[-1].file_id
+        data = await state.get_data()
+        telegram_id = data.get("telegram_id")
+        description = data.get("description")
 
-    # Создаем тикет с фото - функция сама вернет красивое сообщение
-    ticket, admin_message, session = create_ticket(
-        telegram_id=telegram_id, description=description, photo_id=photo_id
-    )
+        # Создаем тикет с фото
+        ticket, telegram_message = create_ticket(
+            user_id=telegram_id, description=description, photo_id=photo_id
+        )
 
-    if ticket and admin_message:
-        try:
-            # Отправляем фото админу, если оно есть
-            if photo_id:
+        if ticket and telegram_message:
+            try:
+                # Отправляем фото админу с сообщением в Telegram
                 await bot.send_photo(
                     chat_id=ADMIN_TELEGRAM_ID,
                     photo=photo_id,
-                    caption=admin_message,
+                    caption=telegram_message,
                     parse_mode="HTML",
                 )
-            else:
-                # Если по какой-то причине фото не прикрепилось, отправляем просто текст
-                await bot.send_message(
-                    chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
+                logger.info(
+                    f"Уведомление о тикете #{ticket.id} с фото отправлено админу"
                 )
-        except Exception as e:
-            logger.error(f"Ошибка отправки уведомления админу: {e}")
-        finally:
-            if session:
-                session.close()
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления админу: {e}")
+                # Если не удалось отправить фото, отправляем просто текст
+                try:
+                    await bot.send_message(
+                        chat_id=ADMIN_TELEGRAM_ID,
+                        text=telegram_message,
+                        parse_mode="HTML",
+                    )
+                    logger.info(
+                        f"Текстовое уведомление о тикете #{ticket.id} отправлено админу"
+                    )
+                except Exception as e2:
+                    logger.error(f"Ошибка отправки текстового уведомления админу: {e2}")
 
-        await message.answer(
-            "✅ Ваша заявка успешно отправлена!\n\n"
-            f"🏷 <b>Номер заявки:</b> #{ticket.id}\n"
-            "📞 Мы свяжемся с вами в ближайшее время для решения вопроса.",
-            reply_markup=create_user_keyboard(),
-            parse_mode="HTML",
-        )
-    else:
-        if session:
-            session.close()
+            await message.answer(
+                "✅ Ваша заявка успешно отправлена!\n\n"
+                f"🏷 <b>Номер заявки:</b> #{ticket.id}\n"
+                "📞 Мы свяжемся с вами в ближайшее время для решения вопроса.",
+                reply_markup=create_user_keyboard(),
+                parse_mode="HTML",
+            )
+            logger.info(
+                f"Тикет #{ticket.id} с фото успешно создан пользователем {telegram_id}"
+            )
+        else:
+            await message.answer(
+                "❌ Произошла ошибка при отправке заявки. Попробуйте еще раз.",
+                reply_markup=create_user_keyboard(),
+            )
+            logger.error(
+                f"Не удалось создать тикет с фото для пользователя {telegram_id}"
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка в process_photo: {e}")
         await message.answer(
             "❌ Произошла ошибка при отправке заявки. Попробуйте еще раз.",
             reply_markup=create_user_keyboard(),
         )
+
     await state.clear()
+
+
+@router.message(TicketForm.PHOTO, ~F.content_type.in_(["photo"]))
+async def process_invalid_photo(message: Message, state: FSMContext) -> None:
+    """Обработка неправильного типа файла вместо фото."""
+    await message.answer(
+        "❌ Пожалуйста, отправьте именно фото, а не другой тип файла.",
+        reply_markup=create_back_keyboard(),
+    )
+    logger.warning(
+        f"Пользователь {message.from_user.id} отправил не фото в состоянии PHOTO"
+    )
 
 
 @router.callback_query(

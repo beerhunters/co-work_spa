@@ -1,6 +1,9 @@
-import time
-from sqlite3 import IntegrityError, OperationalError
+import enum
+from datetime import datetime
+from sqlite3 import IntegrityError
 from typing import Optional, Tuple, List
+
+import pytz
 from sqlalchemy import (
     create_engine,
     Column,
@@ -18,10 +21,7 @@ from sqlalchemy import (
     Enum,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, Session as SQLAlchemySession
-from datetime import datetime
-import pytz
-import enum
+from sqlalchemy.orm import sessionmaker, relationship
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from utils.logger import get_logger
@@ -169,13 +169,40 @@ class Promocode(Base):
     is_active = Column(Boolean, default=False, index=True)
 
 
+# class Booking(Base):
+#     """Модель бронирования."""
+#
+#     __tablename__ = "bookings"
+#     id = Column(Integer, primary_key=True)
+#     user_id = Column(
+#         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+#     )
+#     tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=False)
+#     visit_date = Column(Date, nullable=False)
+#     visit_time = Column(Time, nullable=True)
+#     duration = Column(Integer, nullable=True)
+#     promocode_id = Column(Integer, ForeignKey("promocodes.id"), nullable=True)
+#     amount = Column(Float, nullable=False)
+#     payment_id = Column(String(100), nullable=True)
+#     paid = Column(Boolean, default=False)
+#     rubitime_id = Column(String(100), nullable=True)
+#     confirmed = Column(Boolean, default=False)
+#
+#     user = relationship("User", back_populates="bookings")
+#     tariff = relationship("Tariff", backref="bookings")
+#     promocode = relationship("Promocode", backref="promocodes")
+#     notifications = relationship(
+#         "Notification",
+#         back_populates="booking",
+#         cascade="all, delete-orphan",
+#         passive_deletes=True,
+#     )
 class Booking(Base):
-    """Модель бронирования."""
-
     __tablename__ = "bookings"
-    id = Column(Integer, primary_key=True)
+
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
     )
     tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=False)
     visit_date = Column(Date, nullable=False)
@@ -187,15 +214,20 @@ class Booking(Base):
     paid = Column(Boolean, default=False)
     rubitime_id = Column(String(100), nullable=True)
     confirmed = Column(Boolean, default=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
+    )
+
+    # Связи
     user = relationship("User", back_populates="bookings")
     tariff = relationship("Tariff", backref="bookings")
     promocode = relationship("Promocode", backref="promocodes")
     notifications = relationship(
-        "Notification",
-        back_populates="booking",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+        "Notification", back_populates="booking"
+    )  # ДОБАВИТЬ ЭТУ СТРОКУ
+
+    def __repr__(self) -> str:
+        return f"<Booking {self.id}: User {self.user_id}, Date {self.visit_date}>"
 
 
 class Newsletter(Base):
@@ -215,12 +247,11 @@ class TicketStatus(enum.Enum):
 
 
 class Ticket(Base):
-    """Модель заявки в системе Helpdesk."""
-
     __tablename__ = "tickets"
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
     )
     description = Column(String, nullable=False)
     photo_id = Column(String, nullable=True)
@@ -235,37 +266,40 @@ class Ticket(Base):
         onupdate=lambda: datetime.now(MOSCOW_TZ),
         nullable=False,
     )
+
+    # Связи
     user = relationship("User", back_populates="tickets")
     notifications = relationship(
-        "Notification",
-        back_populates="ticket",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-    )
+        "Notification", back_populates="ticket"
+    )  # ДОБАВИТЬ ЭТУ СТРОКУ
+
+    def __repr__(self) -> str:
+        return f"<Ticket {self.id}: {self.status} - {self.description[:50]}>"
 
 
 class Notification(Base):
-    """Модель уведомления."""
-
     __tablename__ = "notifications"
-    id = Column(Integer, primary_key=True)
+
+    id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
-        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
     )
-    message = Column(String, nullable=False)
+    message = Column(String, nullable=False)  # ДОБАВИТЬ ЭТО ПОЛЕ
+    target_url = Column(String, nullable=True)  # ДОБАВИТЬ ЭТО ПОЛЕ
+    is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(
         DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
     )
-    is_read = Column(Boolean, default=False, nullable=False)
-    booking_id = Column(
-        Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=True
-    )
-    ticket_id = Column(
-        Integer, ForeignKey("tickets.id", ondelete="CASCADE"), nullable=True
-    )
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=True, index=True)
+    ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=True, index=True)
+
+    # Связи
     user = relationship("User", back_populates="notifications")
     booking = relationship("Booking", back_populates="notifications")
     ticket = relationship("Ticket", back_populates="notifications")
+
+    def __repr__(self) -> str:
+        return f"<Notification {self.id}: {self.message[:50]}>"
 
 
 def init_db() -> None:
@@ -462,7 +496,8 @@ def add_user(
             notification = Notification(
                 user_id=user.id,
                 message=f"Новый пользователь: {full_name}",
-                created_at=datetime.now(MOSCOW_TZ),
+                # created_at=datetime.now(MOSCOW_TZ),
+                target_url=f"/users/{user.id}",
                 is_read=False,
             )
             session.add(notification)
@@ -559,128 +594,208 @@ def format_booking_notification(user, tariff, booking_data):
     return message.strip()
 
 
+# def create_booking(
+#     telegram_id: int,
+#     tariff_id: int,
+#     visit_date: datetime.date,
+#     visit_time: Optional[datetime.time] = None,
+#     duration: Optional[int] = None,
+#     promocode_id: Optional[int] = None,
+#     amount: Optional[float] = None,
+#     paid: Optional[bool] = False,
+#     confirmed: Optional[bool] = False,
+#     payment_id: Optional[str] = None,
+# ) -> Tuple[Optional[Booking], Optional[str], Optional[Session]]:
+#     """
+#     Создаёт запись бронирования и уведомление в базе данных.
+#
+#     Args:
+#         telegram_id: Telegram ID пользователя.
+#         tariff_id: ID тарифа.
+#         visit_date: Дата визита.
+#         visit_time: Время визита (для "Переговорной").
+#         duration: Продолжительность (для "Переговорной").
+#         promocode_id: ID промокода, если применён.
+#         amount: Итоговая сумма.
+#         paid: Флаг оплаты.
+#         confirmed: Флаг подтверждения.
+#         payment_id: ID платежа (для платных броней).
+#
+#     Returns:
+#         Tuple[Optional[Booking], Optional[str], Optional[Session]]: Объект брони, сообщение для админа, сессия.
+#     """
+#     session = Session()
+#     retries = 3
+#     try:
+#         user = session.query(User).filter_by(telegram_id=telegram_id).first()
+#         if not user:
+#             logger.warning(f"Пользователь с telegram_id {telegram_id} не найден")
+#             session.close()
+#             return None, "Пользователь не найден", None
+#
+#         tariff = session.query(Tariff).filter_by(id=tariff_id, is_active=True).first()
+#         if not tariff:
+#             logger.warning(f"Тариф с ID {tariff_id} не найден или не активен")
+#             session.close()
+#             return None, "Тариф не найден", None
+#
+#         for attempt in range(retries):
+#             try:
+#                 booking = Booking(
+#                     user_id=user.id,
+#                     tariff_id=tariff.id,
+#                     visit_date=visit_date,
+#                     visit_time=visit_time,
+#                     duration=duration,
+#                     promocode_id=promocode_id,
+#                     amount=amount or tariff.price,
+#                     paid=paid,
+#                     confirmed=confirmed,
+#                     payment_id=payment_id,
+#                 )
+#                 session.add(booking)
+#                 session.flush()
+#
+#                 # Формируем данные для уведомления
+#                 booking_data = {
+#                     "tariff_name": tariff.name,
+#                     "tariff_purpose": tariff.purpose.lower(),
+#                     "visit_date": visit_date,
+#                     "visit_time": visit_time,
+#                     "duration": duration,
+#                     "amount": amount or tariff.price,
+#                     "discount": 0,
+#                     "promocode_name": None,
+#                     "rubitime_id": getattr(booking, "rubitime_id", "Не создано"),
+#                 }
+#                 if promocode_id:
+#                     promocode = (
+#                         session.query(Promocode).filter_by(id=promocode_id).first()
+#                     )
+#                     if promocode:
+#                         booking_data["discount"] = promocode.discount
+#                         booking_data["promocode_name"] = promocode.name
+#
+#                 notification = Notification(
+#                     user_id=user.id,
+#                     message=f"Новая бронь от {user.full_name or 'пользователя'}: тариф {tariff.name}, дата {visit_date}"
+#                     + (
+#                         f", время {visit_time}, длительность {duration} ч"
+#                         if tariff.purpose == "Переговорная"
+#                         else ""
+#                     ),
+#                     created_at=datetime.now(MOSCOW_TZ),
+#                     is_read=False,
+#                     booking_id=booking.id,
+#                 )
+#                 session.add(notification)
+#                 session.commit()
+#
+#                 admin_message = format_booking_notification(user, tariff, booking_data)
+#                 logger.info(
+#                     f"Бронь создана: пользователь {telegram_id}, тариф {tariff.name}, дата {visit_date}, ID брони {booking.id}"
+#                 )
+#                 return booking, admin_message, session
+#             except OperationalError as e:
+#                 if "database is locked" in str(e) and attempt < retries - 1:
+#                     logger.warning(
+#                         f"Попытка {attempt + 1}: база данных заблокирована, повтор через 100 мс"
+#                     )
+#                     session.rollback()
+#                     time.sleep(0.1)
+#                     continue
+#     except IntegrityError as e:
+#         session.rollback()
+#         logger.error(
+#             f"Ошибка уникальности при создании брони для пользователя {telegram_id}: {str(e)}"
+#         )
+#         session.close()
+#         return None, "Ошибка при создании брони", None
+#     except Exception as e:
+#         session.rollback()
+#         logger.error(f"Ошибка создания брони для пользователя {telegram_id}: {str(e)}")
+#         session.close()
+#         return None, "Ошибка при создания брони", None
 def create_booking(
-    telegram_id: int,
+    user_id: int,
     tariff_id: int,
-    visit_date: datetime.date,
-    visit_time: Optional[datetime.time] = None,
-    duration: Optional[int] = None,
-    promocode_id: Optional[int] = None,
-    amount: Optional[float] = None,
-    paid: Optional[bool] = False,
-    confirmed: Optional[bool] = False,
-    payment_id: Optional[str] = None,
-) -> Tuple[Optional[Booking], Optional[str], Optional[Session]]:
-    """
-    Создаёт запись бронирования и уведомление в базе данных.
-
-    Args:
-        telegram_id: Telegram ID пользователя.
-        tariff_id: ID тарифа.
-        visit_date: Дата визита.
-        visit_time: Время визита (для "Переговорной").
-        duration: Продолжительность (для "Переговорной").
-        promocode_id: ID промокода, если применён.
-        amount: Итоговая сумма.
-        paid: Флаг оплаты.
-        confirmed: Флаг подтверждения.
-        payment_id: ID платежа (для платных броней).
-
-    Returns:
-        Tuple[Optional[Booking], Optional[str], Optional[Session]]: Объект брони, сообщение для админа, сессия.
-    """
+    visit_date,
+    visit_time=None,
+    duration=None,
+    promocode_id=None,
+    amount=0.0,
+    payment_id=None,
+    rubitime_id=None,
+) -> Booking:
     session = Session()
     retries = 3
-    try:
-        user = session.query(User).filter_by(telegram_id=telegram_id).first()
-        if not user:
-            logger.warning(f"Пользователь с telegram_id {telegram_id} не найден")
+
+    for attempt in range(retries):
+        try:
+            user = session.query(User).filter_by(telegram_id=user_id).first()
+            if not user:
+                raise ValueError(f"Пользователь с telegram_id {user_id} не найден")
+
+            tariff = (
+                session.query(Tariff).filter_by(id=tariff_id, is_active=True).first()
+            )
+            if not tariff:
+                raise ValueError(f"Тариф с id {tariff_id} не найден или неактивен")
+
+            booking = Booking(
+                user_id=user_id,
+                tariff_id=tariff_id,
+                visit_date=visit_date,
+                visit_time=visit_time,
+                duration=duration,
+                promocode_id=promocode_id,
+                amount=amount,
+                payment_id=payment_id,
+                rubitime_id=rubitime_id,
+            )
+
+            session.add(booking)
+            session.flush()  # Получаем ID бронирования
+
+            # Создаем уведомление для админа
+            booking_data = {
+                "visit_date": visit_date,
+                "visit_time": visit_time,
+                "duration": duration,
+                "tariff_purpose": tariff.purpose,
+                "amount": amount,
+            }
+
+            # Получаем промокод если есть
+            promocode = None
+            if promocode_id:
+                promocode = session.query(Promocode).filter_by(id=promocode_id).first()
+                if promocode:
+                    booking_data["promocode_name"] = promocode.name
+                    booking_data["discount"] = promocode.discount
+
+            admin_message = format_booking_notification(user, tariff, booking_data)
+
+            # Создаем уведомление
+            notification = Notification(
+                user_id=user_id,
+                message=admin_message,
+                target_url=f"/bookings/{booking.id}",
+                booking_id=booking.id,
+                is_read=False,
+            )
+            session.add(notification)
+
+            session.commit()
+            return booking
+
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Ошибка создания бронирования (попытка {attempt + 1}): {e}")
+            if attempt == retries - 1:
+                raise e
+        finally:
             session.close()
-            return None, "Пользователь не найден", None
-
-        tariff = session.query(Tariff).filter_by(id=tariff_id, is_active=True).first()
-        if not tariff:
-            logger.warning(f"Тариф с ID {tariff_id} не найден или не активен")
-            session.close()
-            return None, "Тариф не найден", None
-
-        for attempt in range(retries):
-            try:
-                booking = Booking(
-                    user_id=user.id,
-                    tariff_id=tariff.id,
-                    visit_date=visit_date,
-                    visit_time=visit_time,
-                    duration=duration,
-                    promocode_id=promocode_id,
-                    amount=amount or tariff.price,
-                    paid=paid,
-                    confirmed=confirmed,
-                    payment_id=payment_id,
-                )
-                session.add(booking)
-                session.flush()
-
-                # Формируем данные для уведомления
-                booking_data = {
-                    "tariff_name": tariff.name,
-                    "tariff_purpose": tariff.purpose.lower(),
-                    "visit_date": visit_date,
-                    "visit_time": visit_time,
-                    "duration": duration,
-                    "amount": amount or tariff.price,
-                    "discount": 0,
-                    "promocode_name": None,
-                    "rubitime_id": getattr(booking, "rubitime_id", "Не создано"),
-                }
-                if promocode_id:
-                    promocode = (
-                        session.query(Promocode).filter_by(id=promocode_id).first()
-                    )
-                    if promocode:
-                        booking_data["discount"] = promocode.discount
-                        booking_data["promocode_name"] = promocode.name
-
-                notification = Notification(
-                    user_id=user.id,
-                    message=f"Новая бронь от {user.full_name or 'пользователя'}: тариф {tariff.name}, дата {visit_date}"
-                    + (
-                        f", время {visit_time}, длительность {duration} ч"
-                        if tariff.purpose == "Переговорная"
-                        else ""
-                    ),
-                    created_at=datetime.now(MOSCOW_TZ),
-                    is_read=False,
-                    booking_id=booking.id,
-                )
-                session.add(notification)
-                session.commit()
-
-                admin_message = format_booking_notification(user, tariff, booking_data)
-                logger.info(
-                    f"Бронь создана: пользователь {telegram_id}, тариф {tariff.name}, дата {visit_date}, ID брони {booking.id}"
-                )
-                return booking, admin_message, session
-            except OperationalError as e:
-                if "database is locked" in str(e) and attempt < retries - 1:
-                    logger.warning(
-                        f"Попытка {attempt + 1}: база данных заблокирована, повтор через 100 мс"
-                    )
-                    session.rollback()
-                    time.sleep(0.1)
-                    continue
-    except IntegrityError as e:
-        session.rollback()
-        logger.error(
-            f"Ошибка уникальности при создании брони для пользователя {telegram_id}: {str(e)}"
-        )
-        session.close()
-        return None, "Ошибка при создании брони", None
-    except Exception as e:
-        session.rollback()
-        logger.error(f"Ошибка создания брони для пользователя {telegram_id}: {str(e)}")
-        session.close()
-        return None, "Ошибка при создания брони", None
 
 
 def get_promocode_by_name(promocode_name: str) -> Optional[Promocode]:
@@ -695,133 +810,103 @@ def get_promocode_by_name(promocode_name: str) -> Optional[Promocode]:
     return promocode
 
 
-def format_ticket_notification(user, ticket_data):
-    """Форматирует красивое уведомление о новом тикете для админа"""
+def create_ticket(
+    user_id: int,
+    description: str,
+    photo_id: str = None,
+    status: TicketStatus = TicketStatus.OPEN,
+    comment: str = None,
+) -> tuple[Ticket, str]:
+    session = Session()
+    try:
+        user = session.query(User).filter_by(telegram_id=user_id).first()
+        if not user:
+            raise ValueError(f"Пользователь с telegram_id {user_id} не найден")
 
-    # Эмодзи для статусов
+        ticket = Ticket(
+            user_id=user_id,
+            description=description,
+            photo_id=photo_id,
+            status=status,
+            comment=comment,
+        )
+
+        session.add(ticket)
+        session.flush()  # Получаем ID тикета
+
+        # Создаем уведомление для админ-панели (короткое сообщение)
+        admin_panel_message = (
+            f"Новый тикет #{ticket.id} от {user.full_name or 'пользователя'}"
+        )
+
+        # Создаем уведомление в БД для админ-панели
+        notification = Notification(
+            user_id=user_id,
+            message=admin_panel_message,
+            target_url=f"/tickets/{ticket.id}",
+            ticket_id=ticket.id,
+            is_read=False,
+        )
+        session.add(notification)
+
+        # Формируем подробное сообщение для Telegram админа
+        telegram_message = f"""🎫 <b>НОВЫЙ ТИКЕТ!</b> 🟢
+
+👤 <b>Пользователь:</b> {user.full_name or 'Не указано'}
+📱 <b>Telegram:</b> @{user.username or 'неизвестно'} (ID: <code>{user.telegram_id}</code>)
+📞 <b>Телефон:</b> {user.phone or 'не указан'}
+✉️ <b>Email:</b> {user.email or 'не указан'}
+
+🏷 <b>Номер тикета:</b> #{ticket.id}
+📝 <b>Описание:</b> {description}
+📊 <b>Статус:</b> {status.value}"""
+
+        if photo_id:
+            telegram_message += "\n📸 <b>Прикреплено фото</b>"
+
+        # Получаем данные тикета до коммита, чтобы избежать проблем с сессией
+        ticket_id = ticket.id
+        created_at = ticket.created_at
+
+        session.commit()
+
+        # Обновляем объект ticket актуальными данными
+        ticket.id = ticket_id
+        ticket.created_at = created_at
+
+        return ticket, telegram_message
+
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Ошибка создания тикета: {e}")
+        raise e
+    finally:
+        session.close()
+
+
+# Также обновим format_ticket_notification для совместимости
+def format_ticket_notification(user, ticket_data) -> str:
+    """Форматирует уведомление о тикете для Telegram админа."""
     status_emojis = {"OPEN": "🟢", "IN_PROGRESS": "🟡", "CLOSED": "🔴"}
-
     status = ticket_data.get("status", "OPEN")
     status_emoji = status_emojis.get(status, "⚪")
 
-    # Обрезаем описание если оно слишком длинное
     description = ticket_data.get("description", "")
     if len(description) > 200:
         description = description[:200] + "..."
 
-    # Информация о фото
     photo_info = ""
     if ticket_data.get("photo_id"):
         photo_info = "\n📸 <b>Прикреплено фото</b>"
 
     message = f"""🎫 <b>НОВЫЙ ТИКЕТ!</b> {status_emoji}
 
-👤 <b>От пользователя:</b>
-├ <b>Имя:</b> {user.full_name or 'Не указано'}
-├ <b>Телефон:</b> {user.phone or 'Не указано'}
-├ <b>Email:</b> {user.email or 'Не указано'}
-└ <b>Telegram:</b> @{user.username or 'не указан'} (ID: <code>{user.telegram_id}</code>)
+👤 <b>Пользователь:</b> {user.full_name or 'Не указано'}
+📱 <b>Telegram:</b> @{user.username or 'неизвестно'} (ID: <code>{user.telegram_id}</code>)
+📞 <b>Телефон:</b> {user.phone or 'не указан'}
+✉️ <b>Email:</b> {user.email or 'не указан'}
 
-📝 <b>Описание проблемы:</b>
-{description}{photo_info}
+📝 <b>Описание:</b> {description}
+📊 <b>Статус:</b> {status}{photo_info}"""
 
-🏷 <b>Тикет ID:</b> <code>#{ticket_data.get('ticket_id', 'Неизвестно')}</code>
-📊 <b>Статус:</b> {status}
-
-⏰ <i>Время создания: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
-
-    return message.strip()
-
-
-def create_ticket(
-    telegram_id: int,
-    description: str,
-    photo_id: Optional[str] = None,
-    status: TicketStatus = TicketStatus.OPEN,
-) -> Tuple[Optional[Ticket], Optional[str], Optional[SQLAlchemySession]]:
-    """
-    Создаёт запись заявки и уведомление в базе данных.
-
-    Args:
-        telegram_id: Telegram ID пользователя.
-        description: Описание заявки.
-        photo_id: ID фотографии в Telegram (если есть).
-        status: Статус заявки (по умолчанию OPEN).
-
-    Returns:
-        Tuple[Optional[Ticket], Optional[str], Optional[SQLAlchemySession]]:
-            - Объект заявки (или None при ошибке).
-            - Сообщение для администратора (или сообщение об ошибке).
-            - Открытая сессия SQLAlchemy (или None, если сессия закрыта).
-    """
-    session = Session()
-    retries = 3
-    try:
-        user = session.query(User).filter_by(telegram_id=telegram_id).first()
-        if not user:
-            logger.warning(f"Пользователь с telegram_id {telegram_id} не найден")
-            session.close()
-            return None, "Пользователь не найден", None
-
-        for attempt in range(retries):
-            try:
-                ticket = Ticket(
-                    user_id=user.id,
-                    description=description,
-                    photo_id=photo_id,
-                    status=status,
-                    created_at=datetime.now(MOSCOW_TZ),
-                    updated_at=datetime.now(MOSCOW_TZ),
-                )
-                session.add(ticket)
-                session.flush()
-
-                notification = Notification(
-                    user_id=user.id,
-                    message=f"Новая заявка #{ticket.id} от {user.full_name or 'пользователя'}: {description[:50]}{'...' if len(description) > 50 else ''}",
-                    created_at=datetime.now(MOSCOW_TZ),
-                    is_read=False,
-                    ticket_id=ticket.id,
-                )
-                session.add(notification)
-                session.commit()
-
-                # Используем красивый шаблон для админского уведомления
-                admin_message = format_ticket_notification(
-                    user=user,
-                    ticket_data={
-                        "description": description,
-                        "photo_id": photo_id,
-                        "status": status.value,
-                        "ticket_id": ticket.id,
-                    },
-                )
-
-                logger.info(
-                    f"Заявка создана: пользователь {telegram_id}, ID заявки {ticket.id}, photo_id={photo_id or 'без фото'}"
-                )
-                return ticket, admin_message, session
-
-            except OperationalError as e:
-                if "database is locked" in str(e) and attempt < retries - 1:
-                    logger.warning(
-                        f"Попытка {attempt + 1}: база данных заблокирована, повтор через 100 мс"
-                    )
-                    session.rollback()
-                    time.sleep(0.1)
-                    continue
-                else:
-                    raise
-
-    except IntegrityError as e:
-        session.rollback()
-        logger.error(
-            f"Ошибка уникальности при создании заявки для пользователя {telegram_id}: {str(e)}"
-        )
-        session.close()
-        return None, "Ошибка при создании заявки", None
-    except Exception as e:
-        session.rollback()
-        logger.error(f"Ошибка создания заявки для пользователя {telegram_id}: {str(e)}")
-        session.close()
-        return None, "Ошибка при создании заявки", None
+    return message
