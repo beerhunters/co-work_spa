@@ -15,7 +15,12 @@ from aiogram.types import (
 )
 from dotenv import load_dotenv
 
-from bot.config import create_user_keyboard, create_back_keyboard, RULES
+from bot.config import (
+    create_user_keyboard,
+    create_back_keyboard,
+    RULES,
+    save_user_avatar,
+)
 from models.models import add_user, check_and_add_user, get_user_by_telegram_id
 
 from utils.logger import get_logger
@@ -364,7 +369,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             email=email,
             username=message.from_user.username,
             reg_date=datetime.now(MOSCOW_TZ),
-            referrer_id=referrer_id,  # Передаем referrer_id явно
+            referrer_id=referrer_id,
         )
         # Запрашиваем обновлённого пользователя из базы данных
         user = get_user_by_telegram_id(message.from_user.id)
@@ -399,6 +404,12 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             success_msg, reply_markup=create_user_keyboard(), parse_mode="HTML"
         )
         logger.info(f"Пользователь {message.from_user.id} успешно зарегистрирован")
+
+        # Сохраняем аватарку
+        file_path = await save_user_avatar(bot, message.from_user.id)
+        if file_path:
+            add_user(telegram_id=message.from_user.id, avatar=file_path)
+
         # Отправка уведомления администратору
         if ADMIN_TELEGRAM_ID:
             try:

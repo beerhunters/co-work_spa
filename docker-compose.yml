@@ -21,6 +21,7 @@ services:
       - ./utils:/app/utils
       - ./models:/app/models
       - ./bot:/app/bot
+      - ./avatars:/app/avatars
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "test", "-f", "/data/bot_initialized"]
@@ -50,6 +51,7 @@ services:
       - ./utils:/app/utils
       - ./models:/app/models
       - ./static:/app/static
+      - ./avatars:/app/avatars
     restart: unless-stopped
     depends_on:
       bot:

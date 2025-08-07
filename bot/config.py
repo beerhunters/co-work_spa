@@ -1,11 +1,19 @@
 import asyncio
 import os
 from datetime import datetime
+from io import BytesIO
 from typing import Optional, Tuple
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+import aiofiles
 import aiohttp
 import pytz
+from aiogram import Bot
+from aiogram.types import (
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    UserProfilePhotos,
+    File,
+)
 from dotenv import load_dotenv
 from yookassa import Payment, Configuration
 
@@ -70,6 +78,75 @@ def create_back_keyboard() -> InlineKeyboardMarkup:
         ]
     )
     return keyboard
+
+
+async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
+    """
+    Получает и сохраняет первую аватарку пользователя в папку avatars.
+
+    Args:
+        bot: Экземпляр бота.
+        user_id: Telegram ID пользователя.
+
+    Returns:
+        Optional[str]: Путь к сохранённому файлу или None в случае ошибки.
+
+    Асимптотика: O(1) для запроса к Telegram API, O(n) для записи файла, где n — размер файла.
+    """
+    logger.debug(f"Попытка сохранить аватарку для пользователя {user_id}")
+    try:
+        # Получаем фотографии профиля
+        profile_photos: UserProfilePhotos = await bot.get_user_profile_photos(
+            user_id, limit=1
+        )
+        if not profile_photos.photos or not profile_photos.photos[0]:
+            logger.info(f"У пользователя {user_id} нет аватарки")
+            return None
+
+        # Берем первую фотографию (наименьший размер для экономии)
+        photo = profile_photos.photos[0][-1]  # Последний размер — самый большой
+        file: File = await bot.get_file(photo.file_id)
+
+        # Создаём папку avatars, если она не существует
+        avatars_dir = "avatars"
+        if not os.path.exists(avatars_dir):
+            os.makedirs(avatars_dir)
+            logger.debug(f"Создана папка {avatars_dir}")
+
+        # Формируем путь для сохранения
+        file_path = os.path.join(avatars_dir, f"{user_id}.jpg")
+
+        # Скачиваем файл
+        file_content = await bot.download_file(file.file_path)
+        if file_content is None:
+            logger.error(
+                f"Не удалось скачать аватарку для пользователя {user_id}: file_content is None"
+            )
+            return None
+
+        # Проверяем тип file_content
+        if isinstance(file_content, bytes):
+            content_bytes = file_content
+        elif isinstance(file_content, BytesIO):
+            content_bytes = (
+                file_content.read()
+            )  # Синхронное чтение, так как BytesIO не требует await
+        else:
+            logger.error(
+                f"Неожиданный тип file_content для пользователя {user_id}: {type(file_content)}"
+            )
+            return None
+
+        # Сохраняем файл
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(content_bytes)
+
+        logger.info(f"Аватарка пользователя {user_id} сохранена в {file_path}")
+        return file_path
+
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении аватарки для {user_id}: {str(e)}")
+        return None
 
 
 async def rubitime(method: str, extra_params: dict) -> Optional[str]:

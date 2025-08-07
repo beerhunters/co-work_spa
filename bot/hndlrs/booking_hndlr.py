@@ -721,7 +721,7 @@ async def handle_free_booking(
     discount = data.get("discount", 0)
 
     booking, admin_message, session = create_booking(
-        telegram_id=message.from_user.id,
+        user_id=message.from_user.id,
         tariff_id=tariff_id,
         visit_date=visit_date,
         visit_time=visit_time,
@@ -878,7 +878,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
         status = await check_payment_status(payment_id)
         if status == "succeeded":
             booking, admin_message, session = create_booking(
-                telegram_id=message.from_user.id,
+                user_id=message.from_user.id,
                 tariff_id=tariff_id,
                 visit_date=visit_date,
                 visit_time=visit_time,
