@@ -6,7 +6,8 @@ import axios from 'axios';
 // Компоненты
 import Login from './components/Login';
 import Layout from './components/Layout';
-import DetailModal from './components/DetailModal';
+// import DetailModal from './components/DetailModal';
+import { DetailModal } from './components/modals';
 
 // Секции
 import Dashboard from './sections/Dashboard';

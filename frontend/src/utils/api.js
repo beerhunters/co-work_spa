@@ -122,9 +122,10 @@ export const userApi = {
     const res = await apiClient.put(`/users/${userId}`, userData);
     return res.data;
   },
-
   getAvatar: (userId) => {
-    return `${API_BASE_URL}/users/${userId}/avatar`;
+    // Формируем URL для получения аватара
+    // Не добавляем базовый URL автоматически, так как это будет обработано в компоненте
+    return `http://localhost/api/users/${userId}/avatar`;
   },
 
   deleteAvatar: async (userId) => {
@@ -135,14 +136,33 @@ export const userApi = {
   uploadAvatar: async (userId, file) => {
     const formData = new FormData();
     formData.append('file', file);
-
     const res = await apiClient.post(`/users/${userId}/avatar`, formData, {
       headers: {
-        'Content-Type': 'multipart/form-data'
-      }
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return res.data;
-  }
+  },
+
+  // getAvatar: (userId) => {
+  //   return `${API_BASE_URL}/users/${userId}/avatar`;
+  // },
+  //
+  // deleteAvatar: async (userId) => {
+  //   const res = await apiClient.delete(`/users/${userId}/avatar`);
+  //   return res.data;
+  // },
+  //
+  // uploadAvatar: async (userId, file) => {
+  //   const formData = new FormData();
+  //   formData.append('file', file);
+  //   const res = await apiClient.post(`/users/${userId}/avatar`, formData, {
+  //     headers: {
+  //       'Content-Type': 'multipart/form-data'
+  //     }
+  //   });
+  //   return res.data;
+  // }
 };
 
 // API для бронирований
