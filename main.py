@@ -360,6 +360,34 @@ async def upload_user_avatar(
     return {"message": "Avatar uploaded successfully", "avatar_url": user.avatar}
 
 
+@app.delete("/users/{user_id}/avatar")
+async def delete_user_avatar(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Удаляем файл аватара
+    deleted = False
+    for ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+        avatar_path = AVATARS_DIR / f"{user.telegram_id}.{ext}"
+        if avatar_path.exists():
+            avatar_path.unlink()
+            deleted = True
+
+    # Сбрасываем путь в БД
+    user.avatar = None
+    db.commit()
+
+    if deleted:
+        return {"message": "Avatar deleted"}
+    else:
+        raise HTTPException(status_code=404, detail="Avatar file not found")
+
+
 # Protected routes
 @app.get("/users", response_model=List[UserBase])
 async def get_users(

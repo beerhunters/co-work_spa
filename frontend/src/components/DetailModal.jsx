@@ -1,8 +1,8 @@
 import React, {useEffect, useState} from 'react';
 import {
-  Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
-  ModalCloseButton, Button, VStack, HStack, Text, Box, Icon, Badge, Input,
-  FormControl, FormLabel, Image
+    Modal as ChakraModal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalFooter,
+    ModalCloseButton, Button, VStack, HStack, Text, Box, Icon, Badge, Input,
+    FormControl, FormLabel, Image, useToast, Modal
 } from '@chakra-ui/react';
 import {
   FiUser, FiPhone, FiMail, FiInfo, FiCalendar, FiShoppingBag, FiUsers,
@@ -21,6 +21,9 @@ const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
     language_code: ''
   });
   const [avatarFile, setAvatarFile] = useState(null);
+  const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
+
+  const toast = useToast();
 
   useEffect(() => {
     if (selectedItem) {
@@ -35,54 +38,103 @@ const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
 
   if (!selectedItem) return null;
 
-    const avatarUrl = selectedItem.type === 'user'
-      ? selectedItem.avatar
+    const avatarUrl = avatarFile
+      ? URL.createObjectURL(avatarFile)
+      : selectedItem.avatar
         ? `${API_BASE_URL}/${selectedItem.avatar}`
         : selectedItem.telegram_id
           ? `${API_BASE_URL}/avatars/${selectedItem.telegram_id}.jpg`
-          : `${API_BASE_URL}/avatars/placeholder_avatar.png`
-      : null;
+          : `${API_BASE_URL}/avatars/placeholder_avatar.png`;
 
-  const handleSave = async () => {
-    try {
-      await userApi.update(selectedItem.id, formData);
-      if (avatarFile) {
-        await userApi.uploadAvatar(selectedItem.id, avatarFile);
+
+    const handleSave = async () => {
+      try {
+        await userApi.update(selectedItem.id, formData);
+        if (avatarFile) {
+          await userApi.uploadAvatar(selectedItem.id, avatarFile);
+        }
+        if (onUpdate) {
+          const updated = await onUpdate();
+          if (updated) {
+            setFormData({
+              full_name: updated.full_name || '',
+              phone: updated.phone || '',
+              email: updated.email || '',
+              language_code: updated.language_code || ''
+            });
+          }
+        }
+
+        toast({
+          title: 'Сохранено',
+          description: 'Данные пользователя успешно обновлены.',
+          status: 'success',
+          duration: 3000,
+          isClosable: true,
+        });
+        setIsEditing(false);
+      } catch (error) {
+        console.error('Ошибка при сохранении:', error);
+        toast({
+          title: 'Ошибка',
+          description: 'Не удалось сохранить изменения.',
+          status: 'error',
+          duration: 4000,
+          isClosable: true,
+        });
       }
-      onUpdate?.();
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Ошибка при сохранении:', error);
-    }
-  };
+    };
+  const handleAvatarDelete = async () => {
+      try {
+        await userApi.deleteAvatar(selectedItem.id);
+        setAvatarFile(null);
+        setFormData((prev) => ({ ...prev, avatar: null }));
+        if (onUpdate) {
+          await onUpdate(); // 🔁 обновить данные в родителе
+        }
+        toast({
+          title: 'Аватар удалён',
+          description: 'Пользовательский аватар успешно удалён.',
+          status: 'info',
+          duration: 3000,
+          isClosable: true,
+        });
+
+      } catch (error) {
+        console.error('Ошибка при удалении аватара:', error);
+      }
+    };
 
 const renderUserDetails = () => (
     <VStack align="stretch" spacing={4}>
-      <Box textAlign="center">
-        <Image
-          src={avatarUrl}
-          alt="Аватар пользователя"
-          boxSize="120px"
-          borderRadius="full"
-          objectFit="cover"
-          fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png`}
-          mx="auto"
-          mb={4}
-        />
-      </Box>
+        <Box textAlign="center">
+          <Image
+            src={avatarUrl}
+            alt="Аватар пользователя"
+            boxSize="120px"
+            borderRadius="full"
+            objectFit="cover"
+            fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png`}
+            mx="auto"
+            mb={4}
+            cursor="pointer"
+            onClick={() => setAvatarModalOpen(true)}
+            _hover={{ boxShadow: 'md', transform: 'scale(1.05)', transition: '0.2s' }}
+          />
+        </Box>
 
-      {isEditing ? (
-        <>
-          <FormControl>
-            <FormLabel>Полное имя</FormLabel>
-            <Input
-              value={formData.full_name}
-              onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
-            />
-          </FormControl>
-          <FormControl>
-            <FormLabel>Телефон</FormLabel>
-            <Input
+        {isEditing ? (
+            <>
+                <FormControl>
+                    <FormLabel>Полное имя</FormLabel>
+                    <Input
+                        value={formData.full_name}
+                        onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                    />
+                </FormControl>
+                <FormControl>
+                    <FormLabel>Телефон</FormLabel>
+                    <Input
               value={formData.phone}
               onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             />
@@ -101,14 +153,26 @@ const renderUserDetails = () => (
               onChange={(e) => setFormData({ ...formData, language_code: e.target.value })}
             />
           </FormControl>
-          <FormControl>
-            <FormLabel>Загрузить аватар</FormLabel>
-            <Input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setAvatarFile(e.target.files[0])}
-            />
-          </FormControl>
+            <FormControl>
+              <FormLabel>Загрузить аватар</FormLabel>
+              <Input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setAvatarFile(e.target.files[0])}
+              />
+              {selectedItem.avatar && !avatarFile && (
+                <Button
+                  mt={2}
+                  size="sm"
+                  colorScheme="red"
+                  variant="outline"
+                  onClick={handleAvatarDelete}
+                >
+                  Удалить аватар
+                </Button>
+              )}
+            </FormControl>
+
         </>
       ) : (
         <>
@@ -404,6 +468,21 @@ const renderUserDetails = () => (
           </Button>
         </ModalFooter>
       </ModalContent>
+      {/* 🔽 Вот здесь — модалка для просмотра аватара */}
+      <ChakraModal isOpen={isAvatarModalOpen} onClose={() => setAvatarModalOpen(false)} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalBody p={0}>
+            <Image
+              src={avatarUrl}
+              alt="Аватар в полном размере"
+              width="100%"
+              height="auto"
+              objectFit="contain"
+            />
+          </ModalBody>
+        </ModalContent>
+      </ChakraModal>
     </Modal>
   );
 };

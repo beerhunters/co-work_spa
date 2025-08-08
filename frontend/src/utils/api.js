@@ -127,6 +127,11 @@ export const userApi = {
     return `${API_BASE_URL}/users/${userId}/avatar`;
   },
 
+  deleteAvatar: async (userId) => {
+    const res = await apiClient.delete(`/users/${userId}/avatar`);
+    return res.data;
+  },
+
   uploadAvatar: async (userId, file) => {
     const formData = new FormData();
     formData.append('file', file);
