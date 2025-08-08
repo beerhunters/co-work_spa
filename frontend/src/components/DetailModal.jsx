@@ -38,13 +38,13 @@ const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
 
   if (!selectedItem) return null;
 
-    const avatarUrl = avatarFile
-      ? URL.createObjectURL(avatarFile)
-      : selectedItem.avatar
-        ? `${API_BASE_URL}/${selectedItem.avatar}`
-        : selectedItem.telegram_id
-          ? `${API_BASE_URL}/avatars/${selectedItem.telegram_id}.jpg`
-          : `${API_BASE_URL}/avatars/placeholder_avatar.png`;
+  const avatarUrl = avatarFile
+    ? URL.createObjectURL(avatarFile)
+    : selectedItem.avatar
+      ? `${API_BASE_URL}/${selectedItem.avatar}`
+      : selectedItem.telegram_id
+        ? `${API_BASE_URL}/avatars/${selectedItem.telegram_id}.jpg`
+        : `${API_BASE_URL}/avatars/placeholder_avatar.png`;
 
 
     const handleSave = async () => {
