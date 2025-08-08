@@ -270,6 +270,29 @@ async def logout():
     return {"message": "Successfully logged out"}
 
 
+@app.get("/users", response_model=List[UserBase])
+async def get_users(
+    # Убираем параметры пагинации - теперь возвращаем всех пользователей
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получить всех пользователей (пагинация на фронтенде)"""
+    users = (
+        db.query(User).order_by(User.reg_date.desc()).all()
+    )  # Получаем всех пользователей
+    return users
+
+
+@app.get("/users/{user_id}", response_model=UserBase)
+async def get_user(
+    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
 # Эндпоинт для обновления пользователя
 @app.put("/users/{user_id}", response_model=UserBase)
 async def update_user(
@@ -329,8 +352,8 @@ async def upload_user_avatar(
         with open(avatar_path, "wb") as f:
             f.write(contents)
 
-        # Обновляем запись в базе данных - сохраняем ТОЛЬКО имя файла
-        user.avatar = avatar_filename  # Не "avatars/..." а просто имя файла
+        # ✅ ПРАВИЛЬНО - сохраняем только имя файла
+        user.avatar = avatar_filename  # Например: "267863612.jpg"
         db.commit()
 
         return {"message": "Аватар успешно загружен", "filename": avatar_filename}
@@ -382,105 +405,6 @@ async def delete_user_avatar(
             "Аватар успешно удалён" if deleted else "Запись аватара удалена из БД"
         )
     }
-
-
-@app.post("/users/{user_id}/avatar")
-async def upload_user_avatar(
-    user_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
-):
-    """Загрузить аватар пользователя"""
-    user = db.query(User).get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    # Проверяем тип файла
-    if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Файл должен быть изображением")
-
-    # Создаём директорию если её нет
-    AVATARS_DIR.mkdir(exist_ok=True)
-
-    # Удаляем старый аватар пользователя если он есть
-    if user.avatar:
-        old_avatar_path = AVATARS_DIR / user.avatar
-        if old_avatar_path.exists():
-            old_avatar_path.unlink()
-
-    # Сохраняем новый аватар с именем telegram_id.jpg
-    avatar_filename = f"{user.telegram_id}.jpg"
-    avatar_path = AVATARS_DIR / avatar_filename
-
-    try:
-        contents = await file.read()
-        with open(avatar_path, "wb") as f:
-            f.write(contents)
-
-        # Обновляем запись в базе данных
-        user.avatar = avatar_filename
-        db.commit()
-
-        return {"message": "Аватар успешно загружен", "filename": avatar_filename}
-
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении аватара: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при сохранении файла")
-
-
-@app.delete("/users/{user_id}/avatar")
-async def delete_user_avatar(
-    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Удалить аватар пользователя"""
-    user = db.query(User).get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    deleted = False
-
-    # Удаляем файл аватара если он есть
-    if user.avatar:
-        avatar_path = AVATARS_DIR / user.avatar
-        if avatar_path.exists():
-            try:
-                avatar_path.unlink()
-                deleted = True
-            except Exception as e:
-                logger.error(f"Ошибка при удалении файла аватара {avatar_path}: {e}")
-
-    # Очищаем запись в базе данных
-    user.avatar = None
-    db.commit()
-
-    return {
-        "message": (
-            "Аватар успешно удалён" if deleted else "Запись аватара удалена из БД"
-        )
-    }
-
-
-# Protected routes
-@app.get("/users", response_model=List[UserBase])
-async def get_users(
-    page: int = 1,
-    per_page: int = 20,
-    db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
-):
-    users = db.query(User).offset((page - 1) * per_page).limit(per_page).all()
-    return users
-
-
-@app.get("/users/{user_id}", response_model=UserBase)
-async def get_user(
-    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    user = db.query(User).get(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 
 @app.get("/bookings", response_model=List[BookingBase])

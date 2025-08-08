@@ -65,9 +65,14 @@ const Users = ({ users, openDetailModal }) => {
       <VStack spacing={6} align="stretch">
         {/* Заголовок и поиск */}
         <HStack justify="space-between" align="center" wrap="wrap" spacing={4}>
-          <Text fontSize="2xl" fontWeight="bold">
-            Пользователи ({filteredUsers.length})
-          </Text>
+          <VStack align="start" spacing={1}>
+            <Text fontSize="2xl" fontWeight="bold">
+              Пользователи
+            </Text>
+            <Text fontSize="sm" color="gray.500">
+              Всего: {users.length} | Показано: {currentUsers.length} из {filteredUsers.length}
+            </Text>
+          </VStack>
 
           <HStack spacing={4}>
             <InputGroup maxWidth="300px">

@@ -44,12 +44,12 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   }, [user]);
 
-  // Простая логика аватара
+  // Логика аватара - исправленная с отладкой
   const avatarUrl = avatarFile
     ? URL.createObjectURL(avatarFile)
     : user?.avatar
-      ? `${API_BASE_URL}/avatars/${user.avatar}`  // avatar уже содержит имя файла
-      : `${API_BASE_URL}/avatars/placeholder_avatar.png`;  // всегда показываем placeholder
+      ? `${API_BASE_URL}/avatars/${user.avatar}`  // avatar содержит только имя файла
+      : `${API_BASE_URL}/avatars/placeholder_avatar.png`;
 
   const handleSave = async () => {
     try {
@@ -276,13 +276,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
               />
 
               <HStack spacing={3}>
-                <Button
-                  leftIcon={<FiUpload />}
-                  colorScheme="blue"
-                  onClick={() => document.getElementById('avatar-upload').click()}
-                >
-                  Загрузить новый
-                </Button>
                 {user.avatar && (
                   <Button
                     leftIcon={<FiTrash2 />}

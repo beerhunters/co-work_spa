@@ -106,10 +106,9 @@ export const notificationApi = {
 
 // API для пользователей
 export const userApi = {
-  getAll: async (page = 1, perPage = 20) => {
-    const res = await apiClient.get('/users', {
-      params: { page, per_page: perPage }
-    });
+  getAll: async () => {
+    // Убираем параметры пагинации - получаем всех пользователей
+    const res = await apiClient.get('/users');
     return res.data;
   },
 
@@ -138,25 +137,6 @@ export const userApi = {
     return res.data;
   },
 
-  // getAvatar: (userId) => {
-  //   return `${API_BASE_URL}/users/${userId}/avatar`;
-  // },
-  //
-  // deleteAvatar: async (userId) => {
-  //   const res = await apiClient.delete(`/users/${userId}/avatar`);
-  //   return res.data;
-  // },
-  //
-  // uploadAvatar: async (userId, file) => {
-  //   const formData = new FormData();
-  //   formData.append('file', file);
-  //   const res = await apiClient.post(`/users/${userId}/avatar`, formData, {
-  //     headers: {
-  //       'Content-Type': 'multipart/form-data'
-  //     }
-  //   });
-  //   return res.data;
-  // }
 };
 
 // API для бронирований
