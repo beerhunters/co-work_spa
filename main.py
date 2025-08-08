@@ -270,31 +270,6 @@ async def logout():
     return {"message": "Successfully logged out"}
 
 
-# # Эндпоинт для получения аватара
-# @app.get("/users/{user_id}/avatar")
-# async def get_user_avatar(
-#     user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-# ):
-#     user = db.query(User).get(user_id)
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User not found")
-#
-#     # Проверяем наличие файла аватара
-#     avatar_path = AVATARS_DIR / f"{user.telegram_id}.jpg"
-#     if not avatar_path.exists():
-#         avatar_path = AVATARS_DIR / f"{user.telegram_id}.png"
-#
-#     if not avatar_path.exists():
-#         # Возвращаем placeholder
-#         placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
-#         if placeholder_path.exists():
-#             return FileResponse(placeholder_path)
-#         else:
-#             raise HTTPException(status_code=404, detail="No avatar found")
-#
-#     return FileResponse(avatar_path)
-
-
 # Эндпоинт для обновления пользователя
 @app.put("/users/{user_id}", response_model=UserBase)
 async def update_user(
@@ -320,109 +295,93 @@ async def update_user(
     return user
 
 
-# # Эндпоинт для загрузки аватара
-# @app.post("/users/{user_id}/avatar")
-# async def upload_user_avatar(
-#     user_id: int,
-#     file: UploadFile = File(...),
-#     db: Session = Depends(get_db),
-#     _: str = Depends(verify_token),
-# ):
-#     user = db.query(User).get(user_id)
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User not found")
-#
-#     # Проверяем тип файла
-#     if not file.content_type.startswith("image/"):
-#         raise HTTPException(status_code=400, detail="File must be an image")
-#
-#     # Определяем расширение файла
-#     extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
-#     if extension not in ["jpg", "jpeg", "png", "gif", "webp"]:
-#         extension = "jpg"
-#
-#     # Сохраняем файл
-#     avatar_filename = f"{user.telegram_id}.{extension}"
-#     avatar_path = AVATARS_DIR / avatar_filename
-#
-#     # Удаляем старый аватар если существует
-#     for ext in ["jpg", "jpeg", "png", "gif", "webp"]:
-#         old_avatar = AVATARS_DIR / f"{user.telegram_id}.{ext}"
-#         if old_avatar.exists() and old_avatar != avatar_path:
-#             old_avatar.unlink()
-#
-#     # Сохраняем новый аватар
-#     with avatar_path.open("wb") as buffer:
-#         shutil.copyfileobj(file.file, buffer)
-#
-#     # Обновляем путь в базе данных
-#     user.avatar = f"/avatars/{avatar_filename}"
-#     db.commit()
-#
-#     return {"message": "Avatar uploaded successfully", "avatar_url": user.avatar}
-#
-#
-# @app.delete("/users/{user_id}/avatar")
-# async def delete_user_avatar(
-#     user_id: int,
-#     db: Session = Depends(get_db),
-#     _: str = Depends(verify_token),
-# ):
-#     user = db.query(User).get(user_id)
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User not found")
-#
-#     # Удаляем файл аватара
-#     deleted = False
-#     for ext in ["jpg", "jpeg", "png", "gif", "webp"]:
-#         avatar_path = AVATARS_DIR / f"{user.telegram_id}.{ext}"
-#         if avatar_path.exists():
-#             avatar_path.unlink()
-#             deleted = True
-#
-#     # Сбрасываем путь в БД
-#     user.avatar = None
-#     db.commit()
-#
-#     if deleted:
-#         return {"message": "Avatar deleted"}
-#     else:
-#         raise HTTPException(status_code=404, detail="Avatar file not found")
-@app.get("/users/{user_id}/avatar")
-async def get_user_avatar(
-    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+@app.post("/users/{user_id}/avatar")
+async def upload_user_avatar(
+    user_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
-    """Получить аватар пользователя"""
+    """Загрузить аватар пользователя"""
     user = db.query(User).get(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    # Проверяем, есть ли запись об аватаре в базе данных
-    if not user.avatar:
-        raise HTTPException(status_code=404, detail="Аватар не найден")
+    # Проверяем тип файла
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Файл должен быть изображением")
 
-    # Пытаемся найти файл аватара
-    possible_extensions = ["jpg", "png", "jpeg", "webp"]
-    avatar_path = None
+    # Создаём директорию если её нет
+    AVATARS_DIR.mkdir(exist_ok=True)
 
-    for ext in possible_extensions:
-        potential_path = AVATARS_DIR / f"{user.telegram_id}.{ext}"
-        if potential_path.exists():
-            avatar_path = potential_path
-            break
+    # Удаляем старый аватар пользователя если он есть
+    if user.avatar:
+        old_avatar_path = AVATARS_DIR / user.avatar
+        if old_avatar_path.exists():
+            old_avatar_path.unlink()
 
-    # Если файл не найден, возвращаем 404
-    if not avatar_path:
-        # Обновляем запись в базе данных, так как файл отсутствует
-        user.avatar = None
+    # Сохраняем новый аватар с именем telegram_id.jpg
+    avatar_filename = f"{user.telegram_id}.jpg"
+    avatar_path = AVATARS_DIR / avatar_filename
+
+    try:
+        contents = await file.read()
+        with open(avatar_path, "wb") as f:
+            f.write(contents)
+
+        # Обновляем запись в базе данных - сохраняем ТОЛЬКО имя файла
+        user.avatar = avatar_filename  # Не "avatars/..." а просто имя файла
         db.commit()
-        raise HTTPException(status_code=404, detail="Файл аватара не найден")
 
-    return FileResponse(
-        path=str(avatar_path),
-        media_type=f"image/{avatar_path.suffix[1:]}",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+        return {"message": "Аватар успешно загружен", "filename": avatar_filename}
+
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении аватара: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при сохранении файла")
+
+
+@app.delete("/users/{user_id}/avatar")
+async def delete_user_avatar(
+    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Удалить аватар пользователя"""
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    deleted = False
+
+    # Удаляем файл аватара если он есть
+    if user.avatar:
+        # avatar содержит только имя файла, например "267863612.jpg"
+        avatar_path = AVATARS_DIR / user.avatar
+        if avatar_path.exists():
+            try:
+                avatar_path.unlink()
+                deleted = True
+            except Exception as e:
+                logger.error(f"Ошибка при удалении файла аватара {avatar_path}: {e}")
+
+    # Также пытаемся удалить по стандартному пути
+    standard_path = AVATARS_DIR / f"{user.telegram_id}.jpg"
+    if standard_path.exists():
+        try:
+            standard_path.unlink()
+            deleted = True
+        except Exception as e:
+            logger.error(
+                f"Ошибка при удалении стандартного аватара {standard_path}: {e}"
+            )
+
+    # Очищаем запись в базе данных
+    user.avatar = None
+    db.commit()
+
+    return {
+        "message": (
+            "Аватар успешно удалён" if deleted else "Запись аватара удалена из БД"
+        )
+    }
 
 
 @app.post("/users/{user_id}/avatar")
@@ -441,30 +400,17 @@ async def upload_user_avatar(
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Файл должен быть изображением")
 
-    # Определяем расширение файла
-    if file.filename and "." in file.filename:
-        extension = file.filename.split(".")[-1].lower()
-    else:
-        # Определяем расширение по MIME типу
-        mime_to_ext = {
-            "image/jpeg": "jpg",
-            "image/jpg": "jpg",
-            "image/png": "png",
-            "image/webp": "webp",
-        }
-        extension = mime_to_ext.get(file.content_type, "jpg")
-
     # Создаём директорию если её нет
     AVATARS_DIR.mkdir(exist_ok=True)
 
-    # Удаляем старые аватары пользователя
-    for ext in ["jpg", "png", "jpeg", "webp"]:
-        old_avatar = AVATARS_DIR / f"{user.telegram_id}.{ext}"
-        if old_avatar.exists():
-            old_avatar.unlink()
+    # Удаляем старый аватар пользователя если он есть
+    if user.avatar:
+        old_avatar_path = AVATARS_DIR / user.avatar
+        if old_avatar_path.exists():
+            old_avatar_path.unlink()
 
-    # Сохраняем новый аватар
-    avatar_filename = f"{user.telegram_id}.{extension}"
+    # Сохраняем новый аватар с именем telegram_id.jpg
+    avatar_filename = f"{user.telegram_id}.jpg"
     avatar_path = AVATARS_DIR / avatar_filename
 
     try:
@@ -494,9 +440,9 @@ async def delete_user_avatar(
 
     deleted = False
 
-    # Удаляем все возможные файлы аватара
-    for ext in ["jpg", "png", "jpeg", "webp"]:
-        avatar_path = AVATARS_DIR / f"{user.telegram_id}.{ext}"
+    # Удаляем файл аватара если он есть
+    if user.avatar:
+        avatar_path = AVATARS_DIR / user.avatar
         if avatar_path.exists():
             try:
                 avatar_path.unlink()
@@ -504,14 +450,15 @@ async def delete_user_avatar(
             except Exception as e:
                 logger.error(f"Ошибка при удалении файла аватара {avatar_path}: {e}")
 
-    # Обновляем запись в базе данных
+    # Очищаем запись в базе данных
     user.avatar = None
     db.commit()
 
-    if deleted:
-        return {"message": "Аватар успешно удалён"}
-    else:
-        return {"message": "Аватар не найден, но запись в БД очищена"}
+    return {
+        "message": (
+            "Аватар успешно удалён" if deleted else "Запись аватара удалена из БД"
+        )
+    }
 
 
 # Protected routes

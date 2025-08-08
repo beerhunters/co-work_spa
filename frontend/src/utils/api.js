@@ -122,12 +122,6 @@ export const userApi = {
     const res = await apiClient.put(`/users/${userId}`, userData);
     return res.data;
   },
-  getAvatar: (userId) => {
-    // Формируем URL для получения аватара
-    // Не добавляем базовый URL автоматически, так как это будет обработано в компоненте
-    return `http://localhost/api/users/${userId}/avatar`;
-  },
-
   deleteAvatar: async (userId) => {
     const res = await apiClient.delete(`/users/${userId}/avatar`);
     return res.data;

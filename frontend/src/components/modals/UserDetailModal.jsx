@@ -13,35 +13,25 @@ import {
   Input,
   FormControl,
   FormLabel,
-  Avatar,
   Badge,
   useToast,
   Modal as ChakraModal,
   ModalFooter,
   Box,
-  IconButton,
-  Spinner
+  Image
 } from '@chakra-ui/react';
 import { FiEdit, FiTrash2, FiUpload } from 'react-icons/fi';
 import { userApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
-import { useAvatar } from '../../hooks/useAvatar';
+
+const API_BASE_URL = 'http://localhost/api';
 
 const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({});
+  const [avatarFile, setAvatarFile] = useState(null);
   const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
   const toast = useToast();
-
-  const {
-    avatarFile,
-    setAvatarFile,
-    isUploading,
-    getAvatarUrl,
-    uploadAvatar,
-    deleteAvatar,
-    handleAvatarError
-  } = useAvatar(user, onUpdate);
 
   useEffect(() => {
     if (user) {
@@ -54,15 +44,23 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   }, [user]);
 
+  // Простая логика аватара
+  const avatarUrl = avatarFile
+    ? URL.createObjectURL(avatarFile)
+    : user?.avatar
+      ? `${API_BASE_URL}/avatars/${user.avatar}`  // avatar уже содержит имя файла
+      : `${API_BASE_URL}/avatars/placeholder_avatar.png`;  // всегда показываем placeholder
+
   const handleSave = async () => {
     try {
       await userApi.update(user.id, formData);
 
       if (avatarFile) {
-        await uploadAvatar(avatarFile);
+        await userApi.uploadAvatar(user.id, avatarFile);
+        setAvatarFile(null);
       }
 
-      const updated = await onUpdate();
+      await onUpdate();
 
       toast({
         title: 'Пользователь обновлён',
@@ -85,9 +83,29 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   };
 
   const handleAvatarDelete = async () => {
-    const success = await deleteAvatar();
-    if (success) {
+    try {
+      await userApi.deleteAvatar(user.id);
+      setAvatarFile(null);
+
+      await onUpdate();
+
+      toast({
+        title: 'Аватар удалён',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
       setAvatarModalOpen(false);
+    } catch (error) {
+      console.error('Ошибка при удалении аватара:', error);
+      toast({
+        title: 'Ошибка при удалении аватара',
+        description: error.response?.data?.detail || 'Произошла ошибка',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
 
@@ -103,16 +121,22 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
           <ModalBody>
             <VStack spacing={4} align="stretch">
               {/* Аватар */}
-              <HStack spacing={4}>
-                <Avatar
-                  size="xl"
-                  src={getAvatarUrl()}
-                  name={user.full_name || 'Пользователь'}
+              <Box textAlign="center">
+                <Image
+                  src={avatarUrl}
+                  alt="Аватар пользователя"
+                  boxSize="120px"
+                  borderRadius="full"
+                  objectFit="cover"
+                  fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png`}
+                  mx="auto"
+                  mb={4}
                   cursor="pointer"
                   onClick={() => setAvatarModalOpen(true)}
-                  onError={handleAvatarError}
+                  _hover={{ boxShadow: 'md', transform: 'scale(1.05)', transition: '0.2s' }}
                 />
-                <VStack align="start" spacing={2}>
+
+                <VStack spacing={2}>
                   <Text fontSize="lg" fontWeight="bold">
                     {user.full_name || 'Не указано'}
                   </Text>
@@ -123,7 +147,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     ID: {user.telegram_id}
                   </Badge>
                 </VStack>
-              </HStack>
+              </Box>
 
               {/* Форма */}
               {isEditing ? (
@@ -242,35 +266,35 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4}>
-              <Avatar
-                size="2xl"
-                src={getAvatarUrl()}
-                name={user.full_name || 'Пользователь'}
-                onError={handleAvatarError}
+              <Image
+                src={avatarUrl}
+                alt="Аватар в полном размере"
+                boxSize="300px"
+                objectFit="contain"
+                fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png`}
+                mx="auto"
               />
+
               <HStack spacing={3}>
                 <Button
                   leftIcon={<FiUpload />}
                   colorScheme="blue"
                   onClick={() => document.getElementById('avatar-upload').click()}
-                  isLoading={isUploading}
-                  loadingText="Загрузка..."
                 >
                   Загрузить новый
                 </Button>
-                {(user.avatar || avatarFile) && (
+                {user.avatar && (
                   <Button
                     leftIcon={<FiTrash2 />}
                     colorScheme="red"
                     variant="outline"
                     onClick={handleAvatarDelete}
-                    isLoading={isUploading}
-                    loadingText="Удаление..."
                   >
                     Удалить
                   </Button>
                 )}
               </HStack>
+
               <input
                 id="avatar-upload"
                 type="file"
