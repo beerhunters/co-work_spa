@@ -2,19 +2,18 @@
 import axios from 'axios';
 import { initAuth } from './auth';
 
-const API_BASE_URL = 'http://localhost/api';
+export const API_BASE_URL = 'http://localhost/api';
 
-// Единый axios instance для всего приложения
+// Создание axios instance с базовыми настройками
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: true
 });
 
-// Навешиваем интерцепторы авторизации на этот instance
+// Инициализация авторизации
 initAuth(apiClient);
 
-// -------------------- Утилиты загрузки --------------------
-
+// Загрузка начальных данных
 export const fetchInitialData = async (dataSetters, setLastNotificationId, toast) => {
   const endpoints = [
     { url: '/users', setter: dataSetters.users },
@@ -60,50 +59,52 @@ export const fetchInitialData = async (dataSetters, setLastNotificationId, toast
   }
 };
 
+// Загрузка данных для конкретной секции
 export const fetchSectionData = async (sectionName, dataSetters) => {
   const sectionEndpoints = {
-    users: { url: '/users', setter: dataSetters.users },
-    bookings: { url: '/bookings', setter: dataSetters.bookings },
-    tariffs: { url: '/tariffs', setter: dataSetters.tariffs },
-    promocodes: { url: '/promocodes', setter: dataSetters.promocodes },
-    tickets: { url: '/tickets', setter: dataSetters.tickets },
-    notifications: { url: '/notifications', setter: dataSetters.notifications },
-    newsletters: { url: '/newsletters', setter: dataSetters.newsletters },
-    dashboard: { url: '/dashboard/stats', setter: dataSetters.dashboardStats }
+    'users': { url: '/users', setter: dataSetters.users },
+    'bookings': { url: '/bookings', setter: dataSetters.bookings },
+    'tariffs': { url: '/tariffs', setter: dataSetters.tariffs },
+    'promocodes': { url: '/promocodes', setter: dataSetters.promocodes },
+    'tickets': { url: '/tickets', setter: dataSetters.tickets },
+    'notifications': { url: '/notifications', setter: dataSetters.notifications },
+    'newsletters': { url: '/newsletters', setter: dataSetters.newsletters },
+    'dashboard': { url: '/dashboard/stats', setter: dataSetters.dashboardStats }
   };
 
   const endpoint = sectionEndpoints[sectionName];
-  if (!endpoint) return;
 
-  try {
-    const res = await apiClient.get(endpoint.url);
-    endpoint.setter(res.data);
-  } catch (error) {
-    console.error(`Ошибка загрузки данных для ${sectionName}:`, error);
+  if (endpoint) {
+    try {
+      const res = await apiClient.get(endpoint.url);
+      endpoint.setter(res.data);
+    } catch (error) {
+      console.error(`Ошибка загрузки данных для ${sectionName}:`, error);
+    }
   }
 };
 
-// -------------------- API: Уведомления --------------------
-
+// API для уведомлений
 export const notificationApi = {
   checkNew: async (sinceId) => {
     const res = await apiClient.get(`/notifications/check_new`, {
       params: { since_id: sinceId }
     });
     return res.data;
-    },
+  },
+
   markRead: async (notificationId) => {
     const res = await apiClient.post(`/notifications/mark_read/${notificationId}`, {});
     return res.data;
   },
+
   markAllRead: async () => {
     const res = await apiClient.post('/notifications/mark_all_read', {});
     return res.data;
   }
 };
 
-// -------------------- API: Пользователи --------------------
-
+// API для пользователей
 export const userApi = {
   getAll: async (page = 1, perPage = 20) => {
     const res = await apiClient.get('/users', {
@@ -111,73 +112,102 @@ export const userApi = {
     });
     return res.data;
   },
+
   getById: async (userId) => {
     const res = await apiClient.get(`/users/${userId}`);
+    return res.data;
+  },
+
+  update: async (userId, userData) => {
+    const res = await apiClient.put(`/users/${userId}`, userData);
+    return res.data;
+  },
+
+  getAvatar: (userId) => {
+    return `${API_BASE_URL}/users/${userId}/avatar`;
+  },
+
+  uploadAvatar: async (userId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await apiClient.post(`/users/${userId}/avatar`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
     return res.data;
   }
 };
 
-// -------------------- API: Бронирования --------------------
-
+// API для бронирований
 export const bookingApi = {
   getAll: async (params = {}) => {
     const res = await apiClient.get('/bookings', { params });
     return res.data;
   },
+
   getById: async (bookingId) => {
     const res = await apiClient.get(`/bookings/${bookingId}`);
     return res.data;
   },
+
   create: async (bookingData) => {
     const res = await apiClient.post('/bookings', bookingData);
     return res.data;
   },
+
   update: async (bookingId, confirmed) => {
     const res = await apiClient.put(`/bookings/${bookingId}`, { confirmed });
     return res.data;
   },
+
   delete: async (bookingId) => {
     const res = await apiClient.delete(`/bookings/${bookingId}`);
     return res.data;
   }
 };
 
-// -------------------- API: Тарифы --------------------
-
+// API для тарифов
 export const tariffApi = {
   getAll: async () => {
     const res = await apiClient.get('/tariffs');
     return res.data;
   },
+
   getById: async (tariffId) => {
     const res = await apiClient.get(`/tariffs/${tariffId}`);
     return res.data;
   },
+
   create: async (tariffData) => {
     const res = await apiClient.post('/tariffs', tariffData);
     return res.data;
   },
+
   delete: async (tariffId) => {
     const res = await apiClient.delete(`/tariffs/${tariffId}`);
     return res.data;
   }
 };
 
-// -------------------- API: Промокоды --------------------
-
+// API для промокодов
 export const promocodeApi = {
   getAll: async () => {
     const res = await apiClient.get('/promocodes');
     return res.data;
   },
+
   getById: async (promocodeId) => {
     const res = await apiClient.get(`/promocodes/${promocodeId}`);
     return res.data;
   },
+
   create: async (promocodeData) => {
     const res = await apiClient.post('/promocodes', promocodeData);
     return res.data;
   },
+
   delete: async (promocodeId) => {
     const res = await apiClient.delete(`/promocodes/${promocodeId}`);
     return res.data;

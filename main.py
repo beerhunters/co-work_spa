@@ -2,7 +2,7 @@ import os
 import pytz
 from datetime import datetime, timedelta, date, time
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Form
 from fastapi.security import (
     HTTPBasic,
     HTTPBasicCredentials,
@@ -10,7 +10,8 @@ from fastapi.security import (
     HTTPAuthorizationCredentials,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -38,9 +39,15 @@ from yookassa import Payment
 import aiohttp
 import jwt
 from jwt.exceptions import InvalidTokenError
+import shutil
+from pathlib import Path
 
 logger = get_logger(__name__)
 app = FastAPI()
+
+AVATARS_DIR = Path(__file__).parent / "avatars"
+app.mount("/avatars", StaticFiles(directory=AVATARS_DIR), name="avatars")
+
 
 # Добавляем CORS middleware
 app.add_middleware(
@@ -98,6 +105,12 @@ class UserBase(BaseModel):
     agreed_to_terms: bool
     avatar: Optional[str]
     referrer_id: Optional[int]
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
 
 
 class TariffBase(BaseModel):
@@ -252,8 +265,99 @@ async def verify_token_endpoint(username: str = Depends(verify_token)):
 
 @app.get("/logout")
 async def logout():
-    # Token invalidation should be handled on the client side
     return {"message": "Successfully logged out"}
+
+
+# Эндпоинт для получения аватара
+@app.get("/users/{user_id}/avatar")
+async def get_user_avatar(
+    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Проверяем наличие файла аватара
+    avatar_path = AVATARS_DIR / f"{user.telegram_id}.jpg"
+    if not avatar_path.exists():
+        avatar_path = AVATARS_DIR / f"{user.telegram_id}.png"
+
+    if not avatar_path.exists():
+        # Возвращаем placeholder
+        placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
+        if placeholder_path.exists():
+            return FileResponse(placeholder_path)
+        else:
+            raise HTTPException(status_code=404, detail="No avatar found")
+
+    return FileResponse(avatar_path)
+
+
+# Эндпоинт для обновления пользователя
+@app.put("/users/{user_id}", response_model=UserBase)
+async def update_user(
+    user_id: int,
+    user_update: UserUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Обновляем только переданные поля
+    if user_update.full_name is not None:
+        user.full_name = user_update.full_name
+    if user_update.phone is not None:
+        user.phone = user_update.phone
+    if user_update.email is not None:
+        user.email = user_update.email
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# Эндпоинт для загрузки аватара
+@app.post("/users/{user_id}/avatar")
+async def upload_user_avatar(
+    user_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Проверяем тип файла
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    # Определяем расширение файла
+    extension = file.filename.split(".")[-1] if "." in file.filename else "jpg"
+    if extension not in ["jpg", "jpeg", "png", "gif", "webp"]:
+        extension = "jpg"
+
+    # Сохраняем файл
+    avatar_filename = f"{user.telegram_id}.{extension}"
+    avatar_path = AVATARS_DIR / avatar_filename
+
+    # Удаляем старый аватар если существует
+    for ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+        old_avatar = AVATARS_DIR / f"{user.telegram_id}.{ext}"
+        if old_avatar.exists() and old_avatar != avatar_path:
+            old_avatar.unlink()
+
+    # Сохраняем новый аватар
+    with avatar_path.open("wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Обновляем путь в базе данных
+    user.avatar = f"/avatars/{avatar_filename}"
+    db.commit()
+
+    return {"message": "Avatar uploaded successfully", "avatar_url": user.avatar}
 
 
 # Protected routes
@@ -793,4 +897,24 @@ async def startup_event():
     admin_login = os.getenv("ADMIN_LOGIN", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
     create_admin(admin_login, admin_password)
+
+    # Создаем placeholder аватар если его нет
+    placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
+    if not placeholder_path.exists():
+        # Создаем простой placeholder (серый квадрат)
+        try:
+            from PIL import Image, ImageDraw
+
+            img = Image.new("RGB", (200, 200), color="#E2E8F0")
+            draw = ImageDraw.Draw(img)
+            # Рисуем круг
+            draw.ellipse([10, 10, 190, 190], fill="#CBD5E0")
+            # Рисуем силуэт пользователя
+            draw.ellipse([75, 50, 125, 100], fill="#718096")  # голова
+            draw.ellipse([50, 100, 150, 180], fill="#718096")  # тело
+            img.save(placeholder_path)
+            logger.info("Placeholder avatar created")
+        except ImportError:
+            logger.warning("PIL not installed, placeholder avatar not created")
+
     logger.info("Application started successfully")
