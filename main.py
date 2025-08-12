@@ -2,24 +2,18 @@ import os
 import pytz
 from datetime import datetime, timedelta, date, time
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile, Form
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import (
-    HTTPBasic,
-    HTTPBasicCredentials,
     HTTPBearer,
     HTTPAuthorizationCredentials,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi import File, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import desc
 from sqlalchemy.orm import Session
-from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.security import check_password_hash
 from utils.logger import get_logger
-from utils.bot_instance import get_bot
 from models.models import (
     Session as DBSession,
     Admin,
@@ -41,7 +35,6 @@ from yookassa import Payment
 import aiohttp
 import jwt
 from jwt.exceptions import InvalidTokenError
-import shutil
 from pathlib import Path
 
 logger = get_logger(__name__)
@@ -49,7 +42,6 @@ app = FastAPI()
 
 AVATARS_DIR = Path(__file__).parent / "avatars"
 app.mount("/avatars", StaticFiles(directory=AVATARS_DIR), name="avatars")
-
 
 # Добавляем CORS middleware
 app.add_middleware(
@@ -92,7 +84,30 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+# class UserBase(BaseModel):
+#     id: int
+#     telegram_id: int
+#     full_name: Optional[str]
+#     phone: Optional[str]
+#     email: Optional[str]
+#     username: Optional[str]
+#     successful_bookings: int
+#     language_code: str
+#     invited_count: int
+#     reg_date: Optional[datetime]
+#     first_join_time: datetime
+#     agreed_to_terms: bool
+#     avatar: Optional[str]
+#     referrer_id: Optional[int]
+#
+#
+# class UserUpdate(BaseModel):
+#     full_name: Optional[str] = None
+#     phone: Optional[str] = None
+#     email: Optional[str] = None
 class UserBase(BaseModel):
+    """Базовая модель пользователя для API"""
+
     id: int
     telegram_id: int
     full_name: Optional[str]
@@ -108,8 +123,32 @@ class UserBase(BaseModel):
     avatar: Optional[str]
     referrer_id: Optional[int]
 
+    class Config:
+        from_attributes = True
+
 
 class UserUpdate(BaseModel):
+    """Модель для обновления пользователя"""
+
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    username: Optional[str] = None
+    language_code: Optional[str] = None
+    avatar: Optional[str] = None
+    agreed_to_terms: Optional[bool] = None
+    reg_date: Optional[str] = None  # Принимаем как строку ISO format
+    successful_bookings: Optional[int] = None
+    invited_count: Optional[int] = None
+
+
+class UserCreate(BaseModel):
+    """Модель для создания пользователя"""
+
+    telegram_id: int
+    username: Optional[str] = None
+    language_code: str = "ru"
+    referrer_id: Optional[int] = None
     full_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
@@ -574,6 +613,16 @@ async def delete_booking(
     return {"message": "Booking deleted successfully"}
 
 
+@app.get("/tariffs/active", response_model=List[TariffBase])
+async def get_active_tariffs(
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получить только активные тарифы"""
+    # tariffs = db.query(Tariff).filter(Tariff.is_active == True).all()
+    tariffs = db.query(Tariff).filter_by(is_active=True).all()
+    return tariffs
+
+
 @app.get("/tariffs", response_model=List[TariffBase])
 async def get_tariffs(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     tariffs = db.query(Tariff).all()
@@ -914,6 +963,754 @@ async def check_payment_status(payment_id: str) -> Optional[str]:
     except Exception as e:
         logger.error(f"Failed to check payment status: {e}")
         return None
+
+
+"""
+Обновленный main.py с дополнительными эндпоинтами для бота
+Добавить эти эндпоинты в существующий main.py
+"""
+
+
+# === Добавить эти эндпоинты в существующий main.py ===
+
+
+# User endpoints для бота
+@app.get("/users/telegram/{telegram_id}", response_model=UserBase)
+async def get_user_by_telegram(
+    telegram_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получить пользователя по Telegram ID"""
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+@app.post("/users/check_and_add")
+async def check_and_add_user(
+    user_data: dict, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Проверить и добавить пользователя если его нет"""
+    telegram_id = user_data.get("telegram_id")
+
+    # Проверяем существующего пользователя
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+
+    if user:
+        # Обновляем username если изменился
+        if user_data.get("username") and user.username != user_data.get("username"):
+            user.username = user_data.get("username")
+            db.commit()
+
+        # Проверяем полноту данных
+        is_complete = all(
+            [user.full_name, user.phone, user.email, user.agreed_to_terms]
+        )
+
+        return {
+            "user": {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+                "phone": user.phone,
+                "email": user.email,
+                "username": user.username,
+                "successful_bookings": user.successful_bookings,
+                "language_code": user.language_code,
+                "invited_count": user.invited_count,
+                "reg_date": user.reg_date,
+                "first_join_time": user.first_join_time,
+                "agreed_to_terms": user.agreed_to_terms,
+                "avatar": user.avatar,
+                "referrer_id": user.referrer_id,
+            },
+            "is_new": False,
+            "is_complete": is_complete,
+        }
+
+    # Создаем нового пользователя с минимальными данными
+    user = User(
+        telegram_id=telegram_id,
+        username=user_data.get("username"),
+        language_code=user_data.get("language_code", "ru"),
+        referrer_id=user_data.get("referrer_id"),
+        first_join_time=datetime.now(MOSCOW_TZ),
+        invited_count=0,
+        successful_bookings=0,
+        agreed_to_terms=False,
+    )
+
+    db.add(user)
+
+    # Обновляем счетчик приглашенных у реферера
+    if user.referrer_id:
+        referrer = db.query(User).filter(User.telegram_id == user.referrer_id).first()
+        if referrer:
+            referrer.invited_count += 1
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "user": {
+            "id": user.id,
+            "telegram_id": user.telegram_id,
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "email": user.email,
+            "username": user.username,
+            "successful_bookings": user.successful_bookings,
+            "language_code": user.language_code,
+            "invited_count": user.invited_count,
+            "reg_date": user.reg_date,
+            "first_join_time": user.first_join_time,
+            "agreed_to_terms": user.agreed_to_terms,
+            "avatar": user.avatar,
+            "referrer_id": user.referrer_id,
+        },
+        "is_new": True,
+        "is_complete": False,
+    }
+
+
+# Обновленный эндпоинт для обновления пользователя с поддержкой аватара
+
+
+@app.put("/users/{user_id}", response_model=UserBase)
+async def update_user_api(
+    user_id: int,
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Обновить данные пользователя"""
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Обновляем поля если они переданы
+    update_dict = user_data.dict(exclude_unset=True)
+
+    for field, value in update_dict.items():
+        if value is not None:
+            setattr(user, field, value)
+
+    # Если передано имя файла аватара, сохраняем его
+    if "avatar" in update_dict:
+        user.avatar = update_dict["avatar"]
+
+    # Если передан флаг согласия с условиями
+    if "agreed_to_terms" in update_dict:
+        user.agreed_to_terms = update_dict["agreed_to_terms"]
+
+    # Если передана дата регистрации
+    if "reg_date" in update_dict:
+        if isinstance(update_dict["reg_date"], str):
+            try:
+                user.reg_date = datetime.fromisoformat(
+                    update_dict["reg_date"].replace("Z", "+00:00")
+                )
+            except:
+                user.reg_date = datetime.now(MOSCOW_TZ)
+        else:
+            user.reg_date = update_dict["reg_date"]
+
+    db.commit()
+    db.refresh(user)
+
+    return user
+
+
+# Promocode endpoints
+@app.get("/promocodes/by_name/{name}", response_model=PromocodeBase)
+async def get_promocode_by_name(
+    name: str, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получить промокод по имени"""
+    promocode = (
+        db.query(Promocode)
+        .filter(Promocode.name == name, Promocode.is_active == True)
+        .first()
+    )
+
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Promocode not found or inactive")
+
+    # Проверяем срок действия
+    if promocode.expiration_date and promocode.expiration_date < datetime.now(
+        MOSCOW_TZ
+    ):
+        raise HTTPException(status_code=400, detail="Promocode expired")
+
+    return promocode
+
+
+@app.post("/promocodes/{promocode_id}/use")
+async def use_promocode(
+    promocode_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Использовать промокод"""
+    promocode = db.query(Promocode).get(promocode_id)
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Promocode not found")
+
+    promocode.usage_quantity += 1
+    db.commit()
+
+    return {"success": True, "usage_count": promocode.usage_quantity}
+
+
+# Enhanced Booking endpoints
+@app.post("/bookings", response_model=BookingBase)
+async def create_booking_api(
+    booking_data: BookingCreate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Создать новое бронирование через API"""
+
+    # Получаем пользователя
+    user = db.query(User).filter(User.telegram_id == booking_data.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Получаем тариф
+    tariff = db.query(Tariff).get(booking_data.tariff_id)
+    if not tariff:
+        raise HTTPException(status_code=404, detail="Tariff not found")
+
+    # Создаем бронирование
+    booking = Booking(
+        user_id=user.id,
+        tariff_id=booking_data.tariff_id,
+        visit_date=booking_data.visit_date,
+        visit_time=booking_data.visit_time,
+        duration=booking_data.duration,
+        promocode_id=booking_data.promocode_id,
+        amount=booking_data.amount,
+        payment_id=booking_data.payment_id,
+        paid=booking_data.paid,
+        confirmed=booking_data.confirmed,
+        created_at=datetime.now(MOSCOW_TZ),
+    )
+
+    db.add(booking)
+
+    # Создаем уведомление
+    notification = Notification(
+        user_id=user.id,
+        booking_id=booking.id,
+        message=f"Создана новая бронь на {booking.visit_date}",
+        target_url=f"/bookings/{booking.id}",
+        created_at=datetime.now(MOSCOW_TZ),
+        is_read=False,
+    )
+    db.add(notification)
+
+    # Обновляем счетчик успешных бронирований если оплачено
+    if booking.paid:
+        user.successful_bookings += 1
+
+    db.commit()
+    db.refresh(booking)
+
+    return booking
+
+
+@app.put("/bookings/{booking_id}/payment")
+async def update_booking_payment(
+    booking_id: int,
+    payment_data: dict,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Обновить статус оплаты бронирования"""
+    booking = db.query(Booking).get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    booking.payment_id = payment_data.get("payment_id")
+    booking.paid = payment_data.get("paid", False)
+
+    if booking.paid:
+        # Обновляем счетчик пользователя
+        user = db.query(User).get(booking.user_id)
+        if user:
+            user.successful_bookings += 1
+
+    db.commit()
+
+    return {"success": True, "booking_id": booking_id, "paid": booking.paid}
+
+
+@app.put("/bookings/{booking_id}/confirm")
+async def confirm_booking_api(
+    booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Подтвердить бронирование"""
+    booking = db.query(Booking).get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    booking.confirmed = True
+    db.commit()
+
+    # Отправляем уведомление пользователю
+    user = db.query(User).get(booking.user_id)
+    if user and bot:
+        tariff = db.query(Tariff).get(booking.tariff_id)
+        message = f"✅ Ваша бронь подтверждена!\n\n📋 Тариф: {tariff.name}\n📅 Дата: {booking.visit_date}"
+
+        try:
+            await bot.send_message(user.telegram_id, message)
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления: {e}")
+
+    return {"success": True, "booking_id": booking_id}
+
+
+# Payment endpoints
+@app.post("/payments/create")
+async def create_payment_api(
+    payment_data: dict, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Создать платеж через YooKassa"""
+    try:
+        from yookassa import Payment
+
+        payment = Payment.create(
+            {
+                "amount": {"value": str(payment_data["amount"]), "currency": "RUB"},
+                "confirmation": {
+                    "type": "redirect",
+                    "return_url": payment_data.get(
+                        "return_url", "https://t.me/your_bot"
+                    ),
+                },
+                "capture": True,
+                "description": payment_data.get("description", "Оплата бронирования"),
+                "metadata": payment_data.get("metadata", {}),
+            }
+        )
+
+        return {
+            "payment_id": payment.id,
+            "confirmation_url": payment.confirmation.confirmation_url,
+            "status": payment.status,
+        }
+    except Exception as e:
+        logger.error(f"Ошибка создания платежа: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/payments/{payment_id}/status")
+async def check_payment_status_api(payment_id: str, _: str = Depends(verify_token)):
+    """Проверить статус платежа"""
+    try:
+        from yookassa import Payment
+
+        payment = Payment.find_one(payment_id)
+        return {
+            "payment_id": payment.id,
+            "status": payment.status,
+            "paid": payment.paid,
+            "amount": float(payment.amount.value) if payment.amount else 0,
+        }
+    except Exception as e:
+        logger.error(f"Ошибка проверки статуса платежа: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/payments/{payment_id}/cancel")
+async def cancel_payment_api(payment_id: str, _: str = Depends(verify_token)):
+    """Отменить платеж"""
+    try:
+        from yookassa import Payment, Refund
+
+        # Проверяем статус платежа
+        payment = Payment.find_one(payment_id)
+
+        if payment.status == "succeeded":
+            # Если платеж прошел, делаем возврат
+            refund = Refund.create({"payment_id": payment_id, "amount": payment.amount})
+            return {"success": True, "refund_id": refund.id, "status": "refunded"}
+        else:
+            # Если платеж еще не завершен, отменяем
+            Payment.cancel(payment_id)
+            return {"success": True, "status": "cancelled"}
+    except Exception as e:
+        logger.error(f"Ошибка отмены платежа: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Rubitime integration
+@app.post("/rubitime/create_record")
+async def create_rubitime_record_api(
+    rubitime_params: dict, _: str = Depends(verify_token)
+):
+    """Создать запись в Rubitime"""
+    try:
+        rubitime_id = await rubitime("create_record", rubitime_params)
+        return {"rubitime_id": rubitime_id}
+    except Exception as e:
+        logger.error(f"Ошибка создания записи в Rubitime: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Notification endpoints
+@app.post("/notifications/send")
+async def send_notification_api(
+    notification_data: dict,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Отправить уведомление пользователю через бота"""
+    user_id = notification_data.get("user_id")
+    message = notification_data.get("message")
+    target_url = notification_data.get("target_url")
+
+    # Получаем пользователя
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Создаем уведомление в БД
+    notification = Notification(
+        user_id=user_id,
+        message=message,
+        target_url=target_url,
+        created_at=datetime.now(MOSCOW_TZ),
+        is_read=False,
+    )
+    db.add(notification)
+    db.commit()
+
+    # Отправляем через бота если он доступен
+    if bot:
+        try:
+            await bot.send_message(user.telegram_id, message, parse_mode="HTML")
+            return {"success": True, "sent": True}
+        except Exception as e:
+            logger.error(f"Ошибка отправки сообщения: {e}")
+            return {"success": True, "sent": False, "error": str(e)}
+
+    return {"success": True, "sent": False, "error": "Bot not available"}
+
+
+"""
+Дополнительные эндпоинты для работы с тикетами
+Добавить в существующий main.py
+"""
+
+
+# === Ticket endpoints для бота ===
+
+
+@app.post("/tickets", response_model=TicketBase)
+async def create_ticket_api(
+    ticket_data: dict, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Создать новый тикет через API"""
+
+    # Получаем пользователя по telegram_id
+    telegram_id = ticket_data.get("user_id")  # В данном случае это telegram_id
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Определяем статус
+    status_str = ticket_data.get("status", "OPEN")
+    try:
+        status_enum = TicketStatus[status_str]
+    except KeyError:
+        status_enum = TicketStatus.OPEN
+
+    # Создаем тикет
+    ticket = Ticket(
+        user_id=user.id,
+        description=ticket_data.get("description"),
+        photo_id=ticket_data.get("photo_id"),
+        status=status_enum,
+        comment=ticket_data.get("comment"),
+        created_at=datetime.now(MOSCOW_TZ),
+        updated_at=datetime.now(MOSCOW_TZ),
+    )
+
+    db.add(ticket)
+
+    # Создаем уведомление
+    notification = Notification(
+        user_id=user.id,
+        ticket_id=ticket.id,
+        message=f"Создано обращение #{ticket.id}",
+        target_url=f"/tickets/{ticket.id}",
+        created_at=datetime.now(MOSCOW_TZ),
+        is_read=False,
+    )
+    db.add(notification)
+
+    db.commit()
+    db.refresh(ticket)
+
+    # Возвращаем данные тикета
+    return {
+        "id": ticket.id,
+        "user_id": ticket.user_id,
+        "description": ticket.description,
+        "photo_id": ticket.photo_id,
+        "status": ticket.status.value,
+        "comment": ticket.comment,
+        "created_at": ticket.created_at,
+        "updated_at": ticket.updated_at,
+    }
+
+
+@app.get("/users/{user_id}/tickets", response_model=List[TicketBase])
+async def get_user_tickets(
+    user_id: int,
+    status: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 20,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получить тикеты пользователя"""
+
+    # Проверяем существование пользователя
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Формируем запрос
+    query = db.query(Ticket).filter(Ticket.user_id == user_id)
+
+    # Фильтр по статусу если указан
+    if status:
+        try:
+            status_enum = TicketStatus[status]
+            query = query.filter(Ticket.status == status_enum)
+        except KeyError:
+            pass
+
+    # Сортировка и пагинация
+    query = query.order_by(Ticket.created_at.desc())
+    tickets = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    # Возвращаем список тикетов
+    return [
+        {
+            "id": t.id,
+            "user_id": t.user_id,
+            "description": t.description,
+            "photo_id": t.photo_id,
+            "status": t.status.value,
+            "comment": t.comment,
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+        }
+        for t in tickets
+    ]
+
+
+@app.get("/users/telegram/{telegram_id}/tickets", response_model=List[TicketBase])
+async def get_user_tickets_by_telegram(
+    telegram_id: int,
+    status: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 20,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получить тикеты пользователя по Telegram ID"""
+
+    # Получаем пользователя по telegram_id
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Формируем запрос
+    query = db.query(Ticket).filter(Ticket.user_id == user.id)
+
+    # Фильтр по статусу если указан
+    if status:
+        try:
+            status_enum = TicketStatus[status]
+            query = query.filter(Ticket.status == status_enum)
+        except KeyError:
+            pass
+
+    # Сортировка и пагинация
+    query = query.order_by(Ticket.created_at.desc())
+    tickets = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    # Возвращаем список тикетов
+    return [
+        {
+            "id": t.id,
+            "user_id": t.user_id,
+            "description": t.description,
+            "photo_id": t.photo_id,
+            "status": t.status.value,
+            "comment": t.comment,
+            "created_at": t.created_at,
+            "updated_at": t.updated_at,
+        }
+        for t in tickets
+    ]
+
+
+@app.put("/tickets/{ticket_id}/status")
+async def update_ticket_status(
+    ticket_id: int,
+    status_data: dict,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Обновить статус тикета"""
+
+    ticket = db.query(Ticket).get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # Обновляем статус
+    new_status = status_data.get("status")
+    if new_status:
+        try:
+            ticket.status = TicketStatus[new_status]
+        except KeyError:
+            raise HTTPException(status_code=400, detail="Invalid status")
+
+    # Обновляем комментарий если есть
+    comment = status_data.get("comment")
+    if comment:
+        ticket.comment = comment
+
+    ticket.updated_at = datetime.now(MOSCOW_TZ)
+
+    # Создаем уведомление для пользователя
+    user = db.query(User).get(ticket.user_id)
+    if user:
+        status_text = {
+            TicketStatus.OPEN: "открыто",
+            TicketStatus.IN_PROGRESS: "в работе",
+            TicketStatus.CLOSED: "закрыто",
+        }.get(ticket.status, "изменен")
+
+        notification = Notification(
+            user_id=user.id,
+            ticket_id=ticket.id,
+            message=f"Статус обращения #{ticket.id} изменен на: {status_text}",
+            target_url=f"/tickets/{ticket.id}",
+            created_at=datetime.now(MOSCOW_TZ),
+            is_read=False,
+        )
+        db.add(notification)
+
+        # Отправляем уведомление через бота если он доступен
+        if bot:
+            try:
+                message = f"📋 Обращение #{ticket.id}\n"
+                message += f"Статус изменен на: {status_text}\n"
+                if comment:
+                    message += f"Комментарий: {comment}"
+
+                await bot.send_message(user.telegram_id, message, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления: {e}")
+
+    db.commit()
+
+    return {"success": True, "ticket_id": ticket_id, "status": ticket.status.value}
+
+
+@app.get("/tickets/stats")
+async def get_tickets_stats(
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получить статистику по тикетам"""
+
+    total_tickets = db.query(Ticket).count()
+    open_tickets = db.query(Ticket).filter(Ticket.status == TicketStatus.OPEN).count()
+    in_progress_tickets = (
+        db.query(Ticket).filter(Ticket.status == TicketStatus.IN_PROGRESS).count()
+    )
+    closed_tickets = (
+        db.query(Ticket).filter(Ticket.status == TicketStatus.CLOSED).count()
+    )
+
+    # Среднее время закрытия тикетов (в часах)
+    closed_tickets_times = (
+        db.query(Ticket.created_at, Ticket.updated_at)
+        .filter(Ticket.status == TicketStatus.CLOSED)
+        .all()
+    )
+
+    avg_resolution_time = 0
+    if closed_tickets_times:
+        total_time = sum(
+            (updated - created).total_seconds() / 3600
+            for created, updated in closed_tickets_times
+        )
+        avg_resolution_time = round(total_time / len(closed_tickets_times), 1)
+
+    return {
+        "total": total_tickets,
+        "open": open_tickets,
+        "in_progress": in_progress_tickets,
+        "closed": closed_tickets,
+        "avg_resolution_hours": avg_resolution_time,
+    }
+
+
+"""
+Дополнительный эндпоинт для создания уведомлений в БД
+Добавить в существующий main.py
+"""
+
+
+# === Notification endpoint для создания уведомлений в БД ===
+
+
+@app.post("/notifications/create")
+async def create_notification(
+    notification_data: dict,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Создать уведомление в БД (для отображения в админке)"""
+
+    user_id = notification_data.get("user_id")
+    message = notification_data.get("message")
+    target_url = notification_data.get("target_url")
+
+    # Проверяем существование пользователя
+    user = db.query(User).get(user_id)
+    if not user:
+        # Если передан user_id как telegram_id, пытаемся найти по нему
+        user = db.query(User).filter(User.telegram_id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user_id = user.id
+
+    # Создаем уведомление в БД
+    notification = Notification(
+        user_id=user_id,
+        message=message,
+        target_url=target_url,
+        created_at=datetime.now(MOSCOW_TZ),
+        is_read=False,
+    )
+
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+
+    return {
+        "success": True,
+        "notification_id": notification.id,
+        "created_at": notification.created_at,
+    }
 
 
 @app.on_event("startup")

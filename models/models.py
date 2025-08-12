@@ -169,34 +169,6 @@ class Promocode(Base):
     is_active = Column(Boolean, default=False, index=True)
 
 
-# class Booking(Base):
-#     """Модель бронирования."""
-#
-#     __tablename__ = "bookings"
-#     id = Column(Integer, primary_key=True)
-#     user_id = Column(
-#         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-#     )
-#     tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=False)
-#     visit_date = Column(Date, nullable=False)
-#     visit_time = Column(Time, nullable=True)
-#     duration = Column(Integer, nullable=True)
-#     promocode_id = Column(Integer, ForeignKey("promocodes.id"), nullable=True)
-#     amount = Column(Float, nullable=False)
-#     payment_id = Column(String(100), nullable=True)
-#     paid = Column(Boolean, default=False)
-#     rubitime_id = Column(String(100), nullable=True)
-#     confirmed = Column(Boolean, default=False)
-#
-#     user = relationship("User", back_populates="bookings")
-#     tariff = relationship("Tariff", backref="bookings")
-#     promocode = relationship("Promocode", backref="promocodes")
-#     notifications = relationship(
-#         "Notification",
-#         back_populates="booking",
-#         cascade="all, delete-orphan",
-#         passive_deletes=True,
-#     )
 class Booking(Base):
     __tablename__ = "bookings"
 

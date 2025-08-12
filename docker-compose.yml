@@ -7,15 +7,13 @@ services:
       - BOT_TOKEN=${BOT_TOKEN}
       - LOG_LEVEL=${LOG_LEVEL}
       - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
-      - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
-      - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
-      - RUBITIME_API_KEY=${RUBITIME_API_KEY}
       - BOT_LINK=${BOT_LINK}
       - INVITE_LINK=${INVITE_LINK}
       - GROUP_ID=${GROUP_ID}
       - FOR_LOGS=${FOR_LOGS}
       - ADMIN_LOGIN=${ADMIN_LOGIN}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - API_BASE_URL=http://web:8000  # Добавлено для связи с API
     volumes:
       - ./data:/data
       - ./utils:/app/utils
@@ -23,12 +21,18 @@ services:
       - ./bot:/app/bot
       - ./avatars:/app/avatars
     restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "test", "-f", "/data/bot_initialized"]
       interval: 5s
       timeout: 3s
       retries: 10
       start_period: 10s
+    networks:
+      - coworking_network
+
   web:
     build:
       context: .
@@ -53,15 +57,15 @@ services:
       - ./static:/app/static
       - ./avatars:/app/avatars
     restart: unless-stopped
-    depends_on:
-      bot:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 30s
+    networks:
+      - coworking_network
+
   frontend:
     build:
       context: .
@@ -72,3 +76,9 @@ services:
     depends_on:
       web:
         condition: service_healthy
+    networks:
+      - coworking_network
+
+networks:
+  coworking_network:
+    driver: bridge
