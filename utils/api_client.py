@@ -1,12 +1,10 @@
-"""
-API клиент для взаимодействия бота с backend API
-"""
+import asyncio
+import os
+from datetime import date, time
+from typing import Optional, Dict, Any, List
 
 import aiohttp
-import os
-from typing import Optional, Dict, Any, List
-from datetime import date, time, datetime
-import asyncio
+
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -120,6 +118,22 @@ class BotAPIClient:
         """Обновить данные пользователя"""
         return await self._make_request("PUT", f"/users/{user_id}", json=user_data)
 
+    # async def check_and_add_user(
+    #     self,
+    #     telegram_id: int,
+    #     username: Optional[str] = None,
+    #     language_code: str = "ru",
+    #     referrer_id: Optional[int] = None,
+    # ) -> Dict:
+    #     """Проверка и добавление пользователя"""
+    #     user_data = {
+    #         "telegram_id": telegram_id,
+    #         "username": username,
+    #         "language_code": language_code,
+    #         "referrer_id": referrer_id,
+    #     }
+    #     return await self._make_request("POST", "/users/check_and_add", json=user_data)
+
     async def check_and_add_user(
         self,
         telegram_id: int,
@@ -127,14 +141,32 @@ class BotAPIClient:
         language_code: str = "ru",
         referrer_id: Optional[int] = None,
     ) -> Dict:
-        """Проверка и добавление пользователя"""
-        user_data = {
+        """
+        Проверяет и добавляет пользователя в БД при первом обращении.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            username: Username пользователя
+            language_code: Код языка
+            referrer_id: Telegram ID реферера
+
+        Returns:
+            Dict с информацией о пользователе и статусе операции
+        """
+        # Формируем параметры, исключая None значения
+        params = {
             "telegram_id": telegram_id,
-            "username": username,
             "language_code": language_code,
-            "referrer_id": referrer_id,
         }
-        return await self._make_request("POST", "/users/check_and_add", json=user_data)
+
+        if username:
+            params["username"] = username
+
+        if referrer_id is not None:
+            params["referrer_id"] = referrer_id
+
+        result = await self._make_request("POST", "/users/check_and_add", params=params)
+        return result or {"user": None, "is_new": False, "is_complete": False}
 
     # === Tariff методы ===
 
