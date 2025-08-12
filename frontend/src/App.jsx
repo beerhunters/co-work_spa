@@ -72,23 +72,23 @@ function App() {
 
   // Проверка валидности токена при загрузке
   useEffect(() => {
-  const checkAuth = async () => {
-    const token = getAuthToken();
-    if (token) {
-      try {
-        await verifyToken(); // теперь используем функцию
-        setIsAuthenticated(true);
-        setSection('dashboard');
-        await fetchInitialData(dataSetters, setLastNotificationId, toast);
-      } catch (error) {
-        removeAuthToken(); // если есть такая функция
-        setIsAuthenticated(false);
+    const checkAuth = async () => {
+      const token = getAuthToken();
+      if (token) {
+        try {
+          await verifyToken();
+          setIsAuthenticated(true);
+          setSection('dashboard');
+          await fetchInitialData(dataSetters, setLastNotificationId, toast);
+        } catch (error) {
+          removeAuthToken();
+          setIsAuthenticated(false);
+        }
       }
-    }
-    setIsCheckingAuth(false);
-  };
-  checkAuth();
-}, []);
+      setIsCheckingAuth(false);
+    };
+    checkAuth();
+  }, []);
 
   // При смене вкладки загружаем данные
   useEffect(() => {
@@ -97,7 +97,28 @@ function App() {
     }
   }, [section, isAuthenticated]);
 
-  // Auto-refresh для уведомлений
+  // Отдельный useEffect для статистики дашборда
+  useEffect(() => {
+    if (isAuthenticated && section === 'dashboard') {
+      const fetchDashboardStats = async () => {
+        try {
+          const stats = await dashboardApi.getStats();
+          setDashboardStats(stats);
+        } catch (err) {
+          console.error('Ошибка получения статистики дашборда:', err);
+        }
+      };
+
+      // Загружаем статистику сразу при переходе на дашборд
+      fetchDashboardStats();
+
+      // Обновляем статистику каждые 30 секунд только для дашборда
+      const statsInterval = setInterval(fetchDashboardStats, 30000);
+      return () => clearInterval(statsInterval);
+    }
+  }, [isAuthenticated, section]);
+
+  // Auto-refresh ТОЛЬКО для уведомлений (убрали отсюда статистику)
   useEffect(() => {
     if (isAuthenticated) {
       const fetchUpdates = async () => {
@@ -121,20 +142,16 @@ function App() {
               });
             });
           }
-          // 📊 Статистика дашборда — только если активна вкладка
-          if (section === 'dashboard') {
-            const stats = await dashboardApi.getStats();
-            setDashboardStats(stats);
-          }
         } catch (err) {
           console.error('Ошибка получения уведомлений:', err);
         }
       };
 
-      const interval = setInterval(fetchUpdates, 10000);
-      return () => clearInterval(interval);
+      // Обновляем уведомления каждые 15 секунд (более редко)
+      const notificationsInterval = setInterval(fetchUpdates, 10000);
+      return () => clearInterval(notificationsInterval);
     }
-  }, [isAuthenticated, lastNotificationId]);
+  }, [isAuthenticated, lastNotificationId, section]); // Добавили section в зависимости
 
   // Обновляем индикатор новых уведомлений
   useEffect(() => {
@@ -209,7 +226,7 @@ function App() {
 
   const markNotificationRead = async (notificationId, targetUrl) => {
     try {
-      await notificationApi.markRead(notificationId); // заменили axios на API-метод
+      await notificationApi.markRead(notificationId);
 
       setNotifications(prev =>
         prev.map(n => (n.id === notificationId ? { ...n, is_read: true } : n))
@@ -236,7 +253,7 @@ function App() {
 
   const markAllNotificationsRead = async () => {
     try {
-      await notificationApi.markAllRead(); // заменили axios на API-метод
+      await notificationApi.markAllRead();
 
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setHasNewNotifications(false);
@@ -320,21 +337,16 @@ function App() {
     await fetchSectionData('users', dataSetters);
     if (selectedItem?.id) {
       try {
-
-        // const res = await axios.get(`http://localhost/api$/users/{selectedItem.id}`);
-        // const updatedUser = res.data;
         const updatedUser = await userApi.getById(selectedItem.id);
         setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
-        return updatedUser; // ✅ вернуть объект
+        return updatedUser;
       } catch (error) {
         console.error('Ошибка обновления пользователя:', error);
-        return null; // ✅ явно вернуть null при ошибке
+        return null;
       }
     }
     return null;
   };
-
-
 
   // Проверка аутентификации
   if (isCheckingAuth) {
