@@ -12,6 +12,7 @@ const Dashboard = ({
   stats,
   users,
   tickets,
+  bookings,
   chartRef,
   chartInstanceRef,
   section
@@ -45,8 +46,15 @@ const Dashboard = ({
         return acc;
       }, Array(7).fill(0)) : Array(7).fill(0);
 
-      // Подсчет бронирований по дням недели (заглушка - нужно добавить реальные данные)
-      const bookingCreationCounts = Array(7).fill(0); // заменить на реальные данные бронирований
+      // Подсчет бронирований по дням недели
+      const bookingCreationCounts = Array.isArray(bookings) ? bookings.reduce((acc, booking) => {
+        if (booking.created_at) {
+          const date = new Date(booking.created_at);
+          const day = date.getDay() === 0 ? 6 : date.getDay() - 1;
+          acc[day]++;
+        }
+        return acc;
+      }, Array(7).fill(0)) : Array(7).fill(0);
 
       const ctx = chartRef.current.getContext('2d');
 
