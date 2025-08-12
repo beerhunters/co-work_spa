@@ -369,7 +369,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             # Создаем уведомление для админки через API
             notification_data = {
                 "user_id": user.get("id"),
-                "message": f"Новая регистрация: {full_name} (@{message.from_user.username or 'без username'})",
+                "message": f"Новая регистрация: {full_name}",
                 "target_url": f"/users/{user.get('id')}",
             }
 

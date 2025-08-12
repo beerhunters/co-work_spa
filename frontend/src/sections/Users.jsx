@@ -89,12 +89,12 @@ const Users = ({ users, openDetailModal }) => {
             <Select
               value={itemsPerPage}
               onChange={(e) => setItemsPerPage(Number(e.target.value))}
-              width="120px"
+              width="150px"
             >
-              <option value={10}>10 на стр.</option>
-              <option value={20}>20 на стр.</option>
-              <option value={50}>50 на стр.</option>
-              <option value={100}>100 на стр.</option>
+              <option value={10}>по 10</option>
+              <option value={20}>по 20</option>
+              <option value={50}>по 50</option>
+              <option value={100}>по 100</option>
             </Select>
           </HStack>
         </HStack>

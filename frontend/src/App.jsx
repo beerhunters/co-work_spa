@@ -297,6 +297,8 @@ function App() {
           <Dashboard
             stats={dashboardStats}
             users={users}
+            tickets={tickets}
+            bookings={bookings}
             chartRef={chartRef}
             chartInstanceRef={chartInstanceRef}
             isChartInitialized={isChartInitialized}
@@ -323,6 +325,8 @@ function App() {
           <Dashboard
             stats={dashboardStats}
             users={users}
+            tickets={tickets}
+            bookings={bookings}
             chartRef={chartRef}
             chartInstanceRef={chartInstanceRef}
             isChartInitialized={isChartInitialized}

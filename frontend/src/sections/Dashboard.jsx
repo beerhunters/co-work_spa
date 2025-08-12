@@ -11,6 +11,7 @@ import { colors, sizes, styles } from '../styles/styles';
 const Dashboard = ({
   stats,
   users,
+  tickets,
   chartRef,
   chartInstanceRef,
   section
@@ -24,6 +25,7 @@ const Dashboard = ({
       !chartInstanceRef.current &&
       section === 'dashboard'
     ) {
+      // Подсчет регистраций пользователей по дням недели
       const userRegistrationCounts = users.reduce((acc, u) => {
         if (u.reg_date || u.first_join_time) {
           const date = new Date(u.reg_date || u.first_join_time);
@@ -33,30 +35,163 @@ const Dashboard = ({
         return acc;
       }, Array(7).fill(0));
 
+      // Подсчет создания тикетов по дням недели
+      const ticketCreationCounts = Array.isArray(tickets) ? tickets.reduce((acc, ticket) => {
+        if (ticket.created_at) {
+          const date = new Date(ticket.created_at);
+          const day = date.getDay() === 0 ? 6 : date.getDay() - 1;
+          acc[day]++;
+        }
+        return acc;
+      }, Array(7).fill(0)) : Array(7).fill(0);
+
+      // Подсчет бронирований по дням недели (заглушка - нужно добавить реальные данные)
+      const bookingCreationCounts = Array(7).fill(0); // заменить на реальные данные бронирований
+
       const ctx = chartRef.current.getContext('2d');
 
       chartInstanceRef.current = new Chart(ctx, {
         type: 'line',
         data: {
           labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
-          datasets: [{
-            label: 'Регистрации пользователей',
-            data: userRegistrationCounts,
-            borderColor: colors.chart.borderColor,
-            backgroundColor: colors.chart.backgroundColor,
-            tension: 0.4,
-            borderWidth: 3,
-            pointBackgroundColor: colors.chart.pointColor,
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2,
-            pointRadius: 5,
-            pointHoverRadius: 7,
-          }]
+          datasets: [
+            {
+              label: 'Регистрации пользователей',
+              data: userRegistrationCounts,
+              borderColor: '#3B82F6',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              tension: 0.4,
+              borderWidth: 3,
+              pointBackgroundColor: '#3B82F6',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              pointRadius: 5,
+              pointHoverRadius: 7,
+              fill: true
+            },
+            {
+              label: 'Создание тикетов',
+              data: ticketCreationCounts,
+              borderColor: '#F59E0B',
+              backgroundColor: 'rgba(245, 158, 11, 0.1)',
+              tension: 0.4,
+              borderWidth: 3,
+              pointBackgroundColor: '#F59E0B',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              pointRadius: 5,
+              pointHoverRadius: 7,
+              fill: true
+            },
+            {
+              label: 'Бронирования',
+              data: bookingCreationCounts,
+              borderColor: '#10B981',
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              tension: 0.4,
+              borderWidth: 3,
+              pointBackgroundColor: '#10B981',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              pointRadius: 5,
+              pointHoverRadius: 7,
+              fill: true
+            }
+          ]
         },
-        options: styles.chart.options
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          scales: {
+            x: {
+              display: true,
+              title: {
+                display: true,
+                text: 'День недели',
+                font: {
+                  size: 14,
+                  weight: 'bold'
+                }
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.05)'
+              }
+            },
+            y: {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: 'Количество',
+                font: {
+                  size: 14,
+                  weight: 'bold'
+                },
+                color: '#666'
+              },
+              grid: {
+                color: 'rgba(0, 0, 0, 0.1)'
+              },
+              ticks: {
+                color: '#666',
+                beginAtZero: true,
+                precision: 0
+              }
+            }
+          },
+          plugins: {
+            tooltip: {
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              titleColor: '#fff',
+              bodyColor: '#fff',
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+              borderWidth: 1,
+              cornerRadius: 8,
+              displayColors: true,
+              callbacks: {
+                title: function(context) {
+                  return `${context[0].label}`;
+                },
+                label: function(context) {
+                  const label = context.dataset.label || '';
+                  const value = context.parsed.y;
+                  let unit = ' шт.';
+                  if (label.includes('Пользователи')) unit = ' чел.';
+                  if (label.includes('Бронирования')) unit = ' брон.';
+                  return `${label}: ${value}${unit}`;
+                }
+              }
+            },
+            legend: {
+              display: true,
+              position: 'top',
+              align: 'center',
+              labels: {
+                usePointStyle: true,
+                pointStyle: 'circle',
+                padding: 20,
+                font: {
+                  size: 13,
+                  weight: '500'
+                }
+              }
+            }
+          },
+          elements: {
+            point: {
+              hoverBorderWidth: 3
+            }
+          },
+          ...(styles.chart?.options || {})
+        }
       });
     }
-  }, [users, chartRef, chartInstanceRef, section]);
+  }, [users, tickets, chartRef, chartInstanceRef, section]);
 
   // Очистка графика при размонтировании
   useEffect(() => {
@@ -176,8 +311,11 @@ const Dashboard = ({
             <Flex align="center">
               <Icon as={FiTrendingUp} boxSize={6} color="purple.500" mr={3} />
               <Heading size="md" color="gray.800">
-                Активность пользователей за неделю
+                Активность за неделю
               </Heading>
+              <Text fontSize="sm" color="gray.500" ml="auto">
+                Регистрации и обращения по дням
+              </Text>
             </Flex>
           </CardHeader>
           <CardBody p={6} bg="white">
