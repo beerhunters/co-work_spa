@@ -904,14 +904,6 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
         "created_at": ticket.created_at,
     }
 
-    admin_message = format_ticket_notification(user, ticket_data_dict)
-
-    if bot and ADMIN_TELEGRAM_ID:
-        try:
-            await bot.send_message(ADMIN_TELEGRAM_ID, admin_message)
-        except Exception as e:
-            logger.error(f"Не удалось отправить уведомление админу: {e}")
-
     return {"id": ticket.id, "message": "Ticket created successfully"}
 
 

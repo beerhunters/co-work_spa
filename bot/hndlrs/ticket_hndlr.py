@@ -540,6 +540,22 @@ async def create_ticket(
 
     ticket_id = result.get("id")
 
+    # Создаем уведомление для админки через API
+    notification_data = {
+        "user_id": user.get("id"),
+        "message": f"Новая тикет",
+        "target_url": f"/tickets/{ticket_id}",
+    }
+
+    try:
+        await api_client.send_notification(
+            user.get("id"),
+            notification_data["message"],
+            notification_data["target_url"],
+        )
+    except Exception as e:
+        logger.error(f"Ошибка создания уведомления: {e}")
+
     # Формируем уведомление для админа
     ticket_notification_data = {
         "id": ticket_id,
