@@ -907,15 +907,14 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
     return {"id": ticket.id, "message": "Ticket created successfully"}
 
 
-@app.get("/tickets/user/{user_id}")
-async def get_user_tickets(
-    user_id: int, status: Optional[str] = None, db: Session = Depends(get_db)
+@app.get("/users/telegram/{telegram_id}/tickets")
+async def get_user_tickets_by_telegram_id(
+    telegram_id: int, status: Optional[str] = None, db: Session = Depends(get_db)
 ):
-    """Получение тикетов пользователя. Используется ботом."""
-    # Сначала находим пользователя по telegram_id
-    user = db.query(User).filter(User.telegram_id == user_id).first()
+    """Получение тикетов пользователя по Telegram ID. Используется ботом."""
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return []
 
     query = db.query(Ticket).filter(Ticket.user_id == user.id)
 
@@ -924,7 +923,7 @@ async def get_user_tickets(
             status_enum = TicketStatus[status]
             query = query.filter(Ticket.status == status_enum)
         except KeyError:
-            raise HTTPException(status_code=400, detail="Invalid status")
+            pass
 
     tickets = query.order_by(Ticket.created_at.desc()).all()
 

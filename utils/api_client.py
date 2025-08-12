@@ -277,6 +277,12 @@ class BotAPIClient:
 
     # === Notification методы ===
 
+    async def create_notification(self, notification_data: Dict) -> Dict:
+        """Создать уведомление в системе"""
+        return await self._make_request(
+            "POST", "/notifications/create", json=notification_data
+        )
+
     async def send_notification(
         self, user_id: int, message: str, target_url: Optional[str] = None
     ) -> Dict:
