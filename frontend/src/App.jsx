@@ -1,4 +1,3 @@
-// App.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { ChakraProvider, useToast, useDisclosure } from '@chakra-ui/react';
 import axios from 'axios';
@@ -6,8 +5,14 @@ import axios from 'axios';
 // Компоненты
 import Login from './components/Login';
 import Layout from './components/Layout';
-// import DetailModal from './components/DetailModal';
-import { DetailModal } from './components/modals';
+// import { DetailModal } from './components/modals';
+import {
+  BookingDetailModal,
+  PromocodeDetailModal,
+  TariffDetailModal,
+  TicketDetailModal,
+  UserDetailModal
+} from './components/modals';
 
 // Секции
 import Dashboard from './sections/Dashboard';
@@ -20,8 +25,15 @@ import Notifications from './sections/Notifications';
 import Newsletters from './sections/Newsletters';
 
 // Утилиты
-import {getAuthToken, removeAuthToken, verifyToken} from './utils/auth.js';
-import {fetchSectionData, fetchInitialData, notificationApi, dashboardApi, userApi} from './utils/api.js';
+import { getAuthToken, removeAuthToken, verifyToken } from './utils/auth.js';
+import {
+  fetchSectionData,
+  fetchInitialData,
+  notificationApi,
+  dashboardApi,
+  userApi,
+  promocodeApi
+} from './utils/api.js';
 
 function App() {
   // Состояния
@@ -65,7 +77,12 @@ function App() {
     tariffs: setTariffs,
     promocodes: setPromocodes,
     tickets: setTickets,
-    notifications: setNotifications,
+    notifications: (data) => {
+      setNotifications(data);
+      if (Array.isArray(data) && data.length > 0) {
+        setLastNotificationId(Math.max(...data.map(n => n.id), 0));
+      }
+    },
     newsletters: setNewsletters,
     dashboardStats: setDashboardStats
   };
@@ -118,7 +135,7 @@ function App() {
     }
   }, [isAuthenticated, section]);
 
-  // Auto-refresh ТОЛЬКО для уведомлений (убрали отсюда статистику)
+  // Auto-refresh ТОЛЬКО для уведомлений
   useEffect(() => {
     if (isAuthenticated) {
       const fetchUpdates = async () => {
@@ -147,11 +164,11 @@ function App() {
         }
       };
 
-      // Обновляем уведомления каждые 15 секунд (более редко)
+      // Обновляем уведомления каждые 10 секунд
       const notificationsInterval = setInterval(fetchUpdates, 10000);
       return () => clearInterval(notificationsInterval);
     }
-  }, [isAuthenticated, lastNotificationId, section]); // Добавили section в зависимости
+  }, [isAuthenticated, lastNotificationId]);
 
   // Обновляем индикатор новых уведомлений
   useEffect(() => {
@@ -284,6 +301,37 @@ function App() {
     onOpen();
   };
 
+  const handleUpdate = async (updatedData = null) => {
+    try {
+      if (selectedItem?.type === 'ticket' && updatedData) {
+        setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
+        setTickets(prev => prev.map(ticket =>
+          ticket.id === updatedData.id ? updatedData : ticket
+        ));
+      } else if (selectedItem?.type === 'promocode') {
+        // Для промокодов всегда перезагружаем список
+        await fetchSectionData('promocodes', dataSetters);
+        if (selectedItem?.id) {
+          try {
+            const updatedPromocode = await promocodeApi.getById(selectedItem.id);
+            setSelectedItem(prev => ({ ...updatedPromocode, type: prev.type }));
+          } catch (error) {
+            // Промокод мог быть удален
+            console.log('Промокод не найден, возможно был удален');
+          }
+        }
+      } else if (selectedItem?.type === 'user') {
+        await fetchSectionData('users', dataSetters);
+        const updatedUser = await userApi.getById(selectedItem.id);
+        setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
+      } else {
+        await fetchSectionData(section, dataSetters);
+      }
+    } catch (error) {
+      console.error('Ошибка обновления:', error);
+    }
+  };
+
   // Рендер секций
   const renderSection = () => {
     const sectionProps = {
@@ -313,7 +361,13 @@ function App() {
       case 'tariffs':
         return <Tariffs tariffs={tariffs} {...sectionProps} />;
       case 'promocodes':
-        return <Promocodes promocodes={promocodes} {...sectionProps} />;
+        return (
+          <Promocodes
+            promocodes={promocodes}
+            openDetailModal={openDetailModal}
+            onUpdate={() => fetchSectionData('promocodes', dataSetters)}
+          />
+        );
       case 'tickets':
         return <Tickets tickets={tickets} {...sectionProps} />;
       case 'notifications':
@@ -334,30 +388,6 @@ function App() {
             section={section}
           />
         );
-    }
-  };
-
-  const handleUpdate = async (updatedData = null) => {
-    try {
-      if (selectedItem?.type === 'ticket' && updatedData) {
-        // Обновляем данные тикета в selectedItem
-        setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
-
-        // Обновляем тикет в списке tickets
-        setTickets(prev => prev.map(ticket =>
-          ticket.id === updatedData.id ? updatedData : ticket
-        ));
-      } else {
-        // Обычное обновление для других типов
-        await fetchSectionData(section, dataSetters);
-
-        if (selectedItem?.type === 'user') {
-          const updatedUser = await userApi.getById(selectedItem.id);
-          setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
-        }
-      }
-    } catch (error) {
-      console.error('Ошибка обновления:', error);
     }
   };
 
@@ -401,12 +431,50 @@ function App() {
       >
         {renderSection()}
       </Layout>
-      <DetailModal
-        isOpen={isOpen}
-        onClose={onClose}
-        selectedItem={selectedItem}
-        onUpdate={handleUpdate}
-      />
+
+      {/* Модальные окна для разных типов элементов */}
+      {selectedItem?.type === 'user' && (
+        <UserDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          user={selectedItem}
+          onUpdate={handleUpdate}
+        />
+      )}
+
+      {selectedItem?.type === 'booking' && (
+        <BookingDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          booking={selectedItem}
+        />
+      )}
+
+      {selectedItem?.type === 'tariff' && (
+        <TariffDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          tariff={selectedItem}
+        />
+      )}
+
+      {selectedItem?.type === 'promocode' && (
+        <PromocodeDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          promocode={selectedItem}
+          onUpdate={() => fetchSectionData('promocodes', dataSetters)}
+        />
+      )}
+
+      {selectedItem?.type === 'ticket' && (
+        <TicketDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          ticket={selectedItem}
+          onUpdate={handleUpdate}
+        />
+      )}
     </ChakraProvider>
   );
 }

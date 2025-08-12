@@ -207,8 +207,18 @@ export const promocodeApi = {
     return res.data;
   },
 
+  update: async (promocodeId, promocodeData) => {
+    const res = await apiClient.put(`/promocodes/${promocodeId}`, promocodeData);
+    return res.data;
+  },
+
   delete: async (promocodeId) => {
     const res = await apiClient.delete(`/promocodes/${promocodeId}`);
+    return res.data;
+  },
+
+  getByName: async (name) => {
+    const res = await apiClient.get(`/promocodes/by_name/${name}`);
     return res.data;
   }
 };

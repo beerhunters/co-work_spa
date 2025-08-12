@@ -143,6 +143,22 @@ class PromocodeBase(BaseModel):
         from_attributes = True
 
 
+class PromocodeCreate(BaseModel):
+    name: str
+    discount: int
+    usage_quantity: int = 0
+    expiration_date: Optional[datetime] = None
+    is_active: bool = True
+
+
+class PromocodeUpdate(BaseModel):
+    name: Optional[str] = None
+    discount: Optional[int] = None
+    usage_quantity: Optional[int] = None
+    expiration_date: Optional[datetime] = None
+    is_active: Optional[bool] = None
+
+
 class BookingBase(BaseModel):
     id: int
     user_id: int
@@ -767,12 +783,10 @@ async def delete_tariff(
 
 
 # ================== PROMOCODE ENDPOINTS ==================
-
-
 @app.get("/promocodes", response_model=List[PromocodeBase])
 async def get_promocodes(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     """Получение всех промокодов."""
-    promocodes = db.query(Promocode).all()
+    promocodes = db.query(Promocode).order_by(Promocode.id.desc()).all()
     return promocodes
 
 
@@ -812,14 +826,160 @@ async def get_promocode(
 
 @app.post("/promocodes", response_model=PromocodeBase)
 async def create_promocode(
-    promocode_data: dict, db: Session = Depends(get_db), _: str = Depends(verify_token)
+    promocode_data: PromocodeCreate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
     """Создание нового промокода."""
-    promocode = Promocode(**promocode_data)
-    db.add(promocode)
-    db.commit()
-    db.refresh(promocode)
-    return promocode
+
+    # Валидация названия
+    if not promocode_data.name or len(promocode_data.name.strip()) < 3:
+        raise HTTPException(
+            status_code=400,
+            detail="Название промокода должно содержать минимум 3 символа",
+        )
+
+    if len(promocode_data.name) > 20:
+        raise HTTPException(
+            status_code=400, detail="Название промокода не должно превышать 20 символов"
+        )
+
+    # Проверяем формат названия (только латинские буквы, цифры, дефис и подчеркивание)
+    import re
+
+    if not re.match(r"^[A-Za-z0-9_-]+$", promocode_data.name):
+        raise HTTPException(
+            status_code=400,
+            detail="Название может содержать только латинские буквы, цифры, дефис и подчеркивание",
+        )
+
+    # Проверяем уникальность названия
+    existing = db.query(Promocode).filter_by(name=promocode_data.name.upper()).first()
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Промокод с названием '{promocode_data.name}' уже существует",
+        )
+
+    # Валидация скидки
+    if promocode_data.discount < 1 or promocode_data.discount > 100:
+        raise HTTPException(status_code=400, detail="Скидка должна быть от 1% до 100%")
+
+    # Валидация количества использований
+    if promocode_data.usage_quantity < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Количество использований не может быть отрицательным",
+        )
+
+    # Проверяем дату истечения
+    if promocode_data.expiration_date:
+        if promocode_data.expiration_date.date() < datetime.now(MOSCOW_TZ).date():
+            raise HTTPException(
+                status_code=400, detail="Дата истечения не может быть в прошлом"
+            )
+
+    try:
+        promocode = Promocode(
+            name=promocode_data.name.upper(),
+            discount=promocode_data.discount,
+            usage_quantity=promocode_data.usage_quantity,
+            expiration_date=promocode_data.expiration_date,
+            is_active=promocode_data.is_active,
+        )
+
+        db.add(promocode)
+        db.commit()
+        db.refresh(promocode)
+
+        logger.info(f"Создан промокод: {promocode.name} ({promocode.discount}%)")
+        return promocode
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка создания промокода: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось создать промокод")
+
+
+@app.put("/promocodes/{promocode_id}", response_model=PromocodeBase)
+async def update_promocode(
+    promocode_id: int,
+    promocode_data: PromocodeUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Обновление промокода."""
+    promocode = db.query(Promocode).get(promocode_id)
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Промокод не найден")
+
+    # Обновляем только переданные поля
+    update_data = promocode_data.dict(exclude_unset=True)
+
+    # Валидация названия на уникальность (если оно изменяется)
+    if "name" in update_data:
+        new_name = update_data["name"].upper()
+        if new_name != promocode.name:
+            existing = db.query(Promocode).filter_by(name=new_name).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Промокод с названием '{new_name}' уже существует",
+                )
+
+        # Валидация формата названия
+        import re
+
+        if not re.match(r"^[A-Za-z0-9_-]+$", new_name):
+            raise HTTPException(
+                status_code=400,
+                detail="Название может содержать только латинские буквы, цифры, дефис и подчеркивание",
+            )
+
+        if len(new_name) < 3 or len(new_name) > 20:
+            raise HTTPException(
+                status_code=400, detail="Название должно содержать от 3 до 20 символов"
+            )
+
+        update_data["name"] = new_name
+
+    # Валидация скидки
+    if "discount" in update_data:
+        if update_data["discount"] < 1 or update_data["discount"] > 100:
+            raise HTTPException(
+                status_code=400, detail="Скидка должна быть от 1% до 100%"
+            )
+
+    # Валидация количества использований
+    if "usage_quantity" in update_data:
+        if update_data["usage_quantity"] < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Количество использований не может быть отрицательным",
+            )
+
+    # Валидация даты истечения
+    if "expiration_date" in update_data and update_data["expiration_date"]:
+        if update_data["expiration_date"].date() < datetime.now(MOSCOW_TZ).date():
+            raise HTTPException(
+                status_code=400, detail="Дата истечения не может быть в прошлом"
+            )
+
+    try:
+        # Применяем изменения
+        for field, value in update_data.items():
+            setattr(promocode, field, value)
+
+        db.commit()
+        db.refresh(promocode)
+
+        logger.info(f"Обновлен промокод: {promocode.name}")
+        return promocode
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка обновления промокода {promocode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось обновить промокод")
 
 
 @app.delete("/promocodes/{promocode_id}")
@@ -829,11 +989,28 @@ async def delete_promocode(
     """Удаление промокода."""
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Promocode not found")
+        raise HTTPException(status_code=404, detail="Промокод не найден")
 
-    db.delete(promocode)
-    db.commit()
-    return {"message": "Promocode deleted"}
+    # Проверяем, используется ли промокод в активных бронированиях
+    active_bookings = db.query(Booking).filter_by(promocode_id=promocode_id).count()
+    if active_bookings > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нельзя удалить промокод. Он используется в {active_bookings} бронированиях",
+        )
+
+    try:
+        promocode_name = promocode.name
+        db.delete(promocode)
+        db.commit()
+
+        logger.info(f"Удален промокод: {promocode_name}")
+        return {"message": f"Промокод '{promocode_name}' удален"}
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка удаления промокода {promocode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось удалить промокод")
 
 
 # ================== TICKET ENDPOINTS ==================
