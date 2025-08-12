@@ -1,14 +1,14 @@
 import React from 'react';
-import UserDetailModal from './UserDetailModal';
 import BookingDetailModal from './BookingDetailModal';
-import TicketDetailModal from './TicketDetailModal';
-import TariffDetailModal from './TariffDetailModal';
 import PromocodeDetailModal from './PromocodeDetailModal';
+import TariffDetailModal from './TariffDetailModal';
+import TicketDetailModal from './TicketDetailModal';
+import UserDetailModal from './UserDetailModal';
 
 const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
   if (!selectedItem) return null;
 
-  const { type, ...item } = selectedItem;
+  const { type } = selectedItem;
 
   switch (type) {
     case 'user':
@@ -16,47 +16,43 @@ const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
         <UserDetailModal
           isOpen={isOpen}
           onClose={onClose}
-          user={item}
+          user={selectedItem}
           onUpdate={onUpdate}
         />
       );
-
     case 'booking':
       return (
         <BookingDetailModal
           isOpen={isOpen}
           onClose={onClose}
-          booking={item}
+          booking={selectedItem}
         />
       );
-
-    case 'ticket':
-      return (
-        <TicketDetailModal
-          isOpen={isOpen}
-          onClose={onClose}
-          ticket={item}
-        />
-      );
-
     case 'tariff':
       return (
         <TariffDetailModal
           isOpen={isOpen}
           onClose={onClose}
-          tariff={item}
+          tariff={selectedItem}
         />
       );
-
     case 'promocode':
       return (
         <PromocodeDetailModal
           isOpen={isOpen}
           onClose={onClose}
-          promocode={item}
+          promocode={selectedItem}
         />
       );
-
+    case 'ticket':
+      return (
+        <TicketDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          ticket={selectedItem}
+          onUpdate={onUpdate}
+        />
+      );
     default:
       return null;
   }

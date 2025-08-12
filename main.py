@@ -1,12 +1,19 @@
 import os
-from datetime import timedelta, time, date
+import threading
+import time as tm
+import uuid
+from datetime import time, date
+from datetime import timedelta
 from pathlib import Path
+from typing import List
 
 import aiohttp
 import jwt
 import pytz
+import schedule
 from aiogram import Bot
-from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Query
+from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
+from fastapi import Query
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
@@ -831,8 +838,12 @@ async def delete_promocode(
 
 # ================== TICKET ENDPOINTS ==================
 
+# Создаем директорию для фото ответов
+TICKET_PHOTOS_DIR = Path(__file__).parent / "ticket_photos"
+TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
 
-@app.get("/tickets", response_model=List[TicketBase])
+
+@app.get("/tickets", response_model=List[dict])
 async def get_tickets(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -841,7 +852,7 @@ async def get_tickets(
     _: str = Depends(verify_token),
 ):
     """Получение списка тикетов с фильтрацией."""
-    query = db.query(Ticket).order_by(Ticket.created_at.desc())
+    query = db.query(Ticket).join(User).order_by(Ticket.created_at.desc())
 
     if status:
         try:
@@ -851,18 +862,60 @@ async def get_tickets(
             raise HTTPException(status_code=400, detail="Invalid status")
 
     tickets = query.offset((page - 1) * per_page).limit(per_page).all()
-    return tickets
+
+    result = []
+    for ticket in tickets:
+        result.append(
+            {
+                "id": ticket.id,
+                "description": ticket.description,
+                "photo_id": ticket.photo_id,
+                "response_photo_id": ticket.response_photo_id,
+                "status": ticket.status.name,
+                "comment": ticket.comment,
+                "created_at": ticket.created_at.isoformat(),
+                "updated_at": ticket.updated_at.isoformat(),
+                "user": {
+                    "id": ticket.user.id,
+                    "telegram_id": ticket.user.telegram_id,
+                    "full_name": ticket.user.full_name,
+                    "username": ticket.user.username,
+                    "phone": ticket.user.phone,
+                    "email": ticket.user.email,
+                },
+            }
+        )
+
+    return result
 
 
-@app.get("/tickets/{ticket_id}", response_model=TicketBase)
+@app.get("/tickets/{ticket_id}", response_model=dict)
 async def get_ticket(
     ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
     """Получение тикета по ID."""
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    ticket = db.query(Ticket).join(User).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
+
+    return {
+        "id": ticket.id,
+        "description": ticket.description,
+        "photo_id": ticket.photo_id,
+        "response_photo_id": ticket.response_photo_id,
+        "status": ticket.status.name,
+        "comment": ticket.comment,
+        "created_at": ticket.created_at.isoformat(),
+        "updated_at": ticket.updated_at.isoformat(),
+        "user": {
+            "id": ticket.user.id,
+            "telegram_id": ticket.user.telegram_id,
+            "full_name": ticket.user.full_name,
+            "username": ticket.user.username,
+            "phone": ticket.user.phone,
+            "email": ticket.user.email,
+        },
+    }
 
 
 @app.post("/tickets")
@@ -948,46 +1001,280 @@ async def update_ticket_status(
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
-    """Обновление статуса тикета."""
+    """Обновление статуса тикета с возможностью добавления фото."""
     ticket = db.query(Ticket).get(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
+    # Запрещаем редактирование закрытых тикетов
+    if ticket.status == TicketStatus.CLOSED:
+        # Разрешаем только если явно меняем статус с CLOSED (что и так запрещено выше)
+        new_status = status_data.get("status")
+        if new_status and new_status != "CLOSED":
+            raise HTTPException(
+                status_code=400, detail="Закрытые тикеты нельзя редактировать"
+            )
+        elif not new_status:  # Если пытаются изменить только комментарий
+            raise HTTPException(
+                status_code=400, detail="Закрытые тикеты нельзя редактировать"
+            )
+
     new_status = status_data.get("status")
     comment = status_data.get("comment")
+    response_photo_id = status_data.get("response_photo_id")
 
+    # Валидация статуса и комментария
     if new_status:
-        try:
-            ticket.status = TicketStatus(new_status)
-        except ValueError:
+        # Проверяем валидность статуса
+        valid_statuses = ["OPEN", "IN_PROGRESS", "CLOSED"]
+        if new_status not in valid_statuses:
             raise HTTPException(status_code=400, detail="Invalid status")
 
-    if comment:
-        ticket.comment = comment
+        # Проверяем логику переходов статусов
+        current_status = ticket.status.name
 
-    ticket.updated_at = datetime.now(MOSCOW_TZ)
-    db.commit()
-
-    # Уведомляем пользователя
-    if bot:
-        user = db.query(User).get(ticket.user_id)
-        status_text = {
-            "Открыта": "🟢 Открыта",
-            "В работе": "🟡 В работе",
-            "Закрыта": "🔴 Закрыта",
+        # Разрешенные переходы (более строгая логика)
+        allowed_transitions = {
+            "OPEN": ["IN_PROGRESS", "CLOSED"],
+            "IN_PROGRESS": ["CLOSED"],  # Из "В работе" можно только закрыть
+            "CLOSED": [],  # Из "Закрыта" никуда нельзя перейти
         }
 
-        message = f"📋 Обращение #{ticket.id}\n"
-        message += f"Статус изменен на: {status_text.get(new_status, new_status)}\n"
-        if comment:
-            message += f"\n💬 Комментарий: {comment}"
+        if new_status != current_status:
+            if (
+                not allowed_transitions.get(current_status)
+                or new_status not in allowed_transitions[current_status]
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Недопустимый переход статуса с '{current_status}' на '{new_status}'",
+                )
+
+        # Если закрываем тикет, комментарий обязателен
+        if new_status == "CLOSED" and not comment and not ticket.comment:
+            raise HTTPException(
+                status_code=400, detail="Comment is required when closing a ticket"
+            )
 
         try:
-            await bot.send_message(user.telegram_id, message)
-        except Exception as e:
-            logger.error(f"Не удалось отправить уведомление пользователю: {e}")
+            ticket.status = TicketStatus[new_status]
+        except (ValueError, KeyError):
+            raise HTTPException(status_code=400, detail="Invalid status")
 
-    return {"message": "Ticket updated successfully"}
+    # Обновляем комментарий
+    if comment is not None:
+        ticket.comment = comment
+
+    # Обновляем ID фото ответа
+    if response_photo_id is not None:
+        ticket.response_photo_id = response_photo_id
+
+    ticket.updated_at = datetime.now(MOSCOW_TZ)
+
+    try:
+        db.commit()
+
+        # Уведомляем пользователя
+        if bot:
+            user = db.query(User).get(ticket.user_id)
+            if user:
+                status_text = {
+                    TicketStatus.OPEN: "🟢 Открыта",
+                    TicketStatus.IN_PROGRESS: "🟡 В работе",
+                    TicketStatus.CLOSED: "🔴 Закрыта",
+                }
+
+                message = f"📋 <b>Обращение #{ticket.id}</b>\n"
+                message += f"📊 <b>Статус:</b> {status_text.get(ticket.status, 'Обновлен')}\n\n"
+
+                if ticket.comment:
+                    message += f"💬 <b>Ответ администратора:</b>\n{ticket.comment}\n\n"
+
+                message += f"⏰ <b>Время обновления:</b> {ticket.updated_at.strftime('%d.%m.%Y %H:%M')}"
+
+                try:
+                    # Отправляем текстовое сообщение
+                    await bot.send_message(user.telegram_id, message, parse_mode="HTML")
+
+                    # Если есть фото в ответе, отправляем его
+                    if ticket.response_photo_id:
+                        photo_path = TICKET_PHOTOS_DIR / ticket.response_photo_id
+                        if photo_path.exists():
+                            try:
+                                from aiogram.types import FSInputFile
+
+                                photo_file = FSInputFile(photo_path)
+                                await bot.send_photo(
+                                    user.telegram_id,
+                                    photo_file,
+                                    caption="📸 Прикрепленное фото от администратора",
+                                )
+                            except Exception as e:
+                                logger.error(f"Ошибка отправки фото пользователю: {e}")
+
+                except Exception as e:
+                    logger.error(f"Не удалось отправить уведомление пользователю: {e}")
+
+        return {"message": "Ticket updated successfully", "ticket_id": ticket.id}
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка обновления тикета: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update ticket")
+
+
+# Настройки для очистки файлов (в днях)
+FILE_RETENTION_DAYS = int(
+    os.getenv("FILE_RETENTION_DAYS", "30")
+)  # По умолчанию 30 дней
+MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "10"))  # По умолчанию 10MB
+
+
+def cleanup_old_files():
+    """Удаляет старые файлы тикетов"""
+    try:
+        cutoff_date = datetime.now() - timedelta(days=FILE_RETENTION_DAYS)
+        deleted_count = 0
+
+        # Очищаем файлы фото тикетов
+        for file_path in TICKET_PHOTOS_DIR.glob("*"):
+            if file_path.is_file():
+                file_age = datetime.fromtimestamp(file_path.stat().st_mtime)
+                if file_age < cutoff_date:
+                    try:
+                        file_path.unlink()
+                        deleted_count += 1
+                        logger.info(f"Удален старый файл: {file_path.name}")
+                    except Exception as e:
+                        logger.error(f"Ошибка удаления файла {file_path}: {e}")
+
+        if deleted_count > 0:
+            logger.info(f"Очистка завершена. Удалено файлов: {deleted_count}")
+
+    except Exception as e:
+        logger.error(f"Ошибка при очистке файлов: {e}")
+
+
+def start_cleanup_scheduler():
+    """Запускает планировщик очистки файлов"""
+    schedule.every().day.at("02:00").do(cleanup_old_files)  # Каждый день в 2:00
+
+    def run_scheduler():
+        while True:
+            schedule.run_pending()
+            tm.sleep(3600)  # Проверяем каждый час
+
+    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
+    scheduler_thread.start()
+    logger.info(
+        f"Планировщик очистки файлов запущен. Срок хранения: {FILE_RETENTION_DAYS} дней"
+    )
+
+
+# Обновленный эндпоинт загрузки фото с улучшенной валидацией:
+@app.post("/tickets/{ticket_id}/photo")
+async def upload_ticket_response_photo(
+    ticket_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Загрузка фото для ответа администратора."""
+    # Проверяем существование тикета
+    ticket = db.query(Ticket).get(ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Тикет не найден")
+
+    # Проверяем тип файла
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Файл должен быть изображением (JPEG, PNG, GIF, WebP)",
+        )
+
+    # Читаем файл для проверки размера
+    file_content = await file.read()
+    file_size_mb = len(file_content) / (1024 * 1024)
+
+    if file_size_mb > MAX_FILE_SIZE_MB:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Размер файла ({file_size_mb:.1f} МБ) превышает максимально допустимый ({MAX_FILE_SIZE_MB} МБ)",
+        )
+
+    # Проверяем допустимые расширения
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    file_extension = Path(file.filename).suffix.lower() if file.filename else ".jpg"
+
+    if file_extension not in allowed_extensions:
+        file_extension = ".jpg"
+
+    # Генерируем уникальное имя файла
+    photo_id = f"{uuid.uuid4()}{file_extension}"
+    photo_path = TICKET_PHOTOS_DIR / photo_id
+
+    try:
+        # Сохраняем файл
+        with open(photo_path, "wb") as buffer:
+            buffer.write(file_content)
+
+        logger.info(
+            f"Фото для тикета {ticket_id} загружено: {photo_id} ({file_size_mb:.1f} МБ)"
+        )
+        return {
+            "photo_id": photo_id,
+            "message": "Фото успешно загружено",
+            "file_size_mb": round(file_size_mb, 1),
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка загрузки фото для тикета {ticket_id}: {e}")
+        # Удаляем файл если он был частично создан
+        if photo_path.exists():
+            try:
+                photo_path.unlink()
+            except:
+                pass
+        raise HTTPException(status_code=500, detail="Не удалось загрузить фото")
+
+
+@app.get("/tickets/{ticket_id}/photo")
+async def get_ticket_photo(ticket_id: int, db: Session = Depends(get_db)):
+    """Получение фото тикета (от пользователя)."""
+    ticket = db.query(Ticket).get(ticket_id)
+    if not ticket or not ticket.photo_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    # Если это локальный файл (содержит расширение), возвращаем его
+    if "." in ticket.photo_id:
+        photo_path = TICKET_PHOTOS_DIR / ticket.photo_id
+        if photo_path.exists():
+            return FileResponse(photo_path)
+
+    # Если это Telegram file_id, скачиваем файл
+    if bot:
+        try:
+            file_info = await bot.get_file(ticket.photo_id)
+            file_url = (
+                f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
+            )
+
+            import aiohttp
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(file_url) as resp:
+                    if resp.status == 200:
+                        # Сохраняем файл локально для кэширования
+                        photo_path = (
+                            TICKET_PHOTOS_DIR / f"telegram_{ticket.photo_id}.jpg"
+                        )
+                        with open(photo_path, "wb") as f:
+                            f.write(await resp.read())
+                        return FileResponse(photo_path)
+        except Exception as e:
+            logger.error(f"Ошибка получения фото из Telegram: {e}")
+
+    raise HTTPException(status_code=404, detail="Photo not found")
 
 
 @app.delete("/tickets/{ticket_id}")
@@ -998,6 +1285,16 @@ async def delete_ticket(
     ticket = db.query(Ticket).get(ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # Удаляем связанные файлы
+    if ticket.response_photo_id:
+        photo_path = TICKET_PHOTOS_DIR / ticket.response_photo_id
+        if photo_path.exists():
+            try:
+                photo_path.unlink()
+                logger.info(f"Удален файл фото: {photo_path}")
+            except Exception as e:
+                logger.error(f"Ошибка удаления файла {photo_path}: {e}")
 
     db.delete(ticket)
     db.commit()
@@ -1417,6 +1714,44 @@ async def create_rubitime_record_from_bot(rubitime_params: dict):
     return {"rubitime_id": rubitime_id}
 
 
+@app.post("/admin/cleanup-files")
+async def manual_cleanup(
+    days: int = Query(
+        FILE_RETENTION_DAYS, description="Количество дней для хранения файлов"
+    ),
+    _: str = Depends(verify_token),
+):
+    """Ручная очистка старых файлов."""
+    try:
+        cutoff_date = datetime.now() - timedelta(days=days)
+        deleted_count = 0
+        total_size_mb = 0
+
+        for file_path in TICKET_PHOTOS_DIR.glob("*"):
+            if file_path.is_file():
+                file_age = datetime.fromtimestamp(file_path.stat().st_mtime)
+                if file_age < cutoff_date:
+                    try:
+                        file_size = file_path.stat().st_size / (1024 * 1024)
+                        file_path.unlink()
+                        deleted_count += 1
+                        total_size_mb += file_size
+                        logger.info(f"Удален файл: {file_path.name}")
+                    except Exception as e:
+                        logger.error(f"Ошибка удаления файла {file_path}: {e}")
+
+        return {
+            "message": f"Очистка завершена",
+            "deleted_files": deleted_count,
+            "freed_space_mb": round(total_size_mb, 1),
+            "retention_days": days,
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка при ручной очистке: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при очистке файлов")
+
+
 # ================== STARTUP EVENT ==================
 
 
@@ -1424,6 +1759,13 @@ async def create_rubitime_record_from_bot(rubitime_params: dict):
 async def startup_event():
     """Инициализация при запуске приложения."""
     init_db()
+    # Запускаем планировщик очистки файлов
+    start_cleanup_scheduler()
+
+    # Создаем директории если их нет
+    TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
+    AVATARS_DIR.mkdir(exist_ok=True)
+
     admin_login = os.getenv("ADMIN_LOGIN", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
     create_admin(admin_login, admin_password)

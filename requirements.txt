@@ -10,3 +10,4 @@ aiohttp
 werkzeug
 PyJWT==2.8.0
 python-multipart
+schedule==1.2.0

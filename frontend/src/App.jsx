@@ -337,19 +337,28 @@ function App() {
     }
   };
 
-  const handleUpdate = async () => {
-    await fetchSectionData('users', dataSetters);
-    if (selectedItem?.id) {
-      try {
-        const updatedUser = await userApi.getById(selectedItem.id);
-        setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
-        return updatedUser;
-      } catch (error) {
-        console.error('Ошибка обновления пользователя:', error);
-        return null;
+  const handleUpdate = async (updatedData = null) => {
+    try {
+      if (selectedItem?.type === 'ticket' && updatedData) {
+        // Обновляем данные тикета в selectedItem
+        setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
+
+        // Обновляем тикет в списке tickets
+        setTickets(prev => prev.map(ticket =>
+          ticket.id === updatedData.id ? updatedData : ticket
+        ));
+      } else {
+        // Обычное обновление для других типов
+        await fetchSectionData(section, dataSetters);
+
+        if (selectedItem?.type === 'user') {
+          const updatedUser = await userApi.getById(selectedItem.id);
+          setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
+        }
       }
+    } catch (error) {
+      console.error('Ошибка обновления:', error);
     }
-    return null;
   };
 
   // Проверка аутентификации

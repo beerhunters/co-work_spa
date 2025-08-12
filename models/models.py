@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from sqlite3 import IntegrityError
-from typing import Optional, Tuple, List
+from typing import Optional
 
 import pytz
 from sqlalchemy import (
@@ -112,38 +112,6 @@ class User(Base):
         return f"<User {self.telegram_id} - {self.full_name}>"
 
 
-# def update_invited_count(user_id: Optional[int]) -> None:
-#     """
-#     Обновляет количество приглашённых пользователей для пользователя.
-#
-#     Args:
-#         user_id: ID пользователя, для которого обновляется invited_count.
-#     """
-#     if user_id:
-#         session = Session()
-#         try:
-#             referrer = session.query(User).filter_by(telegram_id=user_id).first()
-#             if referrer:
-#                 referrer.invited_count = (
-#                     session.query(User).filter_by(referrer_id=user_id).count()
-#                 )
-#                 session.commit()
-#                 logger.info(
-#                     f"Обновлён invited_count для пользователя {user_id}: {referrer.invited_count}"
-#                 )
-#             else:
-#                 logger.warning(
-#                     f"Пользователь с ID {user_id} не найден для обновления invited_count"
-#                 )
-#         except Exception as e:
-#             session.rollback()
-#             logger.error(
-#                 f"Ошибка при обновлении invited_count для пользователя {user_id}: {str(e)}"
-#             )
-#         finally:
-#             session.close()
-
-
 class Tariff(Base):
     """Модель тарифа."""
 
@@ -222,31 +190,24 @@ class Ticket(Base):
     __tablename__ = "tickets"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(
-        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
-    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     description = Column(String, nullable=False)
-    photo_id = Column(String, nullable=True)
+    photo_id = Column(String, nullable=True)  # Фото от пользователя
+    response_photo_id = Column(String, nullable=True)  # Фото в ответе от администратора
     status = Column(Enum(TicketStatus), default=TicketStatus.OPEN, nullable=False)
     comment = Column(String, nullable=True)
-    created_at = Column(
-        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
-    )
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ))
     updated_at = Column(
         DateTime,
         default=lambda: datetime.now(MOSCOW_TZ),
         onupdate=lambda: datetime.now(MOSCOW_TZ),
-        nullable=False,
     )
 
-    # Связи
     user = relationship("User", back_populates="tickets")
-    notifications = relationship(
-        "Notification", back_populates="ticket"
-    )  # ДОБАВИТЬ ЭТУ СТРОКУ
+    notifications = relationship("Notification", back_populates="ticket")
 
     def __repr__(self) -> str:
-        return f"<Ticket {self.id}: {self.status} - {self.description[:50]}>"
+        return f"<Ticket(id={self.id}, user_id={self.user_id}, status={self.status})>"
 
 
 class Notification(Base):
@@ -319,190 +280,6 @@ def create_admin(admin_login: str, admin_password: str) -> None:
         raise
     finally:
         session.close()
-
-
-# def get_user_by_telegram_id(telegram_id: int) -> Optional[User]:
-#     session = Session()
-#     user = session.query(User).filter_by(telegram_id=telegram_id).first()
-#     session.close()
-#     return user
-
-
-# def check_and_add_user(
-#     telegram_id: int,
-#     username: Optional[str] = None,
-#     language_code: Optional[str] = None,
-#     referrer_id: Optional[int] = None,
-# ) -> Tuple[Optional[User], bool]:
-#     """
-#     Проверяет, существует ли пользователь в БД, и добавляет его, если не существует.
-#
-#     Args:
-#         telegram_id: Telegram ID пользователя.
-#         username: Имя пользователя в Telegram (опционально).
-#         language_code: Код языка пользователя (опционально).
-#         referrer_id: ID реферера (опционально).
-#
-#     Returns:
-#         Tuple[Optional[User], bool]: Пользователь и флаг завершенности регистрации.
-#     """
-#     session = Session()
-#     try:
-#         user = session.query(User).filter_by(telegram_id=telegram_id).first()
-#         if user:
-#             is_complete = all([user.full_name, user.phone, user.email])
-#             logger.debug(
-#                 f"Пользователь {telegram_id} уже существует, завершенность регистрации: {is_complete}, referrer_id: {user.referrer_id}"
-#             )
-#             return user, is_complete
-#         else:
-#             user = User(
-#                 telegram_id=telegram_id,
-#                 username=username,
-#                 first_join_time=datetime.now(MOSCOW_TZ),
-#                 language_code=language_code,
-#                 referrer_id=referrer_id,
-#                 invited_count=0,
-#             )
-#             session.add(user)
-#             session.commit()
-#             logger.info(
-#                 f"Создан новый пользователь {telegram_id} с referrer_id {referrer_id}"
-#             )
-#             return user, False
-#     except Exception as e:
-#         logger.error(f"Ошибка при проверке/добавлении пользователя {telegram_id}: {e}")
-#         session.rollback()
-#         raise
-#     finally:
-#         session.close()
-
-
-# def add_user(
-#     telegram_id: int,
-#     full_name: Optional[str] = None,
-#     phone: Optional[str] = None,
-#     email: Optional[str] = None,
-#     username: Optional[str] = None,
-#     reg_date: Optional[datetime] = None,
-#     agreed_to_terms: Optional[bool] = None,
-#     avatar: Optional[str] = None,
-#     referrer_id: Optional[int] = None,
-# ) -> None:
-#     """
-#     Добавление или обновление пользователя в БД и создание уведомления.
-#
-#     Args:
-#         telegram_id: Telegram ID пользователя.
-#         full_name: Полное имя пользователя.
-#         phone: Номер телефона.
-#         email: Электронная почта.
-#         username: Имя пользователя в Telegram.
-#         reg_date: Дата регистрации.
-#         agreed_to_terms: Согласие с правилами.
-#         avatar: Аватар пользователя.
-#         referrer_id: ID реферера.
-#     """
-#     session = Session()
-#     try:
-#         user = session.query(User).filter_by(telegram_id=telegram_id).first()
-#         if user:
-#             logger.info(f"Обновление пользователя {telegram_id}")
-#             if full_name is not None:
-#                 user.full_name = full_name
-#             if phone is not None:
-#                 user.phone = phone
-#             if email is not None:
-#                 user.email = email
-#             if username is not None:
-#                 user.username = username
-#             if reg_date is not None:
-#                 user.reg_date = reg_date
-#             if agreed_to_terms is not None:
-#                 user.agreed_to_terms = agreed_to_terms
-#             if avatar is not None:
-#                 user.avatar = avatar
-#                 logger.debug(
-#                     f"Обновлён аватар для пользователя {telegram_id}: {avatar}"
-#                 )
-#             if referrer_id is not None:
-#                 user.referrer_id = referrer_id
-#                 logger.debug(
-#                     f"Обновлён referrer_id для пользователя {telegram_id}: {referrer_id}"
-#                 )
-#         else:
-#             logger.info(f"Создание нового пользователя {telegram_id}")
-#             user = User(
-#                 telegram_id=telegram_id,
-#                 first_join_time=datetime.now(MOSCOW_TZ),
-#                 full_name=full_name,
-#                 phone=phone,
-#                 email=email,
-#                 username=username,
-#                 successful_bookings=0,
-#                 invited_count=0,
-#                 reg_date=reg_date or datetime.now(MOSCOW_TZ),
-#                 agreed_to_terms=(
-#                     agreed_to_terms if agreed_to_terms is not None else False
-#                 ),
-#                 avatar=avatar,
-#                 referrer_id=referrer_id,
-#             )
-#             session.add(user)
-#             session.flush()
-#
-#         # Если регистрация завершена и есть referrer_id, увеличиваем invited_count реферера
-#         if full_name and phone and email and user.referrer_id:
-#             referrer = (
-#                 session.query(User).filter_by(telegram_id=user.referrer_id).first()
-#             )
-#             if referrer:
-#                 referrer.invited_count += 1
-#                 session.add(referrer)
-#                 logger.info(
-#                     f"Увеличен invited_count для реферера {referrer.telegram_id} "
-#                     f"до {referrer.invited_count} для пользователя {telegram_id}"
-#                 )
-#             else:
-#                 logger.warning(
-#                     f"Реферер с ID {user.referrer_id} не найден для пользователя {telegram_id}"
-#                 )
-#
-#         if full_name and phone and email:
-#             notification = Notification(
-#                 user_id=user.id,
-#                 message=f"Новый пользователь: {full_name}",
-#                 # created_at=datetime.now(MOSCOW_TZ),
-#                 target_url=f"/users/{user.id}",
-#                 is_read=False,
-#             )
-#             session.add(notification)
-#             logger.info(
-#                 f"Уведомление создано для пользователя {user.id}: {notification.message}"
-#             )
-#         session.commit()
-#     except Exception as e:
-#         session.rollback()
-#         logger.error(
-#             f"Ошибка добавления/обновления пользователя {telegram_id}: {str(e)}"
-#         )
-#         raise
-#     finally:
-#         session.close()
-
-
-# def get_active_tariffs() -> List[Tariff]:
-#     """Возвращает список активных тарифов из базы данных."""
-#     session = Session()
-#     try:
-#         tariffs = session.query(Tariff).filter_by(is_active=True).all()
-#         logger.info(f"Получено {len(tariffs)} активных тарифов")
-#         return tariffs
-#     except Exception as e:
-#         logger.error(f"Ошибка при получении активных тарифов: {str(e)}")
-#         raise
-#     finally:
-#         session.close()
 
 
 def format_booking_notification(user, tariff, booking_data):
@@ -786,103 +563,103 @@ def get_promocode_by_name(promocode_name: str) -> Optional[Promocode]:
     return promocode
 
 
-def create_ticket(
-    user_id: int,
-    description: str,
-    photo_id: str = None,
-    status: TicketStatus = TicketStatus.OPEN,
-    comment: str = None,
-) -> tuple[Ticket, str]:
-    session = Session()
-    try:
-        user = session.query(User).filter_by(telegram_id=user_id).first()
-        if not user:
-            raise ValueError(f"Пользователь с telegram_id {user_id} не найден")
-
-        ticket = Ticket(
-            user_id=user_id,
-            description=description,
-            photo_id=photo_id,
-            status=status,
-            comment=comment,
-        )
-
-        session.add(ticket)
-        session.flush()  # Получаем ID тикета
-
-        # Создаем уведомление для админ-панели (короткое сообщение)
-        admin_panel_message = (
-            f"Новый тикет #{ticket.id} от {user.full_name or 'пользователя'}"
-        )
-
-        # Создаем уведомление в БД для админ-панели
-        notification = Notification(
-            user_id=user_id,
-            message=admin_panel_message,
-            target_url=f"/tickets/{ticket.id}",
-            ticket_id=ticket.id,
-            is_read=False,
-        )
-        session.add(notification)
-
-        # Формируем подробное сообщение для Telegram админа
-        telegram_message = f"""🎫 <b>НОВЫЙ ТИКЕТ!</b> 🟢
-
-👤 <b>Пользователь:</b> {user.full_name or 'Не указано'}
-📱 <b>Telegram:</b> @{user.username or 'неизвестно'} (ID: <code>{user.telegram_id}</code>)
-📞 <b>Телефон:</b> {user.phone or 'не указан'}
-✉️ <b>Email:</b> {user.email or 'не указан'}
-
-🏷 <b>Номер тикета:</b> #{ticket.id}
-📝 <b>Описание:</b> {description}
-📊 <b>Статус:</b> {status.value}"""
-
-        if photo_id:
-            telegram_message += "\n📸 <b>Прикреплено фото</b>"
-
-        # Получаем данные тикета до коммита, чтобы избежать проблем с сессией
-        ticket_id = ticket.id
-        created_at = ticket.created_at
-
-        session.commit()
-
-        # Обновляем объект ticket актуальными данными
-        ticket.id = ticket_id
-        ticket.created_at = created_at
-
-        return ticket, telegram_message
-
-    except Exception as e:
-        session.rollback()
-        logger.error(f"Ошибка создания тикета: {e}")
-        raise e
-    finally:
-        session.close()
-
-
-# Также обновим format_ticket_notification для совместимости
-def format_ticket_notification(user, ticket_data) -> str:
-    """Форматирует уведомление о тикете для Telegram админа."""
-    status_emojis = {"OPEN": "🟢", "IN_PROGRESS": "🟡", "CLOSED": "🔴"}
-    status = ticket_data.get("status", "OPEN")
-    status_emoji = status_emojis.get(status, "⚪")
-
-    description = ticket_data.get("description", "")
-    if len(description) > 200:
-        description = description[:200] + "..."
-
-    photo_info = ""
-    if ticket_data.get("photo_id"):
-        photo_info = "\n📸 <b>Прикреплено фото</b>"
-
-    message = f"""🎫 <b>НОВЫЙ ТИКЕТ!</b> {status_emoji}
-
-👤 <b>Пользователь:</b> {user.full_name or 'Не указано'}
-📱 <b>Telegram:</b> @{user.username or 'неизвестно'} (ID: <code>{user.telegram_id}</code>)
-📞 <b>Телефон:</b> {user.phone or 'не указан'}
-✉️ <b>Email:</b> {user.email or 'не указан'}
-
-📝 <b>Описание:</b> {description}
-📊 <b>Статус:</b> {status}{photo_info}"""
-
-    return message
+# def create_ticket(
+#     user_id: int,
+#     description: str,
+#     photo_id: str = None,
+#     status: TicketStatus = TicketStatus.OPEN,
+#     comment: str = None,
+# ) -> tuple[Ticket, str]:
+#     session = Session()
+#     try:
+#         user = session.query(User).filter_by(telegram_id=user_id).first()
+#         if not user:
+#             raise ValueError(f"Пользователь с telegram_id {user_id} не найден")
+#
+#         ticket = Ticket(
+#             user_id=user_id,
+#             description=description,
+#             photo_id=photo_id,
+#             status=status,
+#             comment=comment,
+#         )
+#
+#         session.add(ticket)
+#         session.flush()  # Получаем ID тикета
+#
+#         # Создаем уведомление для админ-панели (короткое сообщение)
+#         admin_panel_message = (
+#             f"Новый тикет #{ticket.id} от {user.full_name or 'пользователя'}"
+#         )
+#
+#         # Создаем уведомление в БД для админ-панели
+#         notification = Notification(
+#             user_id=user_id,
+#             message=admin_panel_message,
+#             target_url=f"/tickets/{ticket.id}",
+#             ticket_id=ticket.id,
+#             is_read=False,
+#         )
+#         session.add(notification)
+#
+#         # Формируем подробное сообщение для Telegram админа
+#         telegram_message = f"""🎫 <b>НОВЫЙ ТИКЕТ!</b> 🟢
+#
+# 👤 <b>Пользователь:</b> {user.full_name or 'Не указано'}
+# 📱 <b>Telegram:</b> @{user.username or 'неизвестно'} (ID: <code>{user.telegram_id}</code>)
+# 📞 <b>Телефон:</b> {user.phone or 'не указан'}
+# ✉️ <b>Email:</b> {user.email or 'не указан'}
+#
+# 🏷 <b>Номер тикета:</b> #{ticket.id}
+# 📝 <b>Описание:</b> {description}
+# 📊 <b>Статус:</b> {status.value}"""
+#
+#         if photo_id:
+#             telegram_message += "\n📸 <b>Прикреплено фото</b>"
+#
+#         # Получаем данные тикета до коммита, чтобы избежать проблем с сессией
+#         ticket_id = ticket.id
+#         created_at = ticket.created_at
+#
+#         session.commit()
+#
+#         # Обновляем объект ticket актуальными данными
+#         ticket.id = ticket_id
+#         ticket.created_at = created_at
+#
+#         return ticket, telegram_message
+#
+#     except Exception as e:
+#         session.rollback()
+#         logger.error(f"Ошибка создания тикета: {e}")
+#         raise e
+#     finally:
+#         session.close()
+#
+#
+# # Также обновим format_ticket_notification для совместимости
+# def format_ticket_notification(user, ticket_data) -> str:
+#     """Форматирует уведомление о тикете для Telegram админа."""
+#     status_emojis = {"OPEN": "🟢", "IN_PROGRESS": "🟡", "CLOSED": "🔴"}
+#     status = ticket_data.get("status", "OPEN")
+#     status_emoji = status_emojis.get(status, "⚪")
+#
+#     description = ticket_data.get("description", "")
+#     if len(description) > 200:
+#         description = description[:200] + "..."
+#
+#     photo_info = ""
+#     if ticket_data.get("photo_id"):
+#         photo_info = "\n📸 <b>Прикреплено фото</b>"
+#
+#     message = f"""🎫 <b>НОВЫЙ ТИКЕТ!</b> {status_emoji}
+#
+# 👤 <b>Пользователь:</b> {user.full_name or 'Не указано'}
+# 📱 <b>Telegram:</b> @{user.username or 'неизвестно'} (ID: <code>{user.telegram_id}</code>)
+# 📞 <b>Телефон:</b> {user.phone or 'не указан'}
+# ✉️ <b>Email:</b> {user.email or 'не указан'}
+#
+# 📝 <b>Описание:</b> {description}
+# 📊 <b>Статус:</b> {status}{photo_info}"""
+#
+#     return message

@@ -48,6 +48,8 @@ services:
       - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
       - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
       - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+      - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}  # Срок хранения файлов в днях
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}        # Максимальный размер файла в МБ
     ports:
       - "8000:8000"
     volumes:

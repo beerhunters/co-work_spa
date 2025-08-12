@@ -220,21 +220,64 @@ export const ticketApi = {
     const res = await apiClient.get('/tickets', { params });
     return res.data;
   },
+
   getById: async (ticketId) => {
     const res = await apiClient.get(`/tickets/${ticketId}`);
     return res.data;
   },
+
   create: async (ticketData) => {
     const res = await apiClient.post('/tickets', ticketData);
     return res.data;
   },
-  update: async (ticketId, status, comment) => {
-    const res = await apiClient.put(`/tickets/${ticketId}`, { status, comment });
+
+  update: async (ticketId, status, comment, responsePhoto = null) => {
+    let updateData = { status, comment };
+
+    // Если есть фото, сначала загружаем его
+    if (responsePhoto) {
+      try {
+        const photoData = await ticketApi.uploadResponsePhoto(ticketId, responsePhoto);
+        updateData.response_photo_id = photoData.photo_id;
+      } catch (error) {
+        console.error('Ошибка загрузки фото:', error);
+        throw new Error('Не удалось загрузить фото к ответу');
+      }
+    }
+
+    const res = await apiClient.put(`/tickets/${ticketId}`, updateData);
     return res.data;
   },
+
   delete: async (ticketId) => {
     const res = await apiClient.delete(`/tickets/${ticketId}`);
     return res.data;
+  },
+
+  // Загрузка фото в ответе администратора
+  uploadResponsePhoto: async (ticketId, file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await apiClient.post(`/tickets/${ticketId}/photo`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return res.data;
+  },
+
+  // Получение фото пользователя (прикрепленного к тикету)
+  getPhoto: async (ticketId) => {
+    const res = await apiClient.get(`/tickets/${ticketId}/photo`, {
+      responseType: 'blob'
+    });
+    return res.data;
+  },
+
+  // Получение URL для отображения фото
+  getPhotoUrl: (ticketId) => {
+    return `${apiClient.defaults.baseURL}/tickets/${ticketId}/photo`;
   }
 };
 
