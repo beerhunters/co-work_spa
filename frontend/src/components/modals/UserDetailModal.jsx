@@ -18,9 +18,10 @@ import {
   Modal as ChakraModal,
   ModalFooter,
   Box,
-  Image
+  Image,
+  Link
 } from '@chakra-ui/react';
-import { FiEdit, FiTrash2, FiUpload } from 'react-icons/fi';
+import { FiEdit, FiTrash2, FiUpload, FiExternalLink } from 'react-icons/fi';
 import { userApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
 
@@ -50,6 +51,19 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     : user?.avatar
       ? `${API_BASE_URL}/avatars/${user.avatar}`  // avatar содержит только имя файла
       : `${API_BASE_URL}/avatars/placeholder_avatar.png`;
+
+  // Формирование ссылок
+  const getTelegramUrl = (username) => {
+    if (!username) return null;
+    // Убираем @ если он есть в начале
+    const cleanUsername = username.startsWith('@') ? username.slice(1) : username;
+    return `https://t.me/${cleanUsername}`;
+  };
+
+  const getMailtoUrl = (email) => {
+    if (!email) return null;
+    return `mailto:${email}`;
+  };
 
   const handleSave = async () => {
     try {
@@ -111,6 +125,9 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   if (!user) return null;
 
+  const telegramUrl = getTelegramUrl(user.username);
+  const mailtoUrl = getMailtoUrl(user.email);
+
   return (
     <>
       <Modal isOpen={isOpen} onClose={onClose} size="xl">
@@ -140,9 +157,31 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                   <Text fontSize="lg" fontWeight="bold">
                     {user.full_name || 'Не указано'}
                   </Text>
-                  <Text fontSize="sm" color="gray.500">
-                    @{user.username || 'Не указано'}
-                  </Text>
+
+                  {/* Кликабельный username с переходом в Telegram */}
+                  {user.username ? (
+                    <Link
+                      href={telegramUrl}
+                      isExternal
+                      color="blue.500"
+                      fontSize="sm"
+                      _hover={{
+                        color: 'blue.600',
+                        textDecoration: 'underline'
+                      }}
+                      display="flex"
+                      alignItems="center"
+                      gap={1}
+                    >
+                      @{user.username}
+                      <FiExternalLink size={12} />
+                    </Link>
+                  ) : (
+                    <Text fontSize="sm" color="gray.500">
+                      @Не указано
+                    </Text>
+                  )}
+
                   <Badge colorScheme="blue">
                     ID: {user.telegram_id}
                   </Badge>
@@ -207,7 +246,24 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Email:</Text>
-                    <Text>{user.email || 'Не указано'}</Text>
+                    {user.email && mailtoUrl ? (
+                      <Link
+                        href={mailtoUrl}
+                        color="blue.500"
+                        _hover={{
+                          color: 'blue.600',
+                          textDecoration: 'underline'
+                        }}
+                        display="flex"
+                        alignItems="center"
+                        gap={1}
+                      >
+                        {user.email}
+                        <FiExternalLink size={12} />
+                      </Link>
+                    ) : (
+                      <Text>Не указано</Text>
+                    )}
                   </HStack>
 
                   <HStack justify="space-between">
@@ -250,9 +306,39 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 </Button>
               </HStack>
             ) : (
-              <Button leftIcon={<FiEdit />} colorScheme="purple" onClick={() => setIsEditing(true)}>
-                Редактировать
-              </Button>
+              <HStack spacing={3}>
+                <Button leftIcon={<FiEdit />} colorScheme="purple" onClick={() => setIsEditing(true)}>
+                  Редактировать
+                </Button>
+
+                {/* Быстрые ссылки */}
+                {telegramUrl && (
+                  <Button
+                    as={Link}
+                    href={telegramUrl}
+                    isExternal
+                    leftIcon={<FiExternalLink />}
+                    colorScheme="blue"
+                    variant="outline"
+                    size="sm"
+                  >
+                    Telegram
+                  </Button>
+                )}
+
+                {mailtoUrl && (
+                  <Button
+                    as={Link}
+                    href={mailtoUrl}
+                    leftIcon={<FiExternalLink />}
+                    colorScheme="green"
+                    variant="outline"
+                    size="sm"
+                  >
+                    Email
+                  </Button>
+                )}
+              </HStack>
             )}
           </ModalFooter>
         </ModalContent>
