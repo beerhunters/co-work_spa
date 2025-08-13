@@ -77,7 +77,7 @@ const TariffDetailModal = ({ isOpen, onClose, tariff, onUpdate }) => {
 
   const getPurposeLabel = (purpose) => {
     const labels = {
-      'coworking': 'Коворкинг',
+      'coworking': 'Опенспейс',
       'meeting_room': 'Переговорная',
       'event': 'Мероприятие',
       'other': 'Другое'

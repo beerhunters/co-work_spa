@@ -118,22 +118,6 @@ class BotAPIClient:
         """Обновить данные пользователя"""
         return await self._make_request("PUT", f"/users/{user_id}", json=user_data)
 
-    # async def check_and_add_user(
-    #     self,
-    #     telegram_id: int,
-    #     username: Optional[str] = None,
-    #     language_code: str = "ru",
-    #     referrer_id: Optional[int] = None,
-    # ) -> Dict:
-    #     """Проверка и добавление пользователя"""
-    #     user_data = {
-    #         "telegram_id": telegram_id,
-    #         "username": username,
-    #         "language_code": language_code,
-    #         "referrer_id": referrer_id,
-    #     }
-    #     return await self._make_request("POST", "/users/check_and_add", json=user_data)
-
     async def check_and_add_user(
         self,
         telegram_id: int,
