@@ -1,106 +1,39 @@
-// public/sw.js - Service Worker для фоновых уведомлений
+console.log('🔧 Service Worker запущен');
 
 const CACHE_NAME = 'coworking-admin-v1';
-const urlsToCache = [
-  '/',
-  '/static/favicon.ico',
-  '/static/apple-touch-icon.png'
-];
 
 // Установка Service Worker
 self.addEventListener('install', (event) => {
-  console.log('Service Worker: Установка');
-
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Service Worker: Кэширование файлов');
-        return cache.addAll(urlsToCache);
-      })
-      .then(() => self.skipWaiting())
-  );
+  console.log('🔧 Service Worker: Установка');
+  self.skipWaiting(); // Активируем сразу
 });
 
 // Активация Service Worker
 self.addEventListener('activate', (event) => {
-  console.log('Service Worker: Активация');
-
-  event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('Service Worker: Удаляем старый кэш', cacheName);
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
-  );
-});
-
-// Обработка fetch запросов
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        return response || fetch(event.request);
-      }
-    )
-  );
-});
-
-// Обработка push уведомлений
-self.addEventListener('push', (event) => {
-  console.log('Service Worker: Получено push уведомление');
-
-  const options = {
-    body: 'У вас новое уведомление!',
-    icon: '/static/favicon.ico',
-    badge: '/static/apple-touch-icon.png',
-    vibrate: [100, 50, 100],
-    data: {
-      dateOfArrival: Date.now(),
-      primaryKey: 1
-    },
-    actions: [
-      {
-        action: 'explore',
-        title: 'Открыть',
-        icon: '/static/favicon.ico'
-      },
-      {
-        action: 'close',
-        title: 'Закрыть',
-        icon: '/static/favicon.ico'
-      }
-    ]
-  };
-
-  event.waitUntil(
-    self.registration.showNotification('Coworking Admin', options)
-  );
+  console.log('🔧 Service Worker: Активация');
+  event.waitUntil(self.clients.claim()); // Берем контроль над всеми клиентами
 });
 
 // Обработка кликов по уведомлениям
 self.addEventListener('notificationclick', (event) => {
-  console.log('Service Worker: Клик по уведомлению');
+  console.log('👆 Service Worker: Клик по уведомлению');
 
   event.notification.close();
 
-  if (event.action === 'close') {
-    return;
-  }
-
+  // Открываем или фокусируем окно приложения
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
+      // Ищем уже открытое окно
       for (const client of clientList) {
-        if (client.url === self.location.origin && 'focus' in client) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          console.log('🎯 Фокусируем существующее окно');
           return client.focus();
         }
       }
 
+      // Открываем новое окно, если не найдено
       if (clients.openWindow) {
+        console.log('🆕 Открываем новое окно');
         return clients.openWindow('/');
       }
     })
@@ -109,28 +42,16 @@ self.addEventListener('notificationclick', (event) => {
 
 // Обработка закрытия уведомлений
 self.addEventListener('notificationclose', (event) => {
-  console.log('Service Worker: Уведомление закрыто');
-});
-
-// Синхронизация в фоне
-self.addEventListener('sync', (event) => {
-  console.log('Service Worker: Фоновая синхронизация');
-
-  if (event.tag === 'background-sync') {
-    event.waitUntil(Promise.resolve());
-  }
+  console.log('📪 Service Worker: Уведомление закрыто');
 });
 
 // Обработка сообщений от основного потока
 self.addEventListener('message', (event) => {
-  console.log('Service Worker: Получено сообщение', event.data);
+  console.log('💬 Service Worker: Получено сообщение', event.data);
 
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
-
-  event.ports[0].postMessage({
-    type: 'SW_RESPONSE',
-    message: 'Service Worker готов'
-  });
 });
+
+console.log('✅ Service Worker готов к работе');

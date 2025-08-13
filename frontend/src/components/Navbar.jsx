@@ -51,33 +51,48 @@ const Navbar = ({
   };
 
   const handleTestNotification = async () => {
+    console.log('🧪 Тест уведомления из Navbar');
     setSoundTestLoading(true);
 
     try {
-      if (notificationStatus?.permission === 'granted') {
-        notificationManager.showNotification('Тестовое уведомление', {
-          body: 'Это тестовое уведомление для проверки работы системы',
+      // Сначала проверяем статус
+      const status = notificationManager.getStatus();
+      console.log('📊 Текущий статус:', status);
+
+      if (status.permission === 'granted') {
+        // Показываем тестовое уведомление
+        notificationManager.showNotification('🧪 Тестовое уведомление', {
+          body: 'Если вы видите это уведомление, значит все работает отлично! 🎉',
           soundType: 'success',
-          autoClose: 3000
+          autoClose: 6000
         });
 
         toast({
           title: "Тест уведомления отправлен",
+          description: "Проверьте уведомления в углу экрана",
           status: "success",
-          duration: 2000,
+          duration: 3000,
+        });
+      } else if (status.permission === 'denied') {
+        toast({
+          title: "Уведомления заблокированы",
+          description: "Разрешите уведомления в настройках браузера (иконка замка в адресной строке)",
+          status: "warning",
+          duration: 5000,
         });
       } else {
         toast({
-          title: "Уведомления отключены",
-          description: "Разрешите уведомления в настройках браузера",
-          status: "warning",
+          title: "Уведомления не настроены",
+          description: "Сначала разрешите уведомления",
+          status: "info",
           duration: 3000,
         });
       }
     } catch (error) {
-      console.error('Ошибка тестового уведомления:', error);
+      console.error('❌ Ошибка тестового уведомления:', error);
       toast({
         title: "Ошибка тестового уведомления",
+        description: error.message,
         status: "error",
         duration: 3000,
       });
@@ -87,7 +102,30 @@ const Navbar = ({
   };
 
   const handleTestSound = () => {
-    notificationManager.playSound('success');
+    console.log('🔊 Тест звука из Navbar');
+
+    try {
+      // Проверяем аудио контекст
+      const status = notificationManager.getStatus();
+      console.log('🔊 Статус аудио:', status);
+
+      notificationManager.playSound('success');
+
+      toast({
+        title: "Звук воспроизведен",
+        description: "Если не слышите звук, проверьте громкость и разрешения",
+        status: "info",
+        duration: 2000,
+      });
+    } catch (error) {
+      console.error('❌ Ошибка воспроизведения звука:', error);
+      toast({
+        title: "Ошибка звука",
+        description: error.message,
+        status: "error",
+        duration: 3000,
+      });
+    }
   };
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
