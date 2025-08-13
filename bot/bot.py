@@ -77,7 +77,7 @@ class ErrorLoggingMiddleware(BaseMiddleware):
             error_message = (
                 f"⚠️ <b>ОШИБКА В БОТЕ</b>\n\n"
                 f"📌 <b>Тип события:</b> {event_type}\n"
-                f"👤 <b>Пользователь:</b> ID {user_id} ({username})\n"
+                f"👤 <b>Пользователь:</b> ID {user_id} (@{username})\n"
                 f"📝 <b>Событие:</b> <code>{event_text}</code>\n"
                 f"🔴 <b>Ошибка:</b> {type(e).__name__}: {str(e)}\n"
                 f"📜 <b>Стек вызовов:</b>\n<code>{stack_trace}</code>\n"
