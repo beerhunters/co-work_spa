@@ -18,7 +18,11 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
 from werkzeug.security import check_password_hash
+import sqlite3
+from sqlalchemy.exc import OperationalError, DatabaseError
+from contextlib import contextmanager
 from yookassa import Payment, Refund
 
 # Импорты моделей и утилит
@@ -285,13 +289,66 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+def create_engine_with_retry():
+    """Создание engine с настройками для надежной работы с SQLite."""
+    return create_engine(
+        f"sqlite:///data/coworking.db",
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_timeout=20,
+        max_overflow=0,
+        echo=False,
+        connect_args={
+            "check_same_thread": False,
+            "timeout": 20,  # Таймаут для операций в секундах
+            "isolation_level": None,  # Автокоммит
+        },
+    )
+
+
+# Контекстный менеджер для повторных попыток операций с БД
+@contextmanager
+def db_retry_context(max_retries=3, delay=0.1):
+    """Контекстный менеджер для повторных попыток операций с БД."""
+    for attempt in range(max_retries):
+        try:
+            yield
+            break
+        except (OperationalError, DatabaseError, sqlite3.OperationalError) as e:
+            if attempt == max_retries - 1:
+                logger.error(f"Ошибка БД после {max_retries} попыток: {e}")
+                raise
+
+            error_message = str(e).lower()
+            if (
+                "disk i/o error" in error_message
+                or "database is locked" in error_message
+            ):
+                logger.warning(f"Попытка {attempt + 1}/{max_retries}: {e}")
+                tm.sleep(delay * (attempt + 1))  # Экспоненциальная задержка
+            else:
+                raise
+
+
+# Обновленный get_db с повторными попытками:
 def get_db():
-    """Получение сессии базы данных."""
-    db = Session()
+    """Получение сессии БД с повторными попытками."""
+    db = None
     try:
-        yield db
+        with db_retry_context():
+            db = Session()
+            yield db
+    except Exception as e:
+        if db:
+            db.rollback()
+        logger.error(f"Ошибка сессии БД: {e}")
+        raise
     finally:
-        db.close()
+        if db:
+            try:
+                db.close()
+            except Exception as e:
+                logger.error(f"Ошибка закрытия сессии БД: {e}")
 
 
 # ================== AUTHENTICATION ENDPOINTS ==================
@@ -1718,117 +1775,6 @@ async def get_tickets_stats(
     }
 
 
-# # ================== NOTIFICATION ENDPOINTS ==================
-#
-#
-# @app.get("/notifications", response_model=List[NotificationBase])
-# async def get_notifications(
-#     db: Session = Depends(get_db), _: str = Depends(verify_token)
-# ):
-#     """Получение всех уведомлений."""
-#     notifications = (
-#         db.query(Notification).order_by(Notification.created_at.desc()).limit(50).all()
-#     )
-#     return notifications
-#
-#
-# @app.get("/notifications/check_new")
-# async def check_new_notifications(
-#     since_id: int = Query(0),
-#     db: Session = Depends(get_db),
-#     _: str = Depends(verify_token),
-# ):
-#     """Проверка новых уведомлений с определенного ID."""
-#     query = db.query(Notification).order_by(Notification.created_at.desc())
-#
-#     if since_id > 0:
-#         query = query.filter(Notification.id > since_id)
-#
-#     notifications = query.limit(5).all()
-#
-#     return {
-#         "has_new": len(notifications) > 0,
-#         "recent_notifications": [
-#             {
-#                 "id": n.id,
-#                 "user_id": n.user_id,
-#                 "message": n.message,
-#                 "booking_id": n.booking_id,
-#                 "ticket_id": n.ticket_id,
-#                 "target_url": n.target_url,
-#                 "is_read": n.is_read,
-#                 "created_at": n.created_at.isoformat(),
-#             }
-#             for n in notifications
-#         ],
-#     }
-#
-#
-# @app.post("/notifications/mark_read/{notification_id}")
-# async def mark_notification_read(
-#     notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-# ):
-#     """Пометить уведомление как прочитанное."""
-#     notification = (
-#         db.query(Notification).filter(Notification.id == notification_id).first()
-#     )
-#     if not notification:
-#         raise HTTPException(status_code=404, detail="Notification not found")
-#
-#     notification.is_read = True
-#     db.commit()
-#     return {"message": "Notification marked as read"}
-#
-#
-# @app.post("/notifications/mark_all_read")
-# async def mark_all_notifications_read(
-#     db: Session = Depends(get_db), _: str = Depends(verify_token)
-# ):
-#     """Пометить все уведомления как прочитанные."""
-#     db.query(Notification).update({"is_read": True})
-#     db.commit()
-#     return {"message": "All notifications marked as read"}
-#
-#
-# @app.post("/notifications/create")
-# async def create_notification(
-#     notification_data: dict,
-#     db: Session = Depends(get_db),
-#     _: str = Depends(verify_token),
-# ):
-#     """Создать уведомление в БД (для отображения в админке)"""
-#
-#     user_id = notification_data.get("user_id")
-#     message = notification_data.get("message")
-#     target_url = notification_data.get("target_url")
-#
-#     # Проверяем существование пользователя
-#     user = db.query(User).get(user_id)
-#     if not user:
-#         # Если передан user_id как telegram_id, пытаемся найти по нему
-#         user = db.query(User).filter(User.telegram_id == user_id).first()
-#         if not user:
-#             raise HTTPException(status_code=404, detail="User not found")
-#         user_id = user.id
-#
-#     # Создаем уведомление в БД
-#     notification = Notification(
-#         user_id=user_id,
-#         message=message,
-#         target_url=target_url,
-#         created_at=datetime.now(MOSCOW_TZ),
-#         is_read=False,
-#     )
-#
-#     db.add(notification)
-#     db.commit()
-#     db.refresh(notification)
-#
-#     return {
-#         "success": True,
-#         "notification_id": notification.id,
-#         "created_at": notification.created_at,
-#     }
 # ================== NOTIFICATION ENDPOINTS ==================
 
 
@@ -2327,38 +2273,124 @@ async def manual_cleanup(
 # ================== STARTUP EVENT ==================
 
 
+def optimize_database():
+    """Оптимизация базы данных SQLite."""
+    db_path = "data/coworking.db"
+
+    if not os.path.exists(db_path):
+        logger.warning(f"База данных не найдена: {db_path}")
+        return
+
+    try:
+        # Создаем резервную копию
+        backup_path = f"{db_path}.backup.{int(tm.time())}"
+        import shutil
+
+        shutil.copy2(db_path, backup_path)
+
+        # Подключаемся напрямую к SQLite
+        conn = sqlite3.connect(db_path, timeout=30)
+        cursor = conn.cursor()
+
+        # Выполняем оптимизацию
+        cursor.execute("PRAGMA optimize")
+        cursor.execute("VACUUM")
+        cursor.execute("REINDEX")
+        cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+        conn.commit()
+        conn.close()
+
+        logger.info("Оптимизация базы данных завершена успешно")
+
+        # Удаляем старые бэкапы (оставляем только последние 3)
+        backup_dir = Path("data")
+        backup_files = sorted(backup_dir.glob("*.backup.*"))
+        if len(backup_files) > 3:
+            for old_backup in backup_files[:-3]:
+                old_backup.unlink()
+                logger.info(f"Удален старый бэкап: {old_backup}")
+
+    except Exception as e:
+        logger.error(f"Ошибка оптимизации БД: {e}")
+
+
+def start_db_maintenance():
+    """Запускает планировщик обслуживания БД."""
+    import schedule
+
+    # Оптимизация каждый день в 3:00
+    schedule.every().day.at("03:00").do(optimize_database)
+
+    # Проверка состояния каждые 10 минут
+    def check_db_health():
+        try:
+            db_path = "data/coworking.db"
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path, timeout=5)
+                conn.execute("SELECT 1")
+                conn.close()
+        except Exception as e:
+            logger.warning(f"Проблема с БД обнаружена: {e}")
+
+    schedule.every(10).minutes.do(check_db_health)
+
+    def run_maintenance():
+        while True:
+            schedule.run_pending()
+            tm.sleep(60)  # Проверяем каждую минуту
+
+    maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
+    maintenance_thread.start()
+    logger.info("Планировщик обслуживания БД запущен")
+
+
+# Добавьте в startup_event:
 @app.on_event("startup")
 async def startup_event():
-    """Инициализация при запуске приложения."""
-    init_db()
-    # Запускаем планировщик очистки файлов
-    start_cleanup_scheduler()
+    logger.info("Запуск приложения...")
 
-    # Создаем директории если их нет
+    # Создаем директории
     TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
     AVATARS_DIR.mkdir(exist_ok=True)
 
+    init_db()
+
+    # Запускаем планировщики
+    start_cleanup_scheduler()
+    start_db_maintenance()  # Добавьте эту строку
+
+    # Создаем админа
     admin_login = os.getenv("ADMIN_LOGIN", "admin")
     admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
     create_admin(admin_login, admin_password)
 
-    # Создаем placeholder аватар если его нет
+    # Создаем placeholder аватар
     placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
     if not placeholder_path.exists():
-        # Создаем простой placeholder (серый квадрат)
         try:
             from PIL import Image, ImageDraw
 
             img = Image.new("RGB", (200, 200), color="#E2E8F0")
             draw = ImageDraw.Draw(img)
-            # Рисуем круг
-            draw.ellipse([10, 10, 190, 190], fill="#CBD5E0")
-            # Рисуем силуэт пользователя
             draw.ellipse([75, 50, 125, 100], fill="#718096")  # голова
             draw.ellipse([50, 100, 150, 180], fill="#718096")  # тело
             img.save(placeholder_path)
-            logger.info("Placeholder avatar created")
-        except ImportError:
-            logger.warning("PIL not installed, placeholder avatar not created")
+            logger.info("Создан placeholder аватар")
+        except Exception as e:
+            logger.error(f"Ошибка создания placeholder аватара: {e}")
 
-    logger.info("Application started successfully")
+
+# Добавьте эндпоинт для ручной оптимизации БД:
+@app.post("/admin/optimize-database")
+async def manual_database_optimization(_: str = Depends(verify_token)):
+    """Ручная оптимизация базы данных."""
+    try:
+        optimize_database()
+        return {
+            "message": "Database optimization completed successfully",
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Ошибка ручной оптимизации БД: {e}")
+        raise HTTPException(status_code=500, detail="Failed to optimize database")

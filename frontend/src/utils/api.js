@@ -87,15 +87,36 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
 // -------------------- API: Уведомления --------------------
 export const notificationApi = {
   getAll: async (params = {}) => {
-    const res = await apiClient.get('/notifications', { params });
-    return res.data;
+    try {
+      const res = await apiClient.get('/notifications', { params });
+      return res.data;
+    } catch (error) {
+      // Обработка специфичных ошибок БД
+      if (error.response?.status === 503) {
+        console.warn('Database temporarily unavailable, retrying...');
+
+        // Ждем и повторяем попытку
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const res = await apiClient.get('/notifications', { params });
+        return res.data;
+      }
+      throw error;
+    }
   },
 
   checkNew: async (sinceId) => {
-    const res = await apiClient.get(`/notifications/check_new`, {
-      params: { since_id: sinceId }
-    });
-    return res.data;
+    try {
+      const res = await apiClient.get(`/notifications/check_new`, {
+        params: { since_id: sinceId }
+      });
+      return res.data;
+    } catch (error) {
+      if (error.response?.status === 503) {
+        console.warn('Database temporarily unavailable for notifications check');
+        return { has_new: false, recent_notifications: [] };
+      }
+      throw error;
+    }
   },
 
   markRead: async (notificationId) => {
@@ -125,17 +146,22 @@ export const notificationApi = {
 
   // Получение связанного объекта для навигации
   getRelatedObject: async (notification) => {
-    if (notification.ticket_id) {
-      const res = await apiClient.get(`/tickets/${notification.ticket_id}`);
-      return { type: 'ticket', data: res.data };
-    } else if (notification.booking_id) {
-      const res = await apiClient.get(`/bookings/${notification.booking_id}`);
-      return { type: 'booking', data: res.data };
-    } else if (notification.user_id) {
-      const res = await apiClient.get(`/users/${notification.user_id}`);
-      return { type: 'user', data: res.data };
+    try {
+      if (notification.ticket_id) {
+        const res = await apiClient.get(`/tickets/${notification.ticket_id}`);
+        return { type: 'ticket', data: res.data };
+      } else if (notification.booking_id) {
+        const res = await apiClient.get(`/bookings/${notification.booking_id}`);
+        return { type: 'booking', data: res.data };
+      } else if (notification.user_id) {
+        const res = await apiClient.get(`/users/${notification.user_id}`);
+        return { type: 'user', data: res.data };
+      }
+      return null;
+    } catch (error) {
+      console.warn('Could not fetch related object:', error);
+      return null;
     }
-    return null;
   }
 };
 

@@ -20,6 +20,7 @@ services:
       - ./models:/app/models
       - ./bot:/app/bot
       - ./avatars:/app/avatars
+      - ./ticket_photos:/app/ticket_photos
     restart: unless-stopped
     depends_on:
       web:
@@ -50,6 +51,9 @@ services:
       - RUBITIME_API_KEY=${RUBITIME_API_KEY}
       - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}  # Срок хранения файлов в днях
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}        # Максимальный размер файла в МБ
+      - DB_TIMEOUT=20                    # Таймаут операций БД в секундах
+      - DB_RETRY_ATTEMPTS=3              # Количество повторных попыток
+      - DB_RETRY_DELAY=0.1              # Задержка между попытками
     ports:
       - "8000:8000"
     volumes:
@@ -58,6 +62,7 @@ services:
       - ./models:/app/models
       - ./static:/app/static
       - ./avatars:/app/avatars
+      - ./ticket_photos:/app/ticket_photos
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
@@ -65,6 +70,12 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
     networks:
       - coworking_network
 

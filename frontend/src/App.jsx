@@ -32,7 +32,8 @@ import {
   notificationApi,
   dashboardApi,
   userApi,
-  promocodeApi
+  promocodeApi,
+  tariffApi
 } from './utils/api.js';
 
 function App() {
@@ -301,6 +302,7 @@ function App() {
     onOpen();
   };
 
+  // ИСПРАВЛЕННАЯ функция handleUpdate
   const handleUpdate = async (updatedData = null) => {
     try {
       if (selectedItem?.type === 'ticket' && updatedData) {
@@ -318,6 +320,17 @@ function App() {
           } catch (error) {
             // Промокод мог быть удален
             console.log('Промокод не найден, возможно был удален');
+          }
+        }
+      } else if (selectedItem?.type === 'tariff') {
+        // Для тарифов всегда перезагружаем список
+        await fetchSectionData('tariffs', dataSetters);
+        if (selectedItem?.id) {
+          try {
+            const updatedTariff = await tariffApi.getById(selectedItem.id);
+            setSelectedItem(prev => ({ ...updatedTariff, type: prev.type }));
+          } catch (error) {
+            console.log('Тариф не найден, возможно был удален');
           }
         }
       } else if (selectedItem?.type === 'user') {
@@ -359,7 +372,13 @@ function App() {
       case 'bookings':
         return <Bookings bookings={bookings} {...sectionProps} />;
       case 'tariffs':
-        return <Tariffs tariffs={tariffs} {...sectionProps} />;
+        return (
+          <Tariffs
+            tariffs={tariffs}
+            openDetailModal={openDetailModal}
+            onUpdate={() => fetchSectionData('tariffs', dataSetters)}
+          />
+        );
       case 'promocodes':
         return (
           <Promocodes
@@ -462,6 +481,7 @@ function App() {
           isOpen={isOpen}
           onClose={onClose}
           tariff={selectedItem}
+          onUpdate={() => fetchSectionData('tariffs', dataSetters)}
         />
       )}
 
