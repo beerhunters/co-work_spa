@@ -84,7 +84,7 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
   }
 };
 
-// API для уведомлений
+// -------------------- API: Уведомления --------------------
 export const notificationApi = {
   checkNew: async (sinceId) => {
     const res = await apiClient.get(`/notifications/check_new`, {
@@ -104,7 +104,7 @@ export const notificationApi = {
   }
 };
 
-// API для пользователей
+// -------------------- API: Пользователи --------------------
 export const userApi = {
   getAll: async () => {
     // Убираем параметры пагинации - получаем всех пользователей
@@ -139,7 +139,7 @@ export const userApi = {
 
 };
 
-// API для бронирований
+// -------------------- API: Бронирования --------------------
 export const bookingApi = {
   getAll: async (params = {}) => {
     const res = await apiClient.get('/bookings', { params });
@@ -167,7 +167,7 @@ export const bookingApi = {
   }
 };
 
-// API для тарифов
+// -------------------- API: Тарифы --------------------
 export const tariffApi = {
   getAll: async () => {
     const res = await apiClient.get('/tariffs');
@@ -184,13 +184,23 @@ export const tariffApi = {
     return res.data;
   },
 
+  update: async (tariffId, tariffData) => {
+    const res = await apiClient.put(`/tariffs/${tariffId}`, tariffData);
+    return res.data;
+  },
+
   delete: async (tariffId) => {
     const res = await apiClient.delete(`/tariffs/${tariffId}`);
+    return res.data;
+  },
+
+  getActive: async () => {
+    const res = await apiClient.get('/tariffs/active');
     return res.data;
   }
 };
 
-// API для промокодов
+// -------------------- API: Промокоды --------------------
 export const promocodeApi = {
   getAll: async () => {
     const res = await apiClient.get('/promocodes');
