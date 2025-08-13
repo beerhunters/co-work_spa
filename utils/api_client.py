@@ -114,7 +114,6 @@ class BotAPIClient:
         """Создать нового пользователя"""
         return await self._make_request("POST", "/users", json=user_data)
 
-
     async def update_user(self, user_id: int, user_data: Dict) -> Dict:
         """
         Обновляет данные пользователя по его ID (не telegram_id)
