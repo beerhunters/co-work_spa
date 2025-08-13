@@ -86,6 +86,11 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
 
 // -------------------- API: Уведомления --------------------
 export const notificationApi = {
+  getAll: async (params = {}) => {
+    const res = await apiClient.get('/notifications', { params });
+    return res.data;
+  },
+
   checkNew: async (sinceId) => {
     const res = await apiClient.get(`/notifications/check_new`, {
       params: { since_id: sinceId }
@@ -101,6 +106,36 @@ export const notificationApi = {
   markAllRead: async () => {
     const res = await apiClient.post('/notifications/mark_all_read', {});
     return res.data;
+  },
+
+  clearAll: async () => {
+    const res = await apiClient.delete('/notifications/clear_all');
+    return res.data;
+  },
+
+  delete: async (notificationId) => {
+    const res = await apiClient.delete(`/notifications/${notificationId}`);
+    return res.data;
+  },
+
+  create: async (notificationData) => {
+    const res = await apiClient.post('/notifications/create', notificationData);
+    return res.data;
+  },
+
+  // Получение связанного объекта для навигации
+  getRelatedObject: async (notification) => {
+    if (notification.ticket_id) {
+      const res = await apiClient.get(`/tickets/${notification.ticket_id}`);
+      return { type: 'ticket', data: res.data };
+    } else if (notification.booking_id) {
+      const res = await apiClient.get(`/bookings/${notification.booking_id}`);
+      return { type: 'booking', data: res.data };
+    } else if (notification.user_id) {
+      const res = await apiClient.get(`/users/${notification.user_id}`);
+      return { type: 'user', data: res.data };
+    }
+    return null;
   }
 };
 

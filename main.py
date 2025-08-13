@@ -728,76 +728,6 @@ async def delete_booking(
     return {"message": "Booking deleted"}
 
 
-# # ================== TARIFF ENDPOINTS ==================
-#
-#
-# @app.get("/tariffs/active")
-# async def get_active_tariffs(db: Session = Depends(get_db)):
-#     """Получение активных тарифов. Используется ботом."""
-#     tariffs = db.query(Tariff).filter_by(is_active=True).all()
-#     return [
-#         {
-#             "id": t.id,
-#             "name": t.name,
-#             "description": t.description,
-#             "price": t.price,
-#             "purpose": t.purpose,
-#             "service_id": t.service_id,
-#             "is_active": t.is_active,
-#         }
-#         for t in tariffs
-#     ]
-#
-#
-# @app.get("/tariffs", response_model=List[TariffBase])
-# async def get_tariffs(db: Session = Depends(get_db), _: str = Depends(verify_token)):
-#     """Получение всех тарифов."""
-#     tariffs = db.query(Tariff).all()
-#     return tariffs
-#
-#
-# @app.get("/tariffs/{tariff_id}")
-# async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
-#     """Получение тарифа по ID. Используется ботом."""
-#     tariff = db.query(Tariff).get(tariff_id)
-#     if not tariff:
-#         raise HTTPException(status_code=404, detail="Tariff not found")
-#
-#     return {
-#         "id": tariff.id,
-#         "name": tariff.name,
-#         "description": tariff.description,
-#         "price": tariff.price,
-#         "purpose": tariff.purpose,
-#         "service_id": tariff.service_id,
-#         "is_active": tariff.is_active,
-#     }
-#
-#
-# @app.post("/tariffs", response_model=TariffBase)
-# async def create_tariff(
-#     tariff_data: dict, db: Session = Depends(get_db), _: str = Depends(verify_token)
-# ):
-#     """Создание нового тарифа."""
-#     tariff = Tariff(**tariff_data)
-#     db.add(tariff)
-#     db.commit()
-#     db.refresh(tariff)
-#     return tariff
-#
-#
-# @app.delete("/tariffs/{tariff_id}")
-# async def delete_tariff(
-#     tariff_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-# ):
-#     """Удаление тарифа."""
-#     tariff = db.query(Tariff).get(tariff_id)
-#     if not tariff:
-#         raise HTTPException(status_code=404, detail="Tariff not found")
-#
-#     db.delete(tariff)
-#     db.commit()
-#     return {"message": "Tariff deleted"}
 # ================== TARIFF ENDPOINTS ==================
 
 
@@ -1788,17 +1718,139 @@ async def get_tickets_stats(
     }
 
 
+# # ================== NOTIFICATION ENDPOINTS ==================
+#
+#
+# @app.get("/notifications", response_model=List[NotificationBase])
+# async def get_notifications(
+#     db: Session = Depends(get_db), _: str = Depends(verify_token)
+# ):
+#     """Получение всех уведомлений."""
+#     notifications = (
+#         db.query(Notification).order_by(Notification.created_at.desc()).limit(50).all()
+#     )
+#     return notifications
+#
+#
+# @app.get("/notifications/check_new")
+# async def check_new_notifications(
+#     since_id: int = Query(0),
+#     db: Session = Depends(get_db),
+#     _: str = Depends(verify_token),
+# ):
+#     """Проверка новых уведомлений с определенного ID."""
+#     query = db.query(Notification).order_by(Notification.created_at.desc())
+#
+#     if since_id > 0:
+#         query = query.filter(Notification.id > since_id)
+#
+#     notifications = query.limit(5).all()
+#
+#     return {
+#         "has_new": len(notifications) > 0,
+#         "recent_notifications": [
+#             {
+#                 "id": n.id,
+#                 "user_id": n.user_id,
+#                 "message": n.message,
+#                 "booking_id": n.booking_id,
+#                 "ticket_id": n.ticket_id,
+#                 "target_url": n.target_url,
+#                 "is_read": n.is_read,
+#                 "created_at": n.created_at.isoformat(),
+#             }
+#             for n in notifications
+#         ],
+#     }
+#
+#
+# @app.post("/notifications/mark_read/{notification_id}")
+# async def mark_notification_read(
+#     notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+# ):
+#     """Пометить уведомление как прочитанное."""
+#     notification = (
+#         db.query(Notification).filter(Notification.id == notification_id).first()
+#     )
+#     if not notification:
+#         raise HTTPException(status_code=404, detail="Notification not found")
+#
+#     notification.is_read = True
+#     db.commit()
+#     return {"message": "Notification marked as read"}
+#
+#
+# @app.post("/notifications/mark_all_read")
+# async def mark_all_notifications_read(
+#     db: Session = Depends(get_db), _: str = Depends(verify_token)
+# ):
+#     """Пометить все уведомления как прочитанные."""
+#     db.query(Notification).update({"is_read": True})
+#     db.commit()
+#     return {"message": "All notifications marked as read"}
+#
+#
+# @app.post("/notifications/create")
+# async def create_notification(
+#     notification_data: dict,
+#     db: Session = Depends(get_db),
+#     _: str = Depends(verify_token),
+# ):
+#     """Создать уведомление в БД (для отображения в админке)"""
+#
+#     user_id = notification_data.get("user_id")
+#     message = notification_data.get("message")
+#     target_url = notification_data.get("target_url")
+#
+#     # Проверяем существование пользователя
+#     user = db.query(User).get(user_id)
+#     if not user:
+#         # Если передан user_id как telegram_id, пытаемся найти по нему
+#         user = db.query(User).filter(User.telegram_id == user_id).first()
+#         if not user:
+#             raise HTTPException(status_code=404, detail="User not found")
+#         user_id = user.id
+#
+#     # Создаем уведомление в БД
+#     notification = Notification(
+#         user_id=user_id,
+#         message=message,
+#         target_url=target_url,
+#         created_at=datetime.now(MOSCOW_TZ),
+#         is_read=False,
+#     )
+#
+#     db.add(notification)
+#     db.commit()
+#     db.refresh(notification)
+#
+#     return {
+#         "success": True,
+#         "notification_id": notification.id,
+#         "created_at": notification.created_at,
+#     }
 # ================== NOTIFICATION ENDPOINTS ==================
 
 
 @app.get("/notifications", response_model=List[NotificationBase])
 async def get_notifications(
-    db: Session = Depends(get_db), _: str = Depends(verify_token)
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=100),
+    status: Optional[str] = None,  # read, unread
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
 ):
-    """Получение всех уведомлений."""
-    notifications = (
-        db.query(Notification).order_by(Notification.created_at.desc()).limit(50).all()
-    )
+    """Получение всех уведомлений с пагинацией и фильтрацией."""
+    query = db.query(Notification).order_by(Notification.created_at.desc())
+
+    # Фильтрация по статусу прочтения
+    if status == "read":
+        query = query.filter(Notification.is_read == True)
+    elif status == "unread":
+        query = query.filter(Notification.is_read == False)
+
+    # Пагинация
+    notifications = query.offset((page - 1) * per_page).limit(per_page).all()
     return notifications
 
 
@@ -1834,6 +1886,17 @@ async def check_new_notifications(
     }
 
 
+@app.get("/notifications/{notification_id}")
+async def get_notification(
+    notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение конкретного уведомления."""
+    notification = db.query(Notification).get(notification_id)
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return notification
+
+
 @app.post("/notifications/mark_read/{notification_id}")
 async def mark_notification_read(
     notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
@@ -1847,6 +1910,8 @@ async def mark_notification_read(
 
     notification.is_read = True
     db.commit()
+
+    logger.info(f"Уведомление #{notification_id} помечено как прочитанное")
     return {"message": "Notification marked as read"}
 
 
@@ -1855,9 +1920,63 @@ async def mark_all_notifications_read(
     db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
     """Пометить все уведомления как прочитанные."""
-    db.query(Notification).update({"is_read": True})
-    db.commit()
-    return {"message": "All notifications marked as read"}
+    try:
+        updated_count = (
+            db.query(Notification).filter(Notification.is_read == False).count()
+        )
+        db.query(Notification).update({"is_read": True})
+        db.commit()
+
+        logger.info(f"Помечено как прочитанное {updated_count} уведомлений")
+        return {
+            "message": "All notifications marked as read",
+            "updated_count": updated_count,
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка при пометке всех уведомлений: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to mark all notifications as read"
+        )
+
+
+@app.delete("/notifications/clear_all")
+async def clear_all_notifications(
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Удалить все уведомления."""
+    try:
+        deleted_count = db.query(Notification).count()
+        db.query(Notification).delete()
+        db.commit()
+
+        logger.info(f"Удалено {deleted_count} уведомлений")
+        return {"message": "All notifications cleared", "deleted_count": deleted_count}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка при очистке уведомлений: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear notifications")
+
+
+@app.delete("/notifications/{notification_id}")
+async def delete_notification(
+    notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Удалить конкретное уведомление."""
+    notification = db.query(Notification).get(notification_id)
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    try:
+        db.delete(notification)
+        db.commit()
+
+        logger.info(f"Удалено уведомление #{notification_id}")
+        return {"message": "Notification deleted"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка удаления уведомления {notification_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete notification")
 
 
 @app.post("/notifications/create")
@@ -1871,21 +1990,26 @@ async def create_notification(
     user_id = notification_data.get("user_id")
     message = notification_data.get("message")
     target_url = notification_data.get("target_url")
+    booking_id = notification_data.get("booking_id")
+    ticket_id = notification_data.get("ticket_id")
 
     # Проверяем существование пользователя
-    user = db.query(User).get(user_id)
-    if not user:
-        # Если передан user_id как telegram_id, пытаемся найти по нему
-        user = db.query(User).filter(User.telegram_id == user_id).first()
+    user = None
+    if user_id:
+        user = db.query(User).get(user_id)
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        user_id = user.id
+            # Если передан user_id как telegram_id, пытаемся найти по нему
+            user = db.query(User).filter(User.telegram_id == user_id).first()
+            if user:
+                user_id = user.id
 
     # Создаем уведомление в БД
     notification = Notification(
         user_id=user_id,
         message=message,
         target_url=target_url,
+        booking_id=booking_id,
+        ticket_id=ticket_id,
         created_at=datetime.now(MOSCOW_TZ),
         is_read=False,
     )

@@ -1,3 +1,4 @@
+// App.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { ChakraProvider, useToast, useDisclosure } from '@chakra-ui/react';
 import axios from 'axios';
@@ -5,7 +6,6 @@ import axios from 'axios';
 // Компоненты
 import Login from './components/Login';
 import Layout from './components/Layout';
-// import { DetailModal } from './components/modals';
 import {
   BookingDetailModal,
   PromocodeDetailModal,
@@ -32,7 +32,7 @@ import {
   notificationApi,
   dashboardApi,
   userApi,
-  promocodeApi, tariffApi
+  promocodeApi
 } from './utils/api.js';
 
 function App() {
@@ -309,23 +309,15 @@ function App() {
           ticket.id === updatedData.id ? updatedData : ticket
         ));
       } else if (selectedItem?.type === 'promocode') {
+        // Для промокодов всегда перезагружаем список
         await fetchSectionData('promocodes', dataSetters);
         if (selectedItem?.id) {
           try {
             const updatedPromocode = await promocodeApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedPromocode, type: prev.type }));
           } catch (error) {
+            // Промокод мог быть удален
             console.log('Промокод не найден, возможно был удален');
-          }
-        }
-      } else if (selectedItem?.type === 'tariff') {
-        await fetchSectionData('tariffs', dataSetters);
-        if (selectedItem?.id) {
-          try {
-            const updatedTariff = await tariffApi.getById(selectedItem.id);
-            setSelectedItem(prev => ({ ...updatedTariff, type: prev.type }));
-          } catch (error) {
-            console.log('Тариф не найден, возможно был удален');
           }
         }
       } else if (selectedItem?.type === 'user') {
@@ -367,13 +359,7 @@ function App() {
       case 'bookings':
         return <Bookings bookings={bookings} {...sectionProps} />;
       case 'tariffs':
-        return (
-          <Tariffs
-            tariffs={tariffs}
-            openDetailModal={openDetailModal}
-            onUpdate={() => fetchSectionData('tariffs', dataSetters)}
-          />
-        );
+        return <Tariffs tariffs={tariffs} {...sectionProps} />;
       case 'promocodes':
         return (
           <Promocodes
@@ -385,7 +371,14 @@ function App() {
       case 'tickets':
         return <Tickets tickets={tickets} {...sectionProps} />;
       case 'notifications':
-        return <Notifications notifications={notifications} />;
+        return (
+          <Notifications
+            notifications={notifications}
+            openDetailModal={openDetailModal}
+            setSection={setSection}
+            onRefresh={() => fetchSectionData('notifications', dataSetters)}
+          />
+        );
       case 'newsletters':
         return <Newsletters newsletters={newsletters} />;
       default:
@@ -469,7 +462,6 @@ function App() {
           isOpen={isOpen}
           onClose={onClose}
           tariff={selectedItem}
-          onUpdate={() => fetchSectionData('tariffs', dataSetters)}
         />
       )}
 
