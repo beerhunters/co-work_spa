@@ -220,6 +220,11 @@ export const promocodeApi = {
   getByName: async (name) => {
     const res = await apiClient.get(`/promocodes/by_name/${name}`);
     return res.data;
+  },
+
+  use: async (promocodeId) => {
+    const res = await apiClient.post(`/promocodes/${promocodeId}/use`);
+    return res.data;
   }
 };
 

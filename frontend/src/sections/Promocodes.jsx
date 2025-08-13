@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { 
-  Box, 
-  Card, 
-  CardHeader, 
-  CardBody, 
-  Heading, 
-  VStack, 
-  HStack, 
-  Text, 
-  Icon, 
+import {
+  Box,
+  Card,
+  CardHeader,
+  CardBody,
+  Heading,
+  VStack,
+  HStack,
+  Text,
+  Icon,
   Badge,
   Button,
   useDisclosure,
@@ -42,7 +42,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
   const [formData, setFormData] = useState({
     name: '',
     discount: 10,
-    usage_quantity: 0,
+    usage_quantity: 100, // По умолчанию 100 использований
     expiration_date: '',
     is_active: true
   });
@@ -54,7 +54,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
     setFormData({
       name: '',
       discount: 10,
-      usage_quantity: 0,
+      usage_quantity: 100, // По умолчанию 100 использований
       expiration_date: '',
       is_active: true
     });
@@ -86,7 +86,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
       const expirationDate = new Date(formData.expiration_date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      
+
       if (expirationDate < today) {
         newErrors.expiration_date = 'Дата истечения не может быть в прошлом';
       }
@@ -110,7 +110,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
       };
 
       await promocodeApi.create(submitData);
-      
+
       toast({
         title: 'Успешно',
         description: 'Промокод создан',
@@ -124,7 +124,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
       onClose();
     } catch (error) {
       console.error('Ошибка при создании промокода:', error);
-      
+
       let errorMessage = 'Не удалось создать промокод';
       if (error.response?.data?.detail) {
         if (error.response.data.detail.includes('UNIQUE constraint failed')) {
@@ -133,7 +133,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
           errorMessage = error.response.data.detail;
         }
       }
-      
+
       toast({
         title: 'Ошибка',
         description: errorMessage,
@@ -162,7 +162,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
           </HStack>
         </ModalHeader>
         <ModalCloseButton />
-        
+
         <ModalBody>
           <VStack align="stretch" spacing={4}>
             <Alert status="info" borderRadius="md">
@@ -189,7 +189,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
               <FormLabel>Размер скидки (%)</FormLabel>
               <NumberInput
                 value={formData.discount}
-                onChange={(valueString, valueNumber) => 
+                onChange={(valueString, valueNumber) =>
                   setFormData({...formData, discount: valueNumber || 0})}
                 min={1}
                 max={100}
@@ -202,6 +202,25 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
               </NumberInput>
               <FormHelperText>
                 {errors.discount || 'От 1% до 100%'}
+              </FormHelperText>
+            </FormControl>
+
+            <FormControl isInvalid={errors.usage_quantity}>
+              <FormLabel>Количество использований</FormLabel>
+              <NumberInput
+                value={formData.usage_quantity}
+                onChange={(valueString, valueNumber) =>
+                  setFormData({...formData, usage_quantity: valueNumber || 0})}
+                min={0}
+              >
+                <NumberInputField />
+                <NumberInputStepper>
+                  <NumberIncrementStepper />
+                  <NumberDecrementStepper />
+                </NumberInputStepper>
+              </NumberInput>
+              <FormHelperText>
+                {errors.usage_quantity || 'Если 0 - промокод будет недоступен сразу после создания'}
               </FormHelperText>
             </FormControl>
 
@@ -317,8 +336,8 @@ const Promocodes = ({ promocodes, openDetailModal, onUpdate }) => {
               ) : (
                 promocodes.map(promocode => {
                   const expired = isExpired(promocode.expiration_date);
-                  const isActive = promocode.is_active && !expired;
-                  
+                  const isActive = promocode.is_active && !expired && promocode.usage_quantity > 0;
+
                   return (
                     <Box
                       key={promocode.id}
@@ -337,7 +356,7 @@ const Promocodes = ({ promocodes, openDetailModal, onUpdate }) => {
                           <HStack spacing={3}>
                             <Text fontWeight="bold" fontSize="lg">{promocode.name}</Text>
                             <Badge colorScheme={getStatusColor(isActive ? 'active' : 'inactive')}>
-                              {isActive ? 'Активен' : expired ? 'Истёк' : 'Неактивен'}
+                              {isActive ? 'Активен' : expired ? 'Истёк' : promocode.usage_quantity === 0 ? 'Исчерпан' : 'Неактивен'}
                             </Badge>
                           </HStack>
                           <HStack spacing={4} fontSize="sm" color="gray.600">

@@ -126,15 +126,31 @@ class Tariff(Base):
 
 
 class Promocode(Base):
-    """Модель промокода."""
-
     __tablename__ = "promocodes"
-    id = Column(Integer, primary_key=True)
+
+    id = Column(Integer, primary_key=True, index=True)
     name = Column(String(50), nullable=False, unique=True, index=True)
     discount = Column(Integer, nullable=False)
-    usage_quantity = Column(Integer, default=0)
+    usage_quantity = Column(Integer, default=0)  # Количество оставшихся использований
     expiration_date = Column(DateTime(timezone=True), nullable=True, index=True)
     is_active = Column(Boolean, default=False, index=True)
+
+    def __repr__(self) -> str:
+        return f"<Promocode(id={self.id}, name='{self.name}', discount={self.discount}%, uses={self.usage_quantity})>"
+
+    @property
+    def is_available(self) -> bool:
+        """Проверяет, доступен ли промокод для использования."""
+        if not self.is_active:
+            return False
+
+        if self.expiration_date and self.expiration_date < datetime.now(MOSCOW_TZ):
+            return False
+
+        if self.usage_quantity <= 0:
+            return False
+
+        return True
 
 
 class Booking(Base):

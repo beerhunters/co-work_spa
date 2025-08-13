@@ -783,6 +783,8 @@ async def delete_tariff(
 
 
 # ================== PROMOCODE ENDPOINTS ==================
+
+
 @app.get("/promocodes", response_model=List[PromocodeBase])
 async def get_promocodes(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     """Получение всех промокодов."""
@@ -802,6 +804,10 @@ async def get_promocode_by_name(name: str, db: Session = Depends(get_db)):
         MOSCOW_TZ
     ):
         raise HTTPException(status_code=410, detail="Promocode expired")
+
+    # Проверяем количество использований
+    if promocode.usage_quantity <= 0:
+        raise HTTPException(status_code=410, detail="Promocode usage limit exceeded")
 
     return {
         "id": promocode.id,
@@ -980,6 +986,44 @@ async def update_promocode(
         db.rollback()
         logger.error(f"Ошибка обновления промокода {promocode_id}: {e}")
         raise HTTPException(status_code=500, detail="Не удалось обновить промокод")
+
+
+@app.post("/promocodes/{promocode_id}/use")
+async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
+    """Использование промокода (уменьшение счетчика). Используется ботом при создании брони."""
+    promocode = db.query(Promocode).get(promocode_id)
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Promocode not found")
+
+    if not promocode.is_active:
+        raise HTTPException(status_code=400, detail="Promocode is not active")
+
+    if promocode.expiration_date and promocode.expiration_date < datetime.now(
+        MOSCOW_TZ
+    ):
+        raise HTTPException(status_code=410, detail="Promocode expired")
+
+    if promocode.usage_quantity <= 0:
+        raise HTTPException(status_code=410, detail="Promocode usage limit exceeded")
+
+    try:
+        # Уменьшаем количество использований
+        promocode.usage_quantity -= 1
+        db.commit()
+
+        logger.info(
+            f"Использован промокод {promocode.name}. Осталось использований: {promocode.usage_quantity}"
+        )
+
+        return {
+            "message": "Promocode used successfully",
+            "remaining_uses": promocode.usage_quantity,
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка использования промокода {promocode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to use promocode")
 
 
 @app.delete("/promocodes/{promocode_id}")

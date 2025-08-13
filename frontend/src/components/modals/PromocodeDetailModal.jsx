@@ -228,9 +228,6 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
           <ModalHeader>
             <HStack justify="space-between">
               <Text>Промокод #{promocode.id}</Text>
-              {/*<Badge colorScheme={getStatusColor(promocode.is_active && !isExpired ? 'active' : 'inactive')}>*/}
-              {/*  {promocode.is_active && !isExpired ? 'Активный' : 'Неактивный'}*/}
-              {/*</Badge>*/}
             </HStack>
           </ModalHeader>
           <ModalCloseButton />
@@ -275,6 +272,25 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
                   </NumberInput>
                   <FormHelperText>
                     {errors.discount || 'От 1% до 100%'}
+                  </FormHelperText>
+                </FormControl>
+
+                <FormControl isInvalid={errors.usage_quantity}>
+                  <FormLabel>Количество использований</FormLabel>
+                  <NumberInput
+                    value={formData.usage_quantity}
+                    onChange={(valueString, valueNumber) =>
+                      setFormData({...formData, usage_quantity: valueNumber || 0})}
+                    min={0}
+                  >
+                    <NumberInputField />
+                    <NumberInputStepper>
+                      <NumberIncrementStepper />
+                      <NumberDecrementStepper />
+                    </NumberInputStepper>
+                  </NumberInput>
+                  <FormHelperText>
+                    {errors.usage_quantity || 'Если 0 - промокод будет недоступен. Показывает оставшиеся использования'}
                   </FormHelperText>
                 </FormControl>
 
@@ -324,10 +340,17 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
                 </HStack>
 
                 <HStack justify="space-between">
-                  <Text fontWeight="bold">Использований:</Text>
-                  <Badge colorScheme="blue" fontSize="sm">
-                    {promocode.usage_quantity || 0}
-                  </Badge>
+                  <Text fontWeight="bold">Оставшиеся использования:</Text>
+                  <VStack align="end" spacing={1}>
+                    <Badge colorScheme={promocode.usage_quantity > 0 ? "green" : "red"} fontSize="sm">
+                      {promocode.usage_quantity || 0}
+                    </Badge>
+                    {promocode.usage_quantity === 0 && (
+                      <Text fontSize="xs" color="red.500">
+                        Исчерпан
+                      </Text>
+                    )}
+                  </VStack>
                 </HStack>
 
                 <HStack justify="space-between">
@@ -361,6 +384,12 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
                 {isExpired && promocode.is_active && (
                   <Text fontSize="sm" color="red.500" fontStyle="italic">
                     Промокод истёк по сроку действия
+                  </Text>
+                )}
+
+                {promocode.usage_quantity === 0 && promocode.is_active && !isExpired && (
+                  <Text fontSize="sm" color="orange.500" fontStyle="italic">
+                    Промокод исчерпан - использования закончились
                   </Text>
                 )}
               </VStack>
@@ -431,7 +460,7 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
               <br />
               <br />
               <Text fontSize="sm" color="gray.600">
-                Это действие нельзя отменить. Промокод был использован {promocode.usage_quantity || 0} раз.
+                Это действие нельзя отменить. Промокод имеет {promocode.usage_quantity || 0} оставшихся использований.
               </Text>
             </AlertDialogBody>
 
