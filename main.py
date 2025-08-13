@@ -1,7 +1,10 @@
 import os
+
+
 import threading
 import time as tm
 import uuid
+import re
 from datetime import time, date
 from datetime import timedelta
 from pathlib import Path
@@ -182,6 +185,20 @@ class BookingBase(BaseModel):
         from_attributes = True
 
 
+class BookingCreate(BaseModel):
+    user_id: int  # Это будет telegram_id
+    tariff_id: int
+    visit_date: date
+    visit_time: Optional[time] = None
+    duration: Optional[int] = None
+    promocode_id: Optional[int] = None
+    amount: float
+    payment_id: Optional[str] = None
+    paid: bool = False
+    confirmed: bool = False
+    rubitime_id: Optional[str] = None
+
+
 class NewsletterBase(BaseModel):
     id: int
     message: str
@@ -236,20 +253,6 @@ class NotificationBase(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-# Модели для создания записей
-class BookingCreate(BaseModel):
-    user_id: int
-    tariff_id: int
-    visit_date: date
-    visit_time: Optional[time] = None
-    duration: Optional[int] = None
-    promocode_id: Optional[int] = None
-    amount: float
-    payment_id: Optional[str] = None
-    paid: bool = False
-    confirmed: bool = False
 
 
 class TicketCreate(BaseModel):
@@ -351,6 +354,89 @@ def get_db():
                 logger.error(f"Ошибка закрытия сессии БД: {e}")
 
 
+def format_phone_for_rubitime(phone: str) -> str:
+    """Форматирует номер телефона для Rubitime в формате +7**********."""
+    if not phone:
+        return "Не указано"
+
+    # Извлекаем только цифры
+    digits = re.sub(r"[^0-9]", "", phone)
+
+    if len(digits) == 11 and digits.startswith("8"):
+        # Заменяем 8 на 7
+        digits = "7" + digits[1:]
+    elif len(digits) == 10:
+        # Добавляем 7 в начало
+        digits = "7" + digits
+    elif len(digits) == 11 and digits.startswith("7"):
+        # Уже правильный формат
+        pass
+    else:
+        return "Не указано"
+
+    if len(digits) == 11:
+        return "+" + digits
+    else:
+        return "Не указано"
+
+
+def format_booking_notification(user, tariff, booking_data) -> str:
+    """Форматирует уведомление о новой брони для администратора."""
+    tariff_emojis = {
+        "опенспейс": "🏢",
+        "переговорная": "🏛",
+        "meeting": "🏛",
+        "openspace": "🏢",
+    }
+
+    purpose = booking_data.get("tariff_purpose", "").lower()
+    tariff_emoji = tariff_emojis.get(purpose, "📋")
+
+    visit_date = booking_data.get("visit_date")
+    visit_time = booking_data.get("visit_time")
+
+    if visit_time:
+        datetime_str = (
+            f"{visit_date.strftime('%d.%m.%Y')} в {visit_time.strftime('%H:%M')}"
+        )
+    else:
+        datetime_str = f"{visit_date.strftime('%d.%m.%Y')} (весь день)"
+
+    discount_info = ""
+    if booking_data.get("promocode_name"):
+        promocode_name = booking_data.get("promocode_name", "Неизвестный")
+        discount = booking_data.get("discount", 0)
+        discount_info = f"\n🎁 <b>Промокод:</b> {promocode_name} (-{discount}%)"
+
+    duration_info = ""
+    if booking_data.get("duration"):
+        duration_info = f"\n⏱ <b>Длительность:</b> {booking_data['duration']} час(ов)"
+
+    # Исправляем обращение к атрибутам пользователя
+    user_name = (
+        user.full_name
+        if hasattr(user, "full_name")
+        else user.get("full_name", "Не указано")
+    )
+    user_phone = (
+        user.phone if hasattr(user, "phone") else user.get("phone", "Не указано")
+    )
+
+    message = f"""🎯 <b>НОВАЯ БРОНЬ!</b> {tariff_emoji}
+
+👤 <b>Клиент:</b> {user_name}
+📞 <b>Телефон:</b> {user_phone}
+
+📋 <b>Детали брони:</b>
+├ <b>Тариф:</b> {booking_data.get('tariff_name', 'Неизвестно')}
+├ <b>Дата и время:</b> {datetime_str}{duration_info}
+└ <b>Сумма:</b> {booking_data.get('amount', 0):.2f} ₽{discount_info}
+
+⏰ <i>Время: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
+
+    return message
+
+
 # ================== AUTHENTICATION ENDPOINTS ==================
 
 
@@ -433,6 +519,50 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
     }
 
     return user_data
+
+
+@app.put("/users/telegram/{telegram_id}")
+async def update_user_by_telegram_id(
+    telegram_id: int, user_data: UserUpdate, db: Session = Depends(get_db)
+):
+    """Обновление пользователя по telegram_id."""
+    try:
+        with db_retry_context():
+            user = db.query(User).filter(User.telegram_id == telegram_id).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            update_dict = user_data.dict(exclude_unset=True)
+
+            for field, value in update_dict.items():
+                if hasattr(user, field):
+                    setattr(user, field, value)
+
+            db.commit()
+            db.refresh(user)
+
+            return {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+                "phone": user.phone,
+                "email": user.email,
+                "username": user.username,
+                "successful_bookings": user.successful_bookings,
+                "language_code": user.language_code,
+                "invited_count": user.invited_count,
+                "reg_date": user.reg_date,
+                "first_join_time": user.first_join_time,
+                "agreed_to_terms": user.agreed_to_terms,
+                "avatar": user.avatar,
+                "referrer_id": user.referrer_id,
+            }
+    except Exception as e:
+        logger.error(f"Ошибка обновления пользователя: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Ошибка обновления пользователя: {str(e)}"
+        )
 
 
 @app.post("/users/check_and_add")
@@ -649,93 +779,138 @@ async def get_booking(
 
 @app.post("/bookings", response_model=BookingBase)
 async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_db)):
-    """Создание нового бронирования. Используется ботом."""
-    user = db.query(User).filter(User.telegram_id == booking_data.user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    """Создание нового бронирования."""
+    try:
+        with db_retry_context():
+            # Получаем пользователя по telegram_id вместо user_id
+            user = (
+                db.query(User).filter(User.telegram_id == booking_data.user_id).first()
+            )
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
 
-    tariff = db.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
-    if not tariff:
-        raise HTTPException(status_code=404, detail="Tariff not found")
+            tariff = (
+                db.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+            )
+            if not tariff:
+                raise HTTPException(status_code=404, detail="Tariff not found")
 
-    # Вычисляем итоговую сумму с учетом промокода
-    amount = booking_data.amount
-    promocode = None
-    if booking_data.promocode_id:
-        promocode = (
-            db.query(Promocode)
-            .filter(Promocode.id == booking_data.promocode_id)
-            .first()
+            amount = booking_data.amount
+            promocode = None
+
+            if booking_data.promocode_id:
+                promocode = (
+                    db.query(Promocode)
+                    .filter(Promocode.id == booking_data.promocode_id)
+                    .first()
+                )
+                if promocode:
+                    amount = amount * (1 - promocode.discount / 100)
+
+            # Создание записи в Rubitime если подтверждена и нет rubitime_id
+            rubitime_id = booking_data.rubitime_id
+            if not rubitime_id and booking_data.confirmed and tariff.service_id:
+                try:
+                    visit_time = booking_data.visit_time
+                    duration = booking_data.duration
+
+                    if visit_time and duration:
+                        rubitime_date = datetime.combine(
+                            booking_data.visit_date, visit_time
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+                        rubitime_duration = duration * 60
+                    else:
+                        rubitime_date = (
+                            booking_data.visit_date.strftime("%Y-%m-%d") + " 09:00:00"
+                        )
+                        rubitime_duration = None
+
+                    formatted_phone = format_phone_for_rubitime(user.phone or "")
+                    rubitime_params = {
+                        "service_id": tariff.service_id,
+                        "date": rubitime_date,
+                        "duration": rubitime_duration,
+                        "client_name": user.full_name or "Не указано",
+                        "client_phone": formatted_phone,
+                        "comment": f"Бронь через Telegram бота - {tariff.name}",
+                    }
+
+                    rubitime_id = await rubitime("create_record", rubitime_params)
+                except Exception as e:
+                    logger.error(f"Ошибка создания записи в Rubitime: {e}")
+
+            booking = Booking(
+                user_id=user.id,  # Используем внутренний user.id для связи в БД
+                tariff_id=booking_data.tariff_id,
+                visit_date=booking_data.visit_date,
+                visit_time=booking_data.visit_time,
+                duration=booking_data.duration,
+                promocode_id=booking_data.promocode_id,
+                amount=amount,
+                payment_id=booking_data.payment_id,
+                paid=booking_data.paid,
+                confirmed=booking_data.confirmed,
+                rubitime_id=rubitime_id,
+                created_at=datetime.now(MOSCOW_TZ),
+            )
+
+            db.add(booking)
+            db.commit()
+            db.refresh(booking)
+
+            # Подготовка данных для уведомления
+            booking_data_dict = {
+                "tariff_name": tariff.name,
+                "tariff_purpose": tariff.purpose,
+                "visit_date": booking_data.visit_date,
+                "visit_time": booking_data.visit_time,
+                "duration": booking_data.duration,
+                "amount": amount,
+                "promocode_name": promocode.name if promocode else None,
+                "discount": promocode.discount if promocode else 0,
+            }
+
+            # Создание уведомления для админа
+            admin_message = format_booking_notification(user, tariff, booking_data_dict)
+
+            # Отправка уведомления админу в Telegram
+            if ADMIN_TELEGRAM_ID and bot:
+                try:
+                    await bot.send_message(
+                        chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки уведомления админу: {e}")
+
+            # Создание уведомления в БД
+            notification = Notification(
+                user_id=user.id,
+                message=admin_message,
+                target_url=f"/bookings/{booking.id}",
+                booking_id=booking.id,
+                created_at=datetime.now(MOSCOW_TZ),
+            )
+
+            db.add(notification)
+            db.commit()
+
+            # Обновляем счетчик успешных бронирований для оплаченных броней
+            if booking_data.paid:
+                try:
+                    current_bookings = user.successful_bookings or 0
+                    user.successful_bookings = current_bookings + 1
+                    db.commit()
+                except Exception as e:
+                    logger.error(f"Ошибка обновления счетчика бронирований: {e}")
+
+            return booking
+
+    except Exception as e:
+        logger.error(f"Ошибка создания бронирования: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500, detail=f"Ошибка создания бронирования: {str(e)}"
         )
-        if promocode and promocode.is_active:
-            amount = amount * (1 - promocode.discount / 100)
-
-    # Создаем запись в Rubitime, если нужно
-    rubitime_id = None
-    if tariff.service_id and booking_data.visit_time:
-        rubitime_params = {
-            "service_id": tariff.service_id,
-            "datetime": f"{booking_data.visit_date} {booking_data.visit_time}",
-            "duration": booking_data.duration or 60,
-            "client_name": user.full_name or "Неизвестно",
-            "client_phone": user.phone or "",
-            "comment": f"Бронь из Telegram бота",
-        }
-        rubitime_id = await rubitime("create_record", rubitime_params)
-
-    # Создаем бронирование
-    booking = Booking(
-        user_id=user.id,
-        tariff_id=booking_data.tariff_id,
-        visit_date=booking_data.visit_date,
-        visit_time=booking_data.visit_time,
-        duration=booking_data.duration,
-        promocode_id=booking_data.promocode_id,
-        amount=amount,
-        payment_id=booking_data.payment_id,
-        paid=booking_data.paid,
-        confirmed=booking_data.confirmed,
-        rubitime_id=rubitime_id,
-        created_at=datetime.now(MOSCOW_TZ),
-    )
-
-    db.add(booking)
-    db.commit()
-    db.refresh(booking)
-
-    # Создаем уведомление админу
-    booking_data_dict = {
-        "tariff_name": tariff.name,
-        "tariff_purpose": tariff.purpose,
-        "visit_date": booking_data.visit_date,
-        "visit_time": booking_data.visit_time,
-        "duration": booking_data.duration,
-        "amount": amount,
-        "discount": promocode.discount if promocode else 0,
-        "promocode_name": promocode.name if promocode else None,
-    }
-
-    admin_message = format_booking_notification(user, tariff, booking_data_dict)
-
-    # Отправляем уведомление админу
-    if bot and ADMIN_TELEGRAM_ID:
-        try:
-            await bot.send_message(ADMIN_TELEGRAM_ID, admin_message)
-        except Exception as e:
-            logger.error(f"Не удалось отправить уведомление админу: {e}")
-
-    # Создаем уведомление в БД
-    notification = Notification(
-        user_id=user.id,
-        message="Создано новое бронирование",
-        booking_id=booking.id,
-        target_url="/bookings",
-        created_at=datetime.now(MOSCOW_TZ),
-    )
-    db.add(notification)
-    db.commit()
-
-    return booking
 
 
 @app.put("/bookings/{booking_id}", response_model=BookingBase)
@@ -1065,8 +1240,6 @@ async def create_promocode(
         )
 
     # Проверяем формат названия (только латинские буквы, цифры, дефис и подчеркивание)
-    import re
-
     if not re.match(r"^[A-Za-z0-9_-]+$", promocode_data.name):
         raise HTTPException(
             status_code=400,
@@ -1148,8 +1321,6 @@ async def update_promocode(
                 )
 
         # Валидация формата названия
-        import re
-
         if not re.match(r"^[A-Za-z0-9_-]+$", new_name):
             raise HTTPException(
                 status_code=400,
@@ -1271,508 +1442,171 @@ async def delete_promocode(
         raise HTTPException(status_code=500, detail="Не удалось удалить промокод")
 
 
-# ================== TICKET ENDPOINTS ==================
-
-# Создаем директорию для фото ответов
-TICKET_PHOTOS_DIR = Path(__file__).parent / "ticket_photos"
-TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
+# ================== EXTERNAL API HELPERS ==================
 
 
-@app.get("/tickets", response_model=List[dict])
-async def get_tickets(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
-    status: Optional[str] = None,
-    db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
-):
-    """Получение списка тикетов с фильтрацией."""
-    query = db.query(Ticket).join(User).order_by(Ticket.created_at.desc())
+async def rubitime(method: str, extra_params: dict) -> Optional[str]:
+    """
+    Выполнение запроса к Rubitime API.
 
-    if status:
+    Args:
+        method: Метод API ('create_record', 'update_record', 'get_record', 'remove_record').
+        extra_params: Дополнительные параметры для запроса.
+
+    Returns:
+        Optional[str]: ID записи (для create_record) или None.
+    """
+    if method == "create_record":
+        url = f"{RUBITIME_BASE_URL}create-record"
+        params = {
+            "branch_id": 12595,
+            "cooperator_id": 25786,
+            "created_at": datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            "status": 0,
+            "source": "Telegram",
+            "record": {
+                "service_id": extra_params.get("service_id"),
+                "date": extra_params.get("date"),
+                "duration": extra_params.get("duration"),
+                "client_name": extra_params.get("client_name", ""),
+                "client_phone": extra_params.get("client_phone", ""),
+                "comment": extra_params.get("comment", ""),
+            },
+            **{
+                k: v
+                for k, v in extra_params.items()
+                if k
+                not in [
+                    "service_id",
+                    "date",
+                    "duration",
+                    "client_name",
+                    "client_phone",
+                    "comment",
+                ]
+            },
+        }
+    else:
+        logger.error(f"Неизвестный метод Rubitime: {method}")
+        return None
+
+    params["rk"] = RUBITIME_API_KEY
+
+    async with aiohttp.ClientSession() as session:
         try:
-            status_enum = TicketStatus[status]
-            query = query.filter(Ticket.status == status_enum)
-        except KeyError:
-            raise HTTPException(status_code=400, detail="Invalid status")
+            async with session.post(url, json=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("status") == "ok":
+                        if method == "create_record":
+                            record_id = data.get("data", {}).get("id")
+                            logger.debug(f"Создано в Rubitime: ID {record_id}")
+                            return record_id
+                        logger.debug(f"Запрос Rubitime успешен: {method}")
+                        return None
+                    else:
+                        logger.warning(
+                            f"Ошибка Rubitime: {data.get('message', 'Неизвестная ошибка')}"
+                        )
+                        return None
+                else:
+                    logger.error(
+                        f"Ошибка HTTP {response.status}: {await response.text()}"
+                    )
+                    return None
+        except Exception as e:
+            logger.error(f"Исключение при запросе к Rubitime: {str(e)}")
+            return None
 
-    tickets = query.offset((page - 1) * per_page).limit(per_page).all()
 
-    result = []
-    for ticket in tickets:
-        result.append(
+@app.post("/rubitime/create_record")
+async def create_rubitime_record_from_bot(rubitime_params: dict):
+    """Создание записи в Rubitime через API бота."""
+    try:
+        rubitime_id = await rubitime("create_record", rubitime_params)
+        return {"rubitime_id": rubitime_id}
+    except Exception as e:
+        logger.error(f"Ошибка создания записи в Rubitime: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка создания записи в Rubitime")
+
+
+async def check_payment_status(payment_id: str) -> Optional[str]:
+    """Проверка статуса платежа через YooKassa."""
+    try:
+        payment = await Payment.find_one(payment_id)
+        return payment.status
+    except Exception as e:
+        logger.error(f"Ошибка проверки платежа: {e}")
+        return None
+
+
+# ================== PAYMENT ENDPOINTS ==================
+
+
+@app.post("/payments")
+async def create_payment(payment_data: dict, db: Session = Depends(get_db)):
+    """Создание платежа через YooKassa. Используется ботом."""
+    try:
+        # Находим пользователя по telegram_id
+        user_id = payment_data.get("user_id")
+        user = db.query(User).filter(User.telegram_id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Находим тариф
+        tariff_id = payment_data.get("tariff_id")
+        tariff = db.query(Tariff).get(tariff_id)
+        if not tariff:
+            raise HTTPException(status_code=404, detail="Tariff not found")
+
+        # Создаем платеж в YooKassa
+        payment = Payment.create(
             {
-                "id": ticket.id,
-                "description": ticket.description,
-                "photo_id": ticket.photo_id,
-                "response_photo_id": ticket.response_photo_id,
-                "status": ticket.status.name,
-                "comment": ticket.comment,
-                "created_at": ticket.created_at.isoformat(),
-                "updated_at": ticket.updated_at.isoformat(),
-                "user": {
-                    "id": ticket.user.id,
-                    "telegram_id": ticket.user.telegram_id,
-                    "full_name": ticket.user.full_name,
-                    "username": ticket.user.username,
-                    "phone": ticket.user.phone,
-                    "email": ticket.user.email,
+                "amount": {
+                    "value": f"{payment_data.get('amount', 0):.2f}",
+                    "currency": "RUB",
                 },
+                "confirmation": {
+                    "type": "redirect",
+                    "return_url": "https://t.me/your_bot",
+                },
+                "capture": True,
+                "description": payment_data.get("description", "Оплата бронирования"),
             }
         )
 
-    return result
-
-
-@app.get("/tickets/{ticket_id}", response_model=dict)
-async def get_ticket(
-    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Получение тикета по ID."""
-    ticket = db.query(Ticket).join(User).filter(Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    return {
-        "id": ticket.id,
-        "description": ticket.description,
-        "photo_id": ticket.photo_id,
-        "response_photo_id": ticket.response_photo_id,
-        "status": ticket.status.name,
-        "comment": ticket.comment,
-        "created_at": ticket.created_at.isoformat(),
-        "updated_at": ticket.updated_at.isoformat(),
-        "user": {
-            "id": ticket.user.id,
-            "telegram_id": ticket.user.telegram_id,
-            "full_name": ticket.user.full_name,
-            "username": ticket.user.username,
-            "phone": ticket.user.phone,
-            "email": ticket.user.email,
-        },
-    }
-
-
-@app.post("/tickets")
-async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
-    """Создание нового тикета. Используется ботом."""
-    user = db.query(User).filter(User.telegram_id == ticket_data.user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    # Определяем статус
-    status_enum = TicketStatus.OPEN
-    if ticket_data.status:
-        try:
-            status_enum = TicketStatus(ticket_data.status)
-        except ValueError:
-            status_enum = TicketStatus.OPEN
-
-    # Создаем тикет
-    ticket = Ticket(
-        user_id=user.id,
-        description=ticket_data.description,
-        photo_id=ticket_data.photo_id,
-        status=status_enum,
-        comment=ticket_data.comment,
-        created_at=datetime.now(MOSCOW_TZ),
-        updated_at=datetime.now(MOSCOW_TZ),
-    )
-
-    db.add(ticket)
-    db.commit()
-    db.refresh(ticket)
-
-    # Уведомляем админа
-    ticket_data_dict = {
-        "id": ticket.id,
-        "description": ticket.description,
-        "status": ticket.status.value,
-        "photo_id": ticket.photo_id,
-        "created_at": ticket.created_at,
-    }
-
-    return {"id": ticket.id, "message": "Ticket created successfully"}
-
-
-@app.get("/users/telegram/{telegram_id}/tickets")
-async def get_user_tickets_by_telegram_id(
-    telegram_id: int, status: Optional[str] = None, db: Session = Depends(get_db)
-):
-    """Получение тикетов пользователя по Telegram ID. Используется ботом."""
-    user = db.query(User).filter(User.telegram_id == telegram_id).first()
-    if not user:
-        return []
-
-    query = db.query(Ticket).filter(Ticket.user_id == user.id)
-
-    if status:
-        try:
-            status_enum = TicketStatus[status]
-            query = query.filter(Ticket.status == status_enum)
-        except KeyError:
-            pass
-
-    tickets = query.order_by(Ticket.created_at.desc()).all()
-
-    return [
-        {
-            "id": t.id,
-            "description": t.description,
-            "status": t.status.value,
-            "photo_id": t.photo_id,
-            "comment": t.comment,
-            "created_at": t.created_at.isoformat(),
-            "updated_at": t.updated_at.isoformat(),
-        }
-        for t in tickets
-    ]
-
-
-@app.put("/tickets/{ticket_id}")
-async def update_ticket_status(
-    ticket_id: int,
-    status_data: dict,
-    db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
-):
-    """Обновление статуса тикета с возможностью добавления фото."""
-    ticket = db.query(Ticket).get(ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Запрещаем редактирование закрытых тикетов
-    if ticket.status == TicketStatus.CLOSED:
-        # Разрешаем только если явно меняем статус с CLOSED (что и так запрещено выше)
-        new_status = status_data.get("status")
-        if new_status and new_status != "CLOSED":
-            raise HTTPException(
-                status_code=400, detail="Закрытые тикеты нельзя редактировать"
-            )
-        elif not new_status:  # Если пытаются изменить только комментарий
-            raise HTTPException(
-                status_code=400, detail="Закрытые тикеты нельзя редактировать"
-            )
-
-    new_status = status_data.get("status")
-    comment = status_data.get("comment")
-    response_photo_id = status_data.get("response_photo_id")
-
-    # Валидация статуса и комментария
-    if new_status:
-        # Проверяем валидность статуса
-        valid_statuses = ["OPEN", "IN_PROGRESS", "CLOSED"]
-        if new_status not in valid_statuses:
-            raise HTTPException(status_code=400, detail="Invalid status")
-
-        # Проверяем логику переходов статусов
-        current_status = ticket.status.name
-
-        # Разрешенные переходы (более строгая логика)
-        allowed_transitions = {
-            "OPEN": ["IN_PROGRESS", "CLOSED"],
-            "IN_PROGRESS": ["CLOSED"],  # Из "В работе" можно только закрыть
-            "CLOSED": [],  # Из "Закрыта" никуда нельзя перейти
-        }
-
-        if new_status != current_status:
-            if (
-                not allowed_transitions.get(current_status)
-                or new_status not in allowed_transitions[current_status]
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Недопустимый переход статуса с '{current_status}' на '{new_status}'",
-                )
-
-        # Если закрываем тикет, комментарий обязателен
-        if new_status == "CLOSED" and not comment and not ticket.comment:
-            raise HTTPException(
-                status_code=400, detail="Comment is required when closing a ticket"
-            )
-
-        try:
-            ticket.status = TicketStatus[new_status]
-        except (ValueError, KeyError):
-            raise HTTPException(status_code=400, detail="Invalid status")
-
-    # Обновляем комментарий
-    if comment is not None:
-        ticket.comment = comment
-
-    # Обновляем ID фото ответа
-    if response_photo_id is not None:
-        ticket.response_photo_id = response_photo_id
-
-    ticket.updated_at = datetime.now(MOSCOW_TZ)
-
-    try:
-        db.commit()
-
-        # Уведомляем пользователя
-        if bot:
-            user = db.query(User).get(ticket.user_id)
-            if user:
-                status_text = {
-                    TicketStatus.OPEN: "🟢 Открыта",
-                    TicketStatus.IN_PROGRESS: "🟡 В работе",
-                    TicketStatus.CLOSED: "🔴 Закрыта",
-                }
-
-                message = f"📋 <b>Обращение #{ticket.id}</b>\n"
-                message += f"📊 <b>Статус:</b> {status_text.get(ticket.status, 'Обновлен')}\n\n"
-
-                if ticket.comment:
-                    message += f"💬 <b>Ответ администратора:</b>\n{ticket.comment}\n\n"
-
-                message += f"⏰ <b>Время обновления:</b> {ticket.updated_at.strftime('%d.%m.%Y %H:%M')}"
-
-                try:
-                    # Отправляем текстовое сообщение
-                    await bot.send_message(user.telegram_id, message, parse_mode="HTML")
-
-                    # Если есть фото в ответе, отправляем его
-                    if ticket.response_photo_id:
-                        photo_path = TICKET_PHOTOS_DIR / ticket.response_photo_id
-                        if photo_path.exists():
-                            try:
-                                from aiogram.types import FSInputFile
-
-                                photo_file = FSInputFile(photo_path)
-                                await bot.send_photo(
-                                    user.telegram_id,
-                                    photo_file,
-                                    caption="📸 Прикрепленное фото от администратора",
-                                )
-                            except Exception as e:
-                                logger.error(f"Ошибка отправки фото пользователю: {e}")
-
-                except Exception as e:
-                    logger.error(f"Не удалось отправить уведомление пользователю: {e}")
-
-        return {"message": "Ticket updated successfully", "ticket_id": ticket.id}
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Ошибка обновления тикета: {e}")
-        raise HTTPException(status_code=500, detail="Failed to update ticket")
-
-
-# Настройки для очистки файлов (в днях)
-FILE_RETENTION_DAYS = int(
-    os.getenv("FILE_RETENTION_DAYS", "30")
-)  # По умолчанию 30 дней
-MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "10"))  # По умолчанию 10MB
-
-
-def cleanup_old_files():
-    """Удаляет старые файлы тикетов"""
-    try:
-        cutoff_date = datetime.now() - timedelta(days=FILE_RETENTION_DAYS)
-        deleted_count = 0
-
-        # Очищаем файлы фото тикетов
-        for file_path in TICKET_PHOTOS_DIR.glob("*"):
-            if file_path.is_file():
-                file_age = datetime.fromtimestamp(file_path.stat().st_mtime)
-                if file_age < cutoff_date:
-                    try:
-                        file_path.unlink()
-                        deleted_count += 1
-                        logger.info(f"Удален старый файл: {file_path.name}")
-                    except Exception as e:
-                        logger.error(f"Ошибка удаления файла {file_path}: {e}")
-
-        if deleted_count > 0:
-            logger.info(f"Очистка завершена. Удалено файлов: {deleted_count}")
-
-    except Exception as e:
-        logger.error(f"Ошибка при очистке файлов: {e}")
-
-
-def start_cleanup_scheduler():
-    """Запускает планировщик очистки файлов"""
-    schedule.every().day.at("02:00").do(cleanup_old_files)  # Каждый день в 2:00
-
-    def run_scheduler():
-        while True:
-            schedule.run_pending()
-            tm.sleep(3600)  # Проверяем каждый час
-
-    scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
-    scheduler_thread.start()
-    logger.info(
-        f"Планировщик очистки файлов запущен. Срок хранения: {FILE_RETENTION_DAYS} дней"
-    )
-
-
-# Обновленный эндпоинт загрузки фото с улучшенной валидацией:
-@app.post("/tickets/{ticket_id}/photo")
-async def upload_ticket_response_photo(
-    ticket_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
-):
-    """Загрузка фото для ответа администратора."""
-    # Проверяем существование тикета
-    ticket = db.query(Ticket).get(ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Тикет не найден")
-
-    # Проверяем тип файла
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(
-            status_code=400,
-            detail="Файл должен быть изображением (JPEG, PNG, GIF, WebP)",
-        )
-
-    # Читаем файл для проверки размера
-    file_content = await file.read()
-    file_size_mb = len(file_content) / (1024 * 1024)
-
-    if file_size_mb > MAX_FILE_SIZE_MB:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Размер файла ({file_size_mb:.1f} МБ) превышает максимально допустимый ({MAX_FILE_SIZE_MB} МБ)",
-        )
-
-    # Проверяем допустимые расширения
-    allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-    file_extension = Path(file.filename).suffix.lower() if file.filename else ".jpg"
-
-    if file_extension not in allowed_extensions:
-        file_extension = ".jpg"
-
-    # Генерируем уникальное имя файла
-    photo_id = f"{uuid.uuid4()}{file_extension}"
-    photo_path = TICKET_PHOTOS_DIR / photo_id
-
-    try:
-        # Сохраняем файл
-        with open(photo_path, "wb") as buffer:
-            buffer.write(file_content)
-
-        logger.info(
-            f"Фото для тикета {ticket_id} загружено: {photo_id} ({file_size_mb:.1f} МБ)"
-        )
         return {
-            "photo_id": photo_id,
-            "message": "Фото успешно загружено",
-            "file_size_mb": round(file_size_mb, 1),
+            "payment_id": payment.id,
+            "confirmation_url": payment.confirmation.confirmation_url,
+            "status": payment.status,
         }
 
     except Exception as e:
-        logger.error(f"Ошибка загрузки фото для тикета {ticket_id}: {e}")
-        # Удаляем файл если он был частично создан
-        if photo_path.exists():
-            try:
-                photo_path.unlink()
-            except:
-                pass
-        raise HTTPException(status_code=500, detail="Не удалось загрузить фото")
+        logger.error(f"Ошибка создания платежа: {e}")
+        raise HTTPException(status_code=500, detail="Payment creation failed")
 
 
-@app.get("/tickets/{ticket_id}/photo")
-async def get_ticket_photo(ticket_id: int, db: Session = Depends(get_db)):
-    """Получение фото тикета (от пользователя)."""
-    ticket = db.query(Ticket).get(ticket_id)
-    if not ticket or not ticket.photo_id:
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    # Если это локальный файл (содержит расширение), возвращаем его
-    if "." in ticket.photo_id:
-        photo_path = TICKET_PHOTOS_DIR / ticket.photo_id
-        if photo_path.exists():
-            return FileResponse(photo_path)
-
-    # Если это Telegram file_id, скачиваем файл
-    if bot:
-        try:
-            file_info = await bot.get_file(ticket.photo_id)
-            file_url = (
-                f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}"
-            )
-
-            import aiohttp
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(file_url) as resp:
-                    if resp.status == 200:
-                        # Сохраняем файл локально для кэширования
-                        photo_path = (
-                            TICKET_PHOTOS_DIR / f"telegram_{ticket.photo_id}.jpg"
-                        )
-                        with open(photo_path, "wb") as f:
-                            f.write(await resp.read())
-                        return FileResponse(photo_path)
-        except Exception as e:
-            logger.error(f"Ошибка получения фото из Telegram: {e}")
-
-    raise HTTPException(status_code=404, detail="Photo not found")
+@app.get("/payments/{payment_id}/status")
+async def check_payment_status_api(payment_id: str, _: str = Depends(verify_token)):
+    """Проверка статуса платежа."""
+    try:
+        payment = Payment.find_one(payment_id)
+        return {"status": payment.status}
+    except Exception as e:
+        logger.error(f"Ошибка проверки платежа: {e}")
+        raise HTTPException(status_code=500, detail="Payment status check failed")
 
 
-@app.delete("/tickets/{ticket_id}")
-async def delete_ticket(
-    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Удаление тикета."""
-    ticket = db.query(Ticket).get(ticket_id)
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Удаляем связанные файлы
-    if ticket.response_photo_id:
-        photo_path = TICKET_PHOTOS_DIR / ticket.response_photo_id
-        if photo_path.exists():
-            try:
-                photo_path.unlink()
-                logger.info(f"Удален файл фото: {photo_path}")
-            except Exception as e:
-                logger.error(f"Ошибка удаления файла {photo_path}: {e}")
-
-    db.delete(ticket)
-    db.commit()
-    return {"message": "Ticket deleted"}
-
-
-@app.get("/tickets/stats")
-async def get_tickets_stats(
-    db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Получение статистики по тикетам."""
-    total_tickets = db.query(Ticket).count()
-    open_tickets = db.query(Ticket).filter(Ticket.status == TicketStatus.OPEN).count()
-    in_progress_tickets = (
-        db.query(Ticket).filter(Ticket.status == TicketStatus.IN_PROGRESS).count()
-    )
-    closed_tickets = (
-        db.query(Ticket).filter(Ticket.status == TicketStatus.CLOSED).count()
-    )
-
-    # Расчет среднего времени решения
-    closed_tickets_times = (
-        db.query(Ticket)
-        .filter(Ticket.status == TicketStatus.CLOSED)
-        .filter(Ticket.updated_at.isnot(None))
-        .all()
-    )
-
-    avg_resolution_time = 0
-    if closed_tickets_times:
-        total_time = sum(
-            (t.updated_at - t.created_at).total_seconds() / 3600
-            for t in closed_tickets_times
-        )
-        avg_resolution_time = round(total_time / len(closed_tickets_times), 1)
-
-    return {
-        "total": total_tickets,
-        "open": open_tickets,
-        "in_progress": in_progress_tickets,
-        "closed": closed_tickets,
-        "avg_resolution_hours": avg_resolution_time,
-    }
+@app.post("/payments/{payment_id}/cancel")
+async def cancel_payment_api(payment_id: str, _: str = Depends(verify_token)):
+    """Отмена платежа."""
+    try:
+        payment = Payment.find_one(payment_id)
+        refund = Refund.create({"payment_id": payment_id, "amount": payment.amount})
+        return {"status": refund.status}
+    except Exception as e:
+        logger.error(f"Ошибка отмены платежа: {e}")
+        raise HTTPException(status_code=500, detail="Payment cancellation failed")
 
 
 # ================== NOTIFICATION ENDPOINTS ==================
@@ -2047,139 +1881,81 @@ async def get_dashboard_stats(
     }
 
 
-# ================== EXTERNAL API HELPERS ==================
+# ================== TICKET ENDPOINTS ==================
+
+# Создаем директорию для фото ответов
+TICKET_PHOTOS_DIR = Path(__file__).parent / "ticket_photos"
+TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
 
 
-async def rubitime(method: str, extra_params: dict) -> Optional[str]:
-    """Взаимодействие с Rubitime API."""
-    if not RUBITIME_API_KEY:
-        logger.warning("RUBITIME_API_KEY не настроен")
-        return None
+@app.get("/tickets", response_model=List[dict])
+async def get_tickets(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение списка тикетов с фильтрацией."""
+    query = db.query(Ticket).join(User).order_by(Ticket.created_at.desc())
 
-    if method == "create_record":
-        url = f"{RUBITIME_BASE_URL}create-record"
-        params = {"api_key": RUBITIME_API_KEY, **extra_params}
-
+    if status:
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=params) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        return data.get("record_id")
-        except Exception as e:
-            logger.error(f"Ошибка Rubitime API: {e}")
+            status_enum = TicketStatus[status]
+            query = query.filter(Ticket.status == status_enum)
+        except KeyError:
+            raise HTTPException(status_code=400, detail="Invalid status")
 
-    return None
+    tickets = query.offset((page - 1) * per_page).limit(per_page).all()
 
-
-async def check_payment_status(payment_id: str) -> Optional[str]:
-    """Проверка статуса платежа через YooKassa."""
-    try:
-        payment = await Payment.find_one(payment_id)
-        return payment.status
-    except Exception as e:
-        logger.error(f"Ошибка проверки платежа: {e}")
-        return None
-
-
-# ================== PAYMENT ENDPOINTS ==================
-
-
-@app.post("/payments")
-async def create_payment(payment_data: dict, db: Session = Depends(get_db)):
-    """Создание платежа через YooKassa. Используется ботом."""
-    try:
-        # Находим пользователя по telegram_id
-        user_id = payment_data.get("user_id")
-        user = db.query(User).filter(User.telegram_id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # Находим тариф
-        tariff_id = payment_data.get("tariff_id")
-        tariff = db.query(Tariff).get(tariff_id)
-        if not tariff:
-            raise HTTPException(status_code=404, detail="Tariff not found")
-
-        # Создаем платеж в YooKassa
-        payment = Payment.create(
+    result = []
+    for ticket in tickets:
+        result.append(
             {
-                "amount": {
-                    "value": f"{payment_data.get('amount', 0):.2f}",
-                    "currency": "RUB",
+                "id": ticket.id,
+                "description": ticket.description,
+                "photo_id": ticket.photo_id,
+                "response_photo_id": ticket.response_photo_id,
+                "status": ticket.status.name,
+                "comment": ticket.comment,
+                "created_at": ticket.created_at.isoformat(),
+                "updated_at": ticket.updated_at.isoformat(),
+                "user": {
+                    "id": ticket.user.id,
+                    "telegram_id": ticket.user.telegram_id,
+                    "full_name": ticket.user.full_name,
+                    "username": ticket.user.username,
+                    "phone": ticket.user.phone,
+                    "email": ticket.user.email,
                 },
-                "confirmation": {
-                    "type": "redirect",
-                    "return_url": "https://t.me/your_bot",
-                },
-                "capture": True,
-                "description": payment_data.get("description", "Оплата бронирования"),
             }
         )
 
-        return {
-            "payment_id": payment.id,
-            "confirmation_url": payment.confirmation.confirmation_url,
-            "status": payment.status,
-        }
-
-    except Exception as e:
-        logger.error(f"Ошибка создания платежа: {e}")
-        raise HTTPException(status_code=500, detail="Payment creation failed")
+    return result
 
 
-@app.get("/payments/{payment_id}/status")
-async def check_payment_status_api(payment_id: str, _: str = Depends(verify_token)):
-    """Проверка статуса платежа."""
-    try:
-        payment = Payment.find_one(payment_id)
-        return {"status": payment.status}
-    except Exception as e:
-        logger.error(f"Ошибка проверки платежа: {e}")
-        raise HTTPException(status_code=500, detail="Payment status check failed")
-
-
-@app.post("/payments/{payment_id}/cancel")
-async def cancel_payment_api(payment_id: str, _: str = Depends(verify_token)):
-    """Отмена платежа."""
-    try:
-        payment = Payment.find_one(payment_id)
-        refund = Refund.create({"payment_id": payment_id, "amount": payment.amount})
-        return {"status": refund.status}
-    except Exception as e:
-        logger.error(f"Ошибка отмены платежа: {e}")
-        raise HTTPException(status_code=500, detail="Payment cancellation failed")
-
-
-# ================== BOT-SPECIFIC ENDPOINTS ==================
-# Эти эндпоинты используются только ботом и не требуют авторизации
-
-
-@app.post("/bot/tickets")
-async def create_ticket_from_bot(ticket_data: dict, db: Session = Depends(get_db)):
-    """Создание тикета из бота."""
-    telegram_id = ticket_data.get("user_id")
-    description = ticket_data.get("description", "")
-    photo_id = ticket_data.get("photo_id")
-    status_str = ticket_data.get("status", "OPEN")
-
-    # Находим пользователя
-    user = db.query(User).filter(User.telegram_id == telegram_id).first()
+@app.post("/tickets")
+async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
+    """Создание нового тикета. Используется ботом."""
+    user = db.query(User).filter(User.telegram_id == ticket_data.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     # Определяем статус
-    try:
-        status_enum = TicketStatus[status_str]
-    except KeyError:
-        status_enum = TicketStatus.OPEN
+    status_enum = TicketStatus.OPEN
+    if ticket_data.status:
+        try:
+            status_enum = TicketStatus(ticket_data.status)
+        except ValueError:
+            status_enum = TicketStatus.OPEN
 
     # Создаем тикет
     ticket = Ticket(
         user_id=user.id,
-        description=description,
-        photo_id=photo_id,
+        description=ticket_data.description,
+        photo_id=ticket_data.photo_id,
         status=status_enum,
+        comment=ticket_data.comment,
         created_at=datetime.now(MOSCOW_TZ),
         updated_at=datetime.now(MOSCOW_TZ),
     )
@@ -2189,85 +1965,6 @@ async def create_ticket_from_bot(ticket_data: dict, db: Session = Depends(get_db
     db.refresh(ticket)
 
     return {"id": ticket.id, "message": "Ticket created successfully"}
-
-
-@app.get("/bot/users/{telegram_id}/tickets")
-async def get_user_tickets_by_telegram_id(
-    telegram_id: int, status: Optional[str] = None, db: Session = Depends(get_db)
-):
-    """Получение тикетов пользователя по Telegram ID."""
-    user = db.query(User).filter(User.telegram_id == telegram_id).first()
-    if not user:
-        return []
-
-    query = db.query(Ticket).filter(Ticket.user_id == user.id)
-
-    if status:
-        try:
-            status_enum = TicketStatus[status]
-            query = query.filter(Ticket.status == status_enum)
-        except KeyError:
-            pass
-
-    tickets = query.order_by(Ticket.created_at.desc()).all()
-
-    return [
-        {
-            "id": t.id,
-            "description": t.description,
-            "status": t.status.value,
-            "photo_id": t.photo_id,
-            "comment": t.comment,
-            "created_at": t.created_at.isoformat(),
-            "updated_at": t.updated_at.isoformat(),
-        }
-        for t in tickets
-    ]
-
-
-@app.post("/bot/rubitime")
-async def create_rubitime_record_from_bot(rubitime_params: dict):
-    """Создание записи в Rubitime из бота."""
-    rubitime_id = await rubitime("create_record", rubitime_params)
-    return {"rubitime_id": rubitime_id}
-
-
-@app.post("/admin/cleanup-files")
-async def manual_cleanup(
-    days: int = Query(
-        FILE_RETENTION_DAYS, description="Количество дней для хранения файлов"
-    ),
-    _: str = Depends(verify_token),
-):
-    """Ручная очистка старых файлов."""
-    try:
-        cutoff_date = datetime.now() - timedelta(days=days)
-        deleted_count = 0
-        total_size_mb = 0
-
-        for file_path in TICKET_PHOTOS_DIR.glob("*"):
-            if file_path.is_file():
-                file_age = datetime.fromtimestamp(file_path.stat().st_mtime)
-                if file_age < cutoff_date:
-                    try:
-                        file_size = file_path.stat().st_size / (1024 * 1024)
-                        file_path.unlink()
-                        deleted_count += 1
-                        total_size_mb += file_size
-                        logger.info(f"Удален файл: {file_path.name}")
-                    except Exception as e:
-                        logger.error(f"Ошибка удаления файла {file_path}: {e}")
-
-        return {
-            "message": f"Очистка завершена",
-            "deleted_files": deleted_count,
-            "freed_space_mb": round(total_size_mb, 1),
-            "retention_days": days,
-        }
-
-    except Exception as e:
-        logger.error(f"Ошибка при ручной очистке: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка при очистке файлов")
 
 
 # ================== STARTUP EVENT ==================
@@ -2357,8 +2054,7 @@ async def startup_event():
     init_db()
 
     # Запускаем планировщики
-    start_cleanup_scheduler()
-    start_db_maintenance()  # Добавьте эту строку
+    start_db_maintenance()
 
     # Создаем админа
     admin_login = os.getenv("ADMIN_LOGIN", "admin")
@@ -2379,18 +2075,3 @@ async def startup_event():
             logger.info("Создан placeholder аватар")
         except Exception as e:
             logger.error(f"Ошибка создания placeholder аватара: {e}")
-
-
-# Добавьте эндпоинт для ручной оптимизации БД:
-@app.post("/admin/optimize-database")
-async def manual_database_optimization(_: str = Depends(verify_token)):
-    """Ручная оптимизация базы данных."""
-    try:
-        optimize_database()
-        return {
-            "message": "Database optimization completed successfully",
-            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"Ошибка ручной оптимизации БД: {e}")
-        raise HTTPException(status_code=500, detail="Failed to optimize database")

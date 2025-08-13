@@ -115,8 +115,23 @@ class BotAPIClient:
         return await self._make_request("POST", "/users", json=user_data)
 
     async def update_user(self, user_id: int, user_data: Dict) -> Dict:
-        """Обновить данные пользователя"""
+        """Обновить данные пользователя по внутреннему ID"""
         return await self._make_request("PUT", f"/users/{user_id}", json=user_data)
+
+    async def update_user_by_telegram_id(
+        self, telegram_id: int, user_data: Dict
+    ) -> Dict:
+        """Обновление пользователя по telegram_id."""
+        try:
+            result = await self._make_request(
+                "PUT", f"/users/telegram/{telegram_id}", json=user_data
+            )
+            return result
+        except Exception as e:
+            logger.error(
+                f"Ошибка обновления пользователя по telegram_id {telegram_id}: {e}"
+            )
+            raise
 
     async def check_and_add_user(
         self,
@@ -249,7 +264,7 @@ class BotAPIClient:
 
     async def create_payment(self, payment_data: Dict) -> Dict:
         """Создать платеж"""
-        return await self._make_request("POST", "/payments/create", json=payment_data)
+        return await self._make_request("POST", "/payments", json=payment_data)
 
     async def check_payment_status(self, payment_id: str) -> Dict:
         """Проверить статус платежа"""
@@ -283,13 +298,15 @@ class BotAPIClient:
     # === Rubitime методы ===
 
     async def create_rubitime_record(self, rubitime_params: Dict) -> Optional[str]:
-        """Создать запись в Rubitime"""
-        result = await self._make_request(
-            "POST", "/rubitime/create_record", json=rubitime_params
-        )
-        if "error" in result:
+        """Создание записи в Rubitime."""
+        try:
+            result = await self._make_request(
+                "POST", "/rubitime/create_record", json=rubitime_params
+            )
+            return result.get("rubitime_id")
+        except Exception as e:
+            logger.error(f"Ошибка создания записи в Rubitime: {e}")
             return None
-        return result.get("rubitime_id")
 
 
 # Глобальный экземпляр клиента
