@@ -49,6 +49,8 @@ services:
       - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
       - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
       - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+      - RUBITIME_BRANCH_ID=${RUBITIME_BRANCH_ID:-12595}
+      - RUBITIME_COOPERATOR_ID=${RUBITIME_COOPERATOR_ID:-25786}
       - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}  # Срок хранения файлов в днях
       - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}        # Максимальный размер файла в МБ
       - DB_TIMEOUT=20                    # Таймаут операций БД в секундах

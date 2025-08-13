@@ -133,48 +133,99 @@ def format_user_booking_notification(user, booking_data, confirmed: bool) -> str
 
 
 def format_booking_notification(user, tariff, booking_data) -> str:
-    """Форматирует уведомление о новой брони для администратора."""
+    """
+    Форматирует уведомление о новом бронировании для админа (версия для бота)
+
+    Args:
+        user: словарь с данными пользователя
+        tariff: словарь с данными тарифа
+        booking_data: словарь с данными бронирования
+    """
     tariff_emojis = {
-        "опенспейс": "🏢",
-        "переговорная": "🏛",
-        "meeting": "🏛",
-        "openspace": "🏢",
+        "coworking": "🏢",
+        "meeting": "🤝",
+        "переговорная": "🤝",
+        "коворкинг": "🏢",
     }
 
-    purpose = booking_data.get("tariff_purpose", "").lower()
+    # Безопасное получение данных пользователя
+    user_name = user.get("full_name") or "Не указано"
+    user_phone = user.get("phone") or "Не указано"
+    user_username = f"@{user.get('username')}" if user.get("username") else "Не указано"
+    telegram_id = user.get("telegram_id", "Неизвестно")
+
+    # Безопасное получение данных тарифа
+    tariff_name = tariff.get("name", "Неизвестно")
+    tariff_purpose = tariff.get("purpose", "")
+
+    purpose = tariff_purpose.lower() if tariff_purpose else ""
     tariff_emoji = tariff_emojis.get(purpose, "📋")
 
     visit_date = booking_data.get("visit_date")
     visit_time = booking_data.get("visit_time")
 
+    # Форматирование даты и времени
     if visit_time:
-        datetime_str = (
-            f"{visit_date.strftime('%d.%m.%Y')} в {visit_time.strftime('%H:%M')}"
-        )
-    else:
-        datetime_str = f"{visit_date.strftime('%d.%m.%Y')} (весь день)"
+        if hasattr(visit_date, "strftime"):
+            date_str = visit_date.strftime("%d.%m.%Y")
+        else:
+            # Если visit_date - строка
+            try:
+                date_obj = datetime.strptime(str(visit_date), "%Y-%m-%d").date()
+                date_str = date_obj.strftime("%d.%m.%Y")
+            except:
+                date_str = str(visit_date)
 
+        if hasattr(visit_time, "strftime"):
+            time_str = visit_time.strftime("%H:%M")
+        else:
+            # Если visit_time - строка
+            try:
+                time_obj = datetime.strptime(str(visit_time), "%H:%M:%S").time()
+                time_str = time_obj.strftime("%H:%M")
+            except:
+                time_str = str(visit_time)
+
+        datetime_str = f"{date_str} в {time_str}"
+    else:
+        if hasattr(visit_date, "strftime"):
+            date_str = visit_date.strftime("%d.%m.%Y")
+        else:
+            try:
+                date_obj = datetime.strptime(str(visit_date), "%Y-%m-%d").date()
+                date_str = date_obj.strftime("%d.%m.%Y")
+            except:
+                date_str = str(visit_date)
+        datetime_str = f"{date_str} (весь день)"
+
+    # Информация о промокоде
     discount_info = ""
-    if booking_data.get("promocode_name"):
-        promocode_name = booking_data.get("promocode_name", "Неизвестный")
+    promocode_name = booking_data.get("promocode_name")
+    if promocode_name:
         discount = booking_data.get("discount", 0)
         discount_info = f"\n🎁 <b>Промокод:</b> {promocode_name} (-{discount}%)"
 
+    # Информация о длительности
     duration_info = ""
-    if booking_data.get("duration"):
-        duration_info = f"\n⏱ <b>Длительность:</b> {booking_data['duration']} час(ов)"
+    duration = booking_data.get("duration")
+    if duration:
+        duration_info = f"\n⏱ <b>Длительность:</b> {duration} час(ов)"
+
+    # Сумма
+    amount = booking_data.get("amount", 0)
 
     message = f"""🎯 <b>НОВАЯ БРОНЬ!</b> {tariff_emoji}
 
-👤 <b>Клиент:</b> {user.full_name or 'Не указано'}
-📞 <b>Телефон:</b> {user.phone or 'Не указано'}
+👤 <b>Клиент:</b> {user_name}
+📱 <b>Телефон:</b> {user_phone}
+💬 <b>Telegram:</b> {user_username}
+🆔 <b>ID:</b> {telegram_id}
 
-📋 <b>Детали брони:</b>
-├ <b>Тариф:</b> {booking_data.get('tariff_name', 'Неизвестно')}
-├ <b>Дата и время:</b> {datetime_str}{duration_info}
-└ <b>Сумма:</b> {booking_data.get('amount', 0):.2f} ₽{discount_info}
+📋 <b>Тариф:</b> {tariff_name}
+📅 <b>Дата и время:</b> {datetime_str}{duration_info}{discount_info}
 
-⏰ <i>Время: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
+💰 <b>Сумма:</b> {amount:.0f} ₽
+✅ <b>Статус:</b> Оплачено, ожидает подтверждения"""
 
     return message
 
@@ -199,12 +250,7 @@ async def create_tariff_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
         if service_id == 47890 and successful_bookings > 0:
             continue
 
-        # Показываем скидку 10% для пользователей с успешными бронированиями на остальные тарифы
-        discount_text = ""
-        if successful_bookings > 0 and service_id != 47890:
-            discount_text = " (скидка 10%)"
-
-        button_text = f"{tariff_name} - {tariff_price}₽{discount_text}"
+        button_text = f"{tariff_name} - {tariff_price}₽"
         keyboard.row(
             InlineKeyboardButton(text=button_text, callback_data=f"tariff_{tariff_id}")
         )
@@ -584,67 +630,179 @@ async def process_promocode_final(
 
 
 async def create_payment_for_booking(message: Message, state: FSMContext) -> None:
-    """Создает платеж для бронирования."""
     try:
         api_client = await get_api_client()
         data = await state.get_data()
 
-        description = f"Бронь: {data['tariff_name']}, дата: {data['visit_date']}"
-
-        payment_data = {
-            "user_id": message.from_user.id,
-            "tariff_id": data["tariff_id"],
-            "amount": data["amount"],
-            "description": description,
-        }
-
-        payment_result = await api_client.create_payment(payment_data)
-
-        payment_id = payment_result.get("payment_id")
-        confirmation_url = payment_result.get("confirmation_url")
-
-        if not payment_id or not confirmation_url:
-            await message.answer("❌ Ошибка при создании платежа. Попробуйте позже.")
+        # Получаем данные пользователя
+        user = await api_client.get_user_by_telegram_id(message.from_user.id)
+        if not user:
+            await message.answer("❌ Ошибка: пользователь не найден")
             return
 
-        # Формируем сообщение с деталями
+        logger.info(f"Данные пользователя: {user}")
+
+        visit_date = data["visit_date"]
         visit_time = data.get("visit_time")
-        time_str = ""
-        if visit_time:
-            if isinstance(visit_time, time):
-                time_str = f"⏰ Время: {visit_time.strftime('%H:%M')}\n"
-            else:
-                time_str = f"⏰ Время: {visit_time}\n"
+        duration = data.get("duration")
+        tariff_service_id = data.get("tariff_service_id")
 
-        discount_info = ""
-        if data.get("discount", 0) > 0:
-            discount_info = f" (скидка {data['discount']}%)"
+        # Создаем запись в Rubitime только если есть service_id и корректный телефон
+        rubitime_id = None
+        tariff_purpose = data.get("tariff_purpose", "").lower()
 
-        payment_message = await message.answer(
-            f"💳 <b>Оплата брони</b>\n\n"
-            f"📋 Тариф: {data['tariff_name']}\n"
-            f"📅 Дата: {data['visit_date'].strftime('%d.%m.%Y')}\n"
-            f"{time_str}"
-            f"💰 Сумма: {data['amount']:.2f} ₽{discount_info}\n\n"
-            f"📌 Нажмите кнопку ниже для оплаты:",
-            reply_markup=create_payment_keyboard(confirmation_url, data["amount"]),
-            parse_mode="HTML",
+        if tariff_service_id:
+            try:
+                # Проверяем наличие и корректность телефона
+                user_phone = user.get("phone", "")
+                logger.info(f"Исходный телефон пользователя: '{user_phone}'")
+
+                formatted_phone = format_phone_for_rubitime(user_phone)
+                logger.info(f"Отформатированный телефон: '{formatted_phone}'")
+
+                if (
+                    not formatted_phone
+                    or formatted_phone == "+7"
+                    or len(formatted_phone) < 10
+                ):
+                    logger.warning(
+                        f"Некорректный телефон для пользователя {user.get('id')}: '{user_phone}' -> '{formatted_phone}', пропускаем Rubitime"
+                    )
+                else:
+                    if visit_time and duration:
+                        # Для переговорной с конкретным временем
+                        rubitime_date = datetime.combine(
+                            visit_date, visit_time
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+                        rubitime_duration = duration * 60
+                    else:
+                        # Для коворкинга на весь день
+                        rubitime_date = visit_date.strftime("%Y-%m-%d") + " 09:00:00"
+                        rubitime_duration = None
+
+                    # УЛУЧШЕННЫЕ ПАРАМЕТРЫ с email и источником
+                    # Формируем комментарий с информацией о промокоде
+                    comment_parts = [
+                        f"Бронь через Telegram бота - {data['tariff_name']}"
+                    ]
+
+                    # Добавляем информацию о промокоде если использован
+                    promocode_name = data.get("promocode_name")
+                    if promocode_name:
+                        discount = data.get("discount", 0)
+                        comment_parts.append(
+                            f"Промокод: {promocode_name} (-{discount}%)"
+                        )
+
+                    # Добавляем информацию о скидке за длительность если есть
+                    if duration and duration > 2:
+                        comment_parts.append("Скидка за длительность: -10%")
+
+                    final_comment = " | ".join(comment_parts)
+
+                    # УЛУЧШЕННЫЕ ПАРАМЕТРЫ с email, источником и информацией о промокоде
+                    rubitime_params = {
+                        "service_id": tariff_service_id,
+                        "date": rubitime_date,
+                        "phone": formatted_phone,
+                        "name": user.get("full_name", "Клиент"),
+                        "comment": final_comment,  # Улучшенный комментарий
+                        "source": "Telegram Bot",
+                    }
+
+                    # Добавляем duration только если он есть
+                    if rubitime_duration is not None:
+                        rubitime_params["duration"] = rubitime_duration
+
+                    # Добавляем email если есть
+                    user_email = user.get("email")
+                    if user_email and user_email.strip():
+                        rubitime_params["email"] = user_email.strip()
+                        logger.info(
+                            f"Добавлен email в параметры Rubitime: {user_email}"
+                        )
+                    else:
+                        logger.info(
+                            f"Email пользователя пустой или отсутствует: '{user_email}'"
+                        )
+
+                    logger.info(
+                        f"Финальные параметры для Rubitime с промокодом: {rubitime_params}"
+                    )
+                    rubitime_id = await api_client.create_rubitime_record(
+                        rubitime_params
+                    )
+                    logger.info(f"Результат создания записи Rubitime: {rubitime_id}")
+
+            except Exception as e:
+                logger.error(f"Ошибка создания записи Rubitime: {e}")
+                # Продолжаем без rubitime_id
+        else:
+            logger.warning(
+                f"Тариф без service_id ({tariff_service_id}), пропускаем создание записи Rubitime"
+            )
+
+        # Создаем бронирование
+        booking_data = {
+            "user_id": message.from_user.id,
+            "tariff_id": data["tariff_id"],
+            "visit_date": visit_date.strftime("%Y-%m-%d"),
+            "visit_time": visit_time.strftime("%H:%M:%S") if visit_time else None,
+            "duration": duration,
+            "promocode_id": data.get("promocode_id"),
+            "amount": data["amount"],
+            "payment_id": data["payment_id"],
+            "paid": True,
+            "confirmed": False,
+            "rubitime_id": rubitime_id,  # Передаем ID созданной записи
+        }
+
+        booking_result = await api_client.create_booking(booking_data)
+        logger.info(f"Создано бронирование: {booking_result}")
+
+        # Обновляем данные для уведомления
+        updated_booking_data = {
+            **data,
+            "rubitime_id": rubitime_id,
+            "booking_id": booking_result.get("id"),
+        }
+
+        # Получаем тариф для уведомления
+        tariff = await api_client.get_tariff(data["tariff_id"])
+
+        # Отправляем уведомление админу
+        try:
+            admin_message = format_booking_notification(
+                user, tariff, updated_booking_data
+            )
+            await message.bot.send_message(
+                chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
+            )
+            logger.info("Уведомление админу отправлено успешно")
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления админу: {e}")
+
+        # Отправляем подтверждение пользователю
+        response_text = format_user_booking_notification(
+            user, updated_booking_data, confirmed=False
         )
+        await message.answer(response_text, parse_mode="HTML")
 
-        await state.update_data(
-            payment_id=payment_id, payment_message_id=payment_message.message_id
-        )
-
-        await state.set_state(Booking.STATUS_PAYMENT)
-
-        # Запускаем проверку статуса платежа
-        task = asyncio.create_task(poll_payment_status(message, state, bot=message.bot))
-        await state.update_data(payment_task=task)
+        # Обновляем счетчик успешных бронирований
+        try:
+            current_bookings = user.get("successful_bookings", 0)
+            await api_client.update_user(
+                user["id"],  # Используем id вместо telegram_id
+                {"successful_bookings": current_bookings + 1},
+            )
+            logger.info(f"Обновлен счетчик бронирований для пользователя {user['id']}")
+        except Exception as e:
+            logger.error(f"Ошибка обновления счетчика бронирований: {e}")
 
     except Exception as e:
-        logger.error(f"Ошибка при создании платежа: {e}")
+        logger.error(f"Ошибка при создании бронирования: {e}")
         await message.answer(
-            "❌ Произошла ошибка при создании платежа. Попробуйте позже."
+            "❌ Произошла ошибка при обработке бронирования. Попробуйте позже."
         )
 
 
@@ -683,6 +841,9 @@ async def create_booking_in_system(
         data = await state.get_data()
 
         user = await api_client.get_user_by_telegram_id(message.from_user.id)
+        if not user:
+            await message.answer("❌ Ошибка: пользователь не найден")
+            return
 
         tariff_service_id = data.get("tariff_service_id")
         visit_date = data["visit_date"]
@@ -693,39 +854,106 @@ async def create_booking_in_system(
         rubitime_id = None
         tariff_purpose = data.get("tariff_purpose", "").lower()
 
-        if paid or tariff_purpose in ["опенспейс", "openspace"]:
-            if visit_time and duration:
-                # Для переговорной с указанным временем
-                rubitime_date = datetime.combine(visit_date, visit_time).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-                rubitime_duration = duration * 60  # В минутах
+        if paid or tariff_purpose in [
+            "опенспейс",
+            "openspace",
+            "коворкинг",
+            "coworking",
+        ]:
+            if tariff_service_id:  # Проверяем наличие service_id
+                try:
+                    if visit_time and duration:
+                        # Для переговорной с указанным временем
+                        rubitime_date = datetime.combine(
+                            visit_date, visit_time
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+                        rubitime_duration = duration * 60  # В минутах
+                    else:
+                        # Для опенспейса (весь день)
+                        rubitime_date = visit_date.strftime("%Y-%m-%d") + " 09:00:00"
+                        rubitime_duration = None
+
+                    formatted_phone = format_phone_for_rubitime(user.get("phone", ""))
+
+                    # Проверяем корректность телефона
+                    if (
+                        not formatted_phone
+                        or formatted_phone == "+7"
+                        or len(formatted_phone) < 10
+                    ):
+                        logger.warning(
+                            f"Некорректный телефон для пользователя {user.get('id')}: '{user.get('phone')}' -> '{formatted_phone}', пропускаем Rubitime"
+                        )
+                    else:
+                        # УЛУЧШЕННЫЕ ПАРАМЕТРЫ с email и источником
+                        # Формируем комментарий с информацией о промокоде
+                        comment_parts = [
+                            f"Бронь через Telegram бота - {data['tariff_name']}"
+                        ]
+
+                        # Добавляем информацию о промокоде если использован
+                        promocode_name = data.get("promocode_name")
+                        if promocode_name:
+                            discount = data.get("discount", 0)
+                            comment_parts.append(
+                                f"Промокод: {promocode_name} (-{discount}%)"
+                            )
+
+                        # Добавляем информацию о скидке за длительность если есть
+                        if duration and duration > 2:
+                            comment_parts.append("Скидка за длительность: -10%")
+
+                        final_comment = " | ".join(comment_parts)
+
+                        # УЛУЧШЕННЫЕ ПАРАМЕТРЫ с email, источником и информацией о промокоде
+                        rubitime_params = {
+                            "service_id": tariff_service_id,
+                            "date": rubitime_date,
+                            "phone": formatted_phone,
+                            "name": user.get("full_name", "Клиент"),
+                            "comment": final_comment,  # Улучшенный комментарий
+                            "source": "Telegram Bot",
+                        }
+
+                        # Добавляем duration только если он есть
+                        if rubitime_duration is not None:
+                            rubitime_params["duration"] = rubitime_duration
+
+                        # Добавляем email если есть
+                        user_email = user.get("email")
+                        if user_email and user_email.strip():
+                            rubitime_params["email"] = user_email.strip()
+                            logger.info(
+                                f"Добавлен email в параметры Rubitime: {user_email}"
+                            )
+                        else:
+                            logger.info(
+                                f"Email пользователя пустой или отсутствует: '{user_email}'"
+                            )
+
+                        logger.info(
+                            f"Финальные параметры для Rubitime с промокодом: {rubitime_params}"
+                        )
+                        rubitime_id = await api_client.create_rubitime_record(
+                            rubitime_params
+                        )
+                        logger.info(
+                            f"Результат создания записи Rubitime: {rubitime_id}"
+                        )
+
+                except Exception as e:
+                    logger.error(f"Ошибка создания записи в Rubitime: {e}")
             else:
-                # Для опенспейса (весь день)
-                rubitime_date = visit_date.strftime("%Y-%m-%d") + " 09:00:00"
-                rubitime_duration = None
-
-            formatted_phone = format_phone_for_rubitime(user.get("phone", ""))
-            rubitime_params = {
-                "service_id": tariff_service_id,
-                "date": rubitime_date,
-                "duration": rubitime_duration,
-                "client_name": user.get("full_name", "Не указано"),
-                "client_phone": formatted_phone,
-                "comment": f"Бронь через Telegram бота - {data['tariff_name']}",
-            }
-
-            try:
-                rubitime_id = await api_client.create_rubitime_record(rubitime_params)
-            except Exception as e:
-                logger.error(f"Ошибка создания записи в Rubitime: {e}")
+                logger.warning(
+                    f"Тариф без service_id, пропускаем создание записи Rubitime"
+                )
 
         # Создание брони в базе данных
         booking_data = {
-            "user_id": message.from_user.id,  # Используем telegram_id вместо user.id
+            "user_id": message.from_user.id,  # Используем telegram_id
             "tariff_id": data["tariff_id"],
-            "visit_date": visit_date,
-            "visit_time": visit_time,
+            "visit_date": visit_date.strftime("%Y-%m-%d"),
+            "visit_time": visit_time.strftime("%H:%M:%S") if visit_time else None,
             "duration": duration,
             "promocode_id": data.get("promocode_id"),
             "amount": data.get("amount", 0),
@@ -763,6 +991,7 @@ async def create_booking_in_system(
                 await message.bot.send_message(
                     chat_id=ADMIN_TELEGRAM_ID, text=admin_message, parse_mode="HTML"
                 )
+                logger.info("Уведомление админу отправлено успешно")
         except Exception as e:
             logger.error(f"Ошибка отправки уведомления админу: {e}")
 
@@ -778,10 +1007,11 @@ async def create_booking_in_system(
             try:
                 current_bookings = user.get("successful_bookings", 0)
                 await api_client.update_user(
-                    message.from_user.id,
-                    {  # Используем telegram_id
-                        "successful_bookings": current_bookings + 1
-                    },
+                    user["id"],  # ИСПРАВЛЕНО: используем user["id"] вместо telegram_id
+                    {"successful_bookings": current_bookings + 1},
+                )
+                logger.info(
+                    f"Обновлен счетчик бронирований для пользователя {user['id']}"
                 )
             except Exception as e:
                 logger.error(f"Ошибка обновления счетчика бронирований: {e}")

@@ -114,24 +114,24 @@ class BotAPIClient:
         """Создать нового пользователя"""
         return await self._make_request("POST", "/users", json=user_data)
 
+
     async def update_user(self, user_id: int, user_data: Dict) -> Dict:
-        """Обновить данные пользователя по внутреннему ID"""
-        return await self._make_request("PUT", f"/users/{user_id}", json=user_data)
+        """
+        Обновляет данные пользователя по его ID (не telegram_id)
+        """
+        result = await self._make_request("PUT", f"/users/{user_id}", json=user_data)
+        return result
 
     async def update_user_by_telegram_id(
         self, telegram_id: int, user_data: Dict
     ) -> Dict:
-        """Обновление пользователя по telegram_id."""
-        try:
-            result = await self._make_request(
-                "PUT", f"/users/telegram/{telegram_id}", json=user_data
-            )
-            return result
-        except Exception as e:
-            logger.error(
-                f"Ошибка обновления пользователя по telegram_id {telegram_id}: {e}"
-            )
-            raise
+        """
+        Обновляет данные пользователя по его telegram_id
+        """
+        result = await self._make_request(
+            "PUT", f"/users/{telegram_id}", json=user_data
+        )
+        return result
 
     async def check_and_add_user(
         self,
@@ -298,14 +298,63 @@ class BotAPIClient:
     # === Rubitime методы ===
 
     async def create_rubitime_record(self, rubitime_params: Dict) -> Optional[str]:
-        """Создание записи в Rubitime."""
+        """
+        Создает запись в Rubitime через веб API
+        """
         try:
+            # Логируем входные параметры для отладки
+            logger.info(f"Входные параметры для Rubitime: {rubitime_params}")
+
+            # Проверяем обязательные поля
+            required_fields = ["service_id", "date", "name"]
+            missing_fields = []
+
+            for field in required_fields:
+                value = rubitime_params.get(field)
+                if not value or (isinstance(value, str) and not value.strip()):
+                    missing_fields.append(field)
+
+            # Отдельная проверка телефона
+            phone = rubitime_params.get("phone", "")
+            if not phone or len(phone.strip()) < 10:
+                missing_fields.append("phone")
+
+            if missing_fields:
+                logger.error(
+                    f"Отсутствуют обязательные поля для Rubitime: {missing_fields}"
+                )
+                for field in missing_fields:
+                    logger.error(f"Отсутствует обязательное поле для Rubitime: {field}")
+                return None
+
+            logger.info(
+                f"Все обязательные поля присутствуют, отправляем запрос на создание записи Rubitime"
+            )
+
             result = await self._make_request(
                 "POST", "/rubitime/create_record", json=rubitime_params
             )
-            return result.get("rubitime_id")
+
+            # ИСПРАВЛЕННАЯ обработка ответа
+            if result:
+                # Проверяем разные варианты ответа
+                if "rubitime_id" in result:
+                    rubitime_id = result["rubitime_id"]
+                    logger.info(f"Успешно создана запись Rubitime с ID: {rubitime_id}")
+                    return str(rubitime_id)
+                elif "id" in result:
+                    rubitime_id = result["id"]
+                    logger.info(f"Успешно создана запись Rubitime с ID: {rubitime_id}")
+                    return str(rubitime_id)
+                else:
+                    logger.warning(f"Неожиданный ответ от Rubitime API: {result}")
+                    return None
+            else:
+                logger.warning("Пустой ответ от Rubitime API")
+                return None
+
         except Exception as e:
-            logger.error(f"Ошибка создания записи в Rubitime: {e}")
+            logger.error(f"Ошибка создания записи Rubitime через API: {e}")
             return None
 
 
