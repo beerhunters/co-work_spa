@@ -17,7 +17,7 @@ self.addEventListener('install', (event) => {
         console.log('Service Worker: Кэширование файлов');
         return cache.addAll(urlsToCache);
       })
-      .then(() => self.skipWaiting()) // Активируем сразу
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -35,23 +35,22 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    }).then(() => self.clients.claim()) // Берем контроль над всеми клиентами
+    }).then(() => self.clients.claim())
   );
 });
 
-// Обработка fetch запросов (базовое кэширование)
+// Обработка fetch запросов
 self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
-        // Возвращаем кэшированную версию или делаем запрос
         return response || fetch(event.request);
       }
     )
   );
 });
 
-// Обработка push уведомлений (для будущего расширения)
+// Обработка push уведомлений
 self.addEventListener('push', (event) => {
   console.log('Service Worker: Получено push уведомление');
 
@@ -93,17 +92,14 @@ self.addEventListener('notificationclick', (event) => {
     return;
   }
 
-  // Открываем или фокусируем окно приложения
   event.waitUntil(
     clients.matchAll({ type: 'window' }).then((clientList) => {
-      // Ищем уже открытое окно
       for (const client of clientList) {
         if (client.url === self.location.origin && 'focus' in client) {
           return client.focus();
         }
       }
 
-      // Открываем новое окно, если не найдено
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
@@ -116,15 +112,12 @@ self.addEventListener('notificationclose', (event) => {
   console.log('Service Worker: Уведомление закрыто');
 });
 
-// Синхронизация в фоне (для offline поддержки в будущем)
+// Синхронизация в фоне
 self.addEventListener('sync', (event) => {
   console.log('Service Worker: Фоновая синхронизация');
 
   if (event.tag === 'background-sync') {
-    event.waitUntil(
-      // Здесь можно добавить логику для синхронизации данных
-      Promise.resolve()
-    );
+    event.waitUntil(Promise.resolve());
   }
 });
 
@@ -136,7 +129,6 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 
-  // Отправляем ответ обратно
   event.ports[0].postMessage({
     type: 'SW_RESPONSE',
     message: 'Service Worker готов'

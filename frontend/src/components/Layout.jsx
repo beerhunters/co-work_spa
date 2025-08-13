@@ -1,4 +1,3 @@
-// components/Layout.jsx
 import React from 'react';
 import { Box, Flex } from '@chakra-ui/react';
 import Sidebar from './Sidebar';
@@ -14,7 +13,10 @@ const Layout = ({
   notifications,
   hasNewNotifications,
   markNotificationRead,
-  markAllNotificationsRead
+  markAllNotificationsRead,
+  notificationStatus,
+  soundEnabled,
+  onToggleNotificationSound
 }) => {
   return (
     <Flex minH={styles.layout.minHeight} bg={styles.layout.bg}>
@@ -31,6 +33,9 @@ const Layout = ({
           hasNewNotifications={hasNewNotifications}
           markNotificationRead={markNotificationRead}
           markAllNotificationsRead={markAllNotificationsRead}
+          notificationStatus={notificationStatus}
+          soundEnabled={soundEnabled}
+          onToggleNotificationSound={onToggleNotificationSound}
         />
         {children}
       </Box>
