@@ -15,7 +15,7 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - API_BASE_URL=http://web:8000  # Добавлено для связи с API
     volumes:
-      - ./data:/data
+      - ./data:/app/data
       - ./utils:/app/utils
       - ./models:/app/models
       - ./bot:/app/bot
@@ -59,12 +59,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./data:/data
+      - ./data:/app/data
       - ./utils:/app/utils
       - ./models:/app/models
-      - ./static:/app/static
+      - ./frontend/static:/app/frontend/static
       - ./avatars:/app/avatars
       - ./ticket_photos:/app/ticket_photos
+    working_dir: /app
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]

@@ -1,512 +1,3 @@
-// // App.jsx
-// import React, { useState, useEffect, useRef } from 'react';
-// import { ChakraProvider, useToast, useDisclosure } from '@chakra-ui/react';
-// import axios from 'axios';
-//
-// // Компоненты
-// import Login from './components/Login';
-// import Layout from './components/Layout';
-// import {
-//   BookingDetailModal,
-//   PromocodeDetailModal,
-//   TariffDetailModal,
-//   TicketDetailModal,
-//   UserDetailModal
-// } from './components/modals';
-//
-// // Секции
-// import Dashboard from './sections/Dashboard';
-// import Users from './sections/Users';
-// import Bookings from './sections/Bookings';
-// import Tariffs from './sections/Tariffs';
-// import Promocodes from './sections/Promocodes';
-// import Tickets from './sections/Tickets';
-// import Notifications from './sections/Notifications';
-// import Newsletters from './sections/Newsletters';
-//
-// // Утилиты
-// import { getAuthToken, removeAuthToken, verifyToken } from './utils/auth.js';
-// import {
-//   fetchSectionData,
-//   fetchInitialData,
-//   notificationApi,
-//   dashboardApi,
-//   userApi,
-//   promocodeApi,
-//   tariffApi
-// } from './utils/api.js';
-//
-// function App() {
-//   // Состояния
-//   const [isAuthenticated, setIsAuthenticated] = useState(false);
-//   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-//   const [isLoading, setIsLoading] = useState(false);
-//   const [login, setLogin] = useState('');
-//   const [password, setPassword] = useState('');
-//   const [section, setSection] = useState('dashboard');
-//
-//   // Данные
-//   const [users, setUsers] = useState([]);
-//   const [bookings, setBookings] = useState([]);
-//   const [tariffs, setTariffs] = useState([]);
-//   const [promocodes, setPromocodes] = useState([]);
-//   const [tickets, setTickets] = useState([]);
-//   const [notifications, setNotifications] = useState([]);
-//   const [newsletters, setNewsletters] = useState([]);
-//   const [selectedItem, setSelectedItem] = useState(null);
-//   const [dashboardStats, setDashboardStats] = useState({
-//     total_users: 0,
-//     total_bookings: 0,
-//     open_tickets: 0
-//   });
-//
-//   // UI состояния
-//   const [hasNewNotifications, setHasNewNotifications] = useState(false);
-//   const [lastNotificationId, setLastNotificationId] = useState(0);
-//   const [isChartInitialized, setIsChartInitialized] = useState(false);
-//
-//   // Refs и hooks
-//   const toast = useToast();
-//   const chartRef = useRef(null);
-//   const chartInstanceRef = useRef(null);
-//   const { isOpen, onOpen, onClose } = useDisclosure();
-//
-//   // Объект с сеттерами для удобства
-//   const dataSetters = {
-//     users: setUsers,
-//     bookings: setBookings,
-//     tariffs: setTariffs,
-//     promocodes: setPromocodes,
-//     tickets: setTickets,
-//     notifications: (data) => {
-//       setNotifications(data);
-//       if (Array.isArray(data) && data.length > 0) {
-//         setLastNotificationId(Math.max(...data.map(n => n.id), 0));
-//       }
-//     },
-//     newsletters: setNewsletters,
-//     dashboardStats: setDashboardStats
-//   };
-//
-//   // Проверка валидности токена при загрузке
-//   useEffect(() => {
-//     const checkAuth = async () => {
-//       const token = getAuthToken();
-//       if (token) {
-//         try {
-//           await verifyToken();
-//           setIsAuthenticated(true);
-//           setSection('dashboard');
-//           await fetchInitialData(dataSetters, setLastNotificationId, toast);
-//         } catch (error) {
-//           removeAuthToken();
-//           setIsAuthenticated(false);
-//         }
-//       }
-//       setIsCheckingAuth(false);
-//     };
-//     checkAuth();
-//   }, []);
-//
-//   // При смене вкладки загружаем данные
-//   useEffect(() => {
-//     if (isAuthenticated) {
-//       fetchSectionData(section, dataSetters);
-//     }
-//   }, [section, isAuthenticated]);
-//
-//   // Отдельный useEffect для статистики дашборда
-//   useEffect(() => {
-//     if (isAuthenticated && section === 'dashboard') {
-//       const fetchDashboardStats = async () => {
-//         try {
-//           const stats = await dashboardApi.getStats();
-//           setDashboardStats(stats);
-//         } catch (err) {
-//           console.error('Ошибка получения статистики дашборда:', err);
-//         }
-//       };
-//
-//       // Загружаем статистику сразу при переходе на дашборд
-//       fetchDashboardStats();
-//
-//       // Обновляем статистику каждые 30 секунд только для дашборда
-//       const statsInterval = setInterval(fetchDashboardStats, 30000);
-//       return () => clearInterval(statsInterval);
-//     }
-//   }, [isAuthenticated, section]);
-//
-//   // Auto-refresh ТОЛЬКО для уведомлений
-//   useEffect(() => {
-//     if (isAuthenticated) {
-//       const fetchUpdates = async () => {
-//         try {
-//           const res = await notificationApi.checkNew(lastNotificationId);
-//           const newNotifications = res.recent_notifications?.filter(n => !n.is_read) || [];
-//
-//           if (newNotifications.length > 0) {
-//             setNotifications(prev => [...newNotifications, ...prev]);
-//             setLastNotificationId(Math.max(...res.recent_notifications.map(n => n.id), lastNotificationId));
-//             setHasNewNotifications(true);
-//
-//             newNotifications.forEach(n => {
-//               toast({
-//                 title: 'Новое уведомление',
-//                 description: n.message.substring(0, 100),
-//                 status: 'info',
-//                 duration: 5000,
-//                 isClosable: true,
-//                 position: 'top-right',
-//               });
-//             });
-//           }
-//         } catch (err) {
-//           console.error('Ошибка получения уведомлений:', err);
-//         }
-//       };
-//
-//       // Обновляем уведомления каждые 10 секунд
-//       const notificationsInterval = setInterval(fetchUpdates, 10000);
-//       return () => clearInterval(notificationsInterval);
-//     }
-//   }, [isAuthenticated, lastNotificationId]);
-//
-//   // Обновляем индикатор новых уведомлений
-//   useEffect(() => {
-//     const unreadCount = notifications.filter(n => !n.is_read).length;
-//     setHasNewNotifications(unreadCount > 0);
-//   }, [notifications]);
-//
-//   // Обработчики
-//   const handleLogin = async () => {
-//     setIsLoading(true);
-//     try {
-//       const res = await axios.post('http://localhost/api/login', { login, password }, { withCredentials: true });
-//       localStorage.setItem('authToken', res.data.access_token);
-//       setIsAuthenticated(true);
-//       setSection('dashboard');
-//       await fetchInitialData(dataSetters, setLastNotificationId, toast);
-//       toast({
-//         title: 'Успешный вход',
-//         description: 'Добро пожаловать в панель администратора',
-//         status: 'success',
-//         duration: 3000,
-//         position: 'top-right',
-//       });
-//     } catch (error) {
-//       toast({
-//         title: 'Ошибка входа',
-//         description: error.response?.data?.detail || error.message,
-//         status: 'error',
-//         duration: 5000,
-//         isClosable: true,
-//         position: 'top-right',
-//       });
-//     } finally {
-//       setIsLoading(false);
-//     }
-//   };
-//
-//   const handleLogout = async () => {
-//     try {
-//       await axios.get('http://localhost/api/logout', { withCredentials: true });
-//       localStorage.removeItem('authToken');
-//       setIsAuthenticated(false);
-//       setSection('login');
-//       setLogin('');
-//       setPassword('');
-//
-//       if (chartInstanceRef.current) {
-//         chartInstanceRef.current.destroy();
-//         chartInstanceRef.current = null;
-//         setIsChartInitialized(false);
-//       }
-//
-//       toast({
-//         title: 'Выход выполнен',
-//         description: 'До свидания!',
-//         status: 'info',
-//         duration: 3000,
-//         position: 'top-right',
-//       });
-//     } catch (error) {
-//       console.error('Ошибка выхода:', error);
-//       toast({
-//         title: 'Ошибка',
-//         description: 'Не удалось выйти',
-//         status: 'error',
-//         duration: 5000,
-//         isClosable: true,
-//         position: 'top-right',
-//       });
-//     }
-//   };
-//
-//   const markNotificationRead = async (notificationId, targetUrl) => {
-//     try {
-//       await notificationApi.markRead(notificationId);
-//
-//       setNotifications(prev =>
-//         prev.map(n => (n.id === notificationId ? { ...n, is_read: true } : n))
-//       );
-//
-//       if (targetUrl) {
-//         const urlParts = targetUrl.split('/');
-//         if (urlParts.length >= 2) {
-//           setSection(urlParts[1]);
-//         }
-//       }
-//     } catch (error) {
-//       console.error('Ошибка при пометке уведомления:', error);
-//       toast({
-//         title: 'Ошибка',
-//         description: 'Не удалось пометить уведомление как прочитанное',
-//         status: 'error',
-//         duration: 5000,
-//         isClosable: true,
-//         position: 'top-right',
-//       });
-//     }
-//   };
-//
-//   const markAllNotificationsRead = async () => {
-//     try {
-//       await notificationApi.markAllRead();
-//
-//       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-//       setHasNewNotifications(false);
-//
-//       toast({
-//         title: 'Успех',
-//         description: 'Все уведомления помечены как прочитанные',
-//         status: 'success',
-//         duration: 5000,
-//         isClosable: true,
-//         position: 'top-right',
-//       });
-//     } catch (error) {
-//       console.error('Ошибка при пометке всех уведомлений:', error);
-//       toast({
-//         title: 'Ошибка',
-//         description: 'Не удалось пометить уведомления',
-//         status: 'error',
-//         duration: 5000,
-//         isClosable: true,
-//         position: 'top-right',
-//       });
-//     }
-//   };
-//
-//   const openDetailModal = (item, type) => {
-//     setSelectedItem({ ...item, type });
-//     onOpen();
-//   };
-//
-//   // ИСПРАВЛЕННАЯ функция handleUpdate
-//   const handleUpdate = async (updatedData = null) => {
-//     try {
-//       if (selectedItem?.type === 'ticket' && updatedData) {
-//         setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
-//         setTickets(prev => prev.map(ticket =>
-//           ticket.id === updatedData.id ? updatedData : ticket
-//         ));
-//       } else if (selectedItem?.type === 'promocode') {
-//         // Для промокодов всегда перезагружаем список
-//         await fetchSectionData('promocodes', dataSetters);
-//         if (selectedItem?.id) {
-//           try {
-//             const updatedPromocode = await promocodeApi.getById(selectedItem.id);
-//             setSelectedItem(prev => ({ ...updatedPromocode, type: prev.type }));
-//           } catch (error) {
-//             // Промокод мог быть удален
-//             console.log('Промокод не найден, возможно был удален');
-//           }
-//         }
-//       } else if (selectedItem?.type === 'tariff') {
-//         // Для тарифов всегда перезагружаем список
-//         await fetchSectionData('tariffs', dataSetters);
-//         if (selectedItem?.id) {
-//           try {
-//             const updatedTariff = await tariffApi.getById(selectedItem.id);
-//             setSelectedItem(prev => ({ ...updatedTariff, type: prev.type }));
-//           } catch (error) {
-//             console.log('Тариф не найден, возможно был удален');
-//           }
-//         }
-//       } else if (selectedItem?.type === 'user') {
-//         await fetchSectionData('users', dataSetters);
-//         const updatedUser = await userApi.getById(selectedItem.id);
-//         setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
-//       } else {
-//         await fetchSectionData(section, dataSetters);
-//       }
-//     } catch (error) {
-//       console.error('Ошибка обновления:', error);
-//     }
-//   };
-//
-//   // Рендер секций
-//   const renderSection = () => {
-//     const sectionProps = {
-//       openDetailModal,
-//       fetchData: () => fetchSectionData(section, dataSetters)
-//     };
-//
-//     switch (section) {
-//       case 'dashboard':
-//         return (
-//           <Dashboard
-//             stats={dashboardStats}
-//             users={users}
-//             tickets={tickets}
-//             bookings={bookings}
-//             chartRef={chartRef}
-//             chartInstanceRef={chartInstanceRef}
-//             isChartInitialized={isChartInitialized}
-//             setIsChartInitialized={setIsChartInitialized}
-//             section={section}
-//           />
-//         );
-//       case 'users':
-//         return <Users users={users} {...sectionProps} />;
-//       case 'bookings':
-//         return <Bookings bookings={bookings} {...sectionProps} />;
-//       case 'tariffs':
-//         return (
-//           <Tariffs
-//             tariffs={tariffs}
-//             openDetailModal={openDetailModal}
-//             onUpdate={() => fetchSectionData('tariffs', dataSetters)}
-//           />
-//         );
-//       case 'promocodes':
-//         return (
-//           <Promocodes
-//             promocodes={promocodes}
-//             openDetailModal={openDetailModal}
-//             onUpdate={() => fetchSectionData('promocodes', dataSetters)}
-//           />
-//         );
-//       case 'tickets':
-//         return <Tickets tickets={tickets} {...sectionProps} />;
-//       case 'notifications':
-//         return (
-//           <Notifications
-//             notifications={notifications}
-//             openDetailModal={openDetailModal}
-//             setSection={setSection}
-//             onRefresh={() => fetchSectionData('notifications', dataSetters)}
-//           />
-//         );
-//       case 'newsletters':
-//         return <Newsletters newsletters={newsletters} />;
-//       default:
-//         return (
-//           <Dashboard
-//             stats={dashboardStats}
-//             users={users}
-//             tickets={tickets}
-//             bookings={bookings}
-//             chartRef={chartRef}
-//             chartInstanceRef={chartInstanceRef}
-//             isChartInitialized={isChartInitialized}
-//             setIsChartInitialized={setIsChartInitialized}
-//             section={section}
-//           />
-//         );
-//     }
-//   };
-//
-//   // Проверка аутентификации
-//   if (isCheckingAuth) {
-//     return (
-//       <ChakraProvider>
-//         <Login isLoading={true} />
-//       </ChakraProvider>
-//     );
-//   }
-//
-//   // Страница логина
-//   if (!isAuthenticated) {
-//     return (
-//       <ChakraProvider>
-//         <Login
-//           login={login}
-//           setLogin={setLogin}
-//           password={password}
-//           setPassword={setPassword}
-//           handleLogin={handleLogin}
-//           isLoading={isLoading}
-//         />
-//       </ChakraProvider>
-//     );
-//   }
-//
-//   // Основное приложение
-//   return (
-//     <ChakraProvider>
-//       <Layout
-//         section={section}
-//         setSection={setSection}
-//         handleLogout={handleLogout}
-//         login={login}
-//         notifications={notifications}
-//         hasNewNotifications={hasNewNotifications}
-//         markNotificationRead={markNotificationRead}
-//         markAllNotificationsRead={markAllNotificationsRead}
-//       >
-//         {renderSection()}
-//       </Layout>
-//
-//       {/* Модальные окна для разных типов элементов */}
-//       {selectedItem?.type === 'user' && (
-//         <UserDetailModal
-//           isOpen={isOpen}
-//           onClose={onClose}
-//           user={selectedItem}
-//           onUpdate={handleUpdate}
-//         />
-//       )}
-//
-//       {selectedItem?.type === 'booking' && (
-//         <BookingDetailModal
-//           isOpen={isOpen}
-//           onClose={onClose}
-//           booking={selectedItem}
-//         />
-//       )}
-//
-//       {selectedItem?.type === 'tariff' && (
-//         <TariffDetailModal
-//           isOpen={isOpen}
-//           onClose={onClose}
-//           tariff={selectedItem}
-//           onUpdate={() => fetchSectionData('tariffs', dataSetters)}
-//         />
-//       )}
-//
-//       {selectedItem?.type === 'promocode' && (
-//         <PromocodeDetailModal
-//           isOpen={isOpen}
-//           onClose={onClose}
-//           promocode={selectedItem}
-//           onUpdate={() => fetchSectionData('promocodes', dataSetters)}
-//         />
-//       )}
-//
-//       {selectedItem?.type === 'ticket' && (
-//         <TicketDetailModal
-//           isOpen={isOpen}
-//           onClose={onClose}
-//           ticket={selectedItem}
-//           onUpdate={handleUpdate}
-//         />
-//       )}
-//     </ChakraProvider>
-//   );
-// }
-//
-// export default App;
 import React, { useState, useEffect, useRef } from 'react';
 import { ChakraProvider, useToast, useDisclosure } from '@chakra-ui/react';
 
@@ -541,7 +32,8 @@ import {
   dashboardApi,
   userApi,
   promocodeApi,
-  tariffApi
+  tariffApi,
+  bookingApi
 } from './utils/api.js';
 import notificationManager from './utils/notifications';
 
@@ -557,6 +49,7 @@ function App() {
   // Данные
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [bookingsMeta, setBookingsMeta] = useState({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
   const [tariffs, setTariffs] = useState([]);
   const [promocodes, setPromocodes] = useState([]);
   const [tickets, setTickets] = useState([]);
@@ -589,6 +82,7 @@ function App() {
   const dataSetters = {
     users: setUsers,
     bookings: setBookings,
+    bookingsMeta: setBookingsMeta,
     tariffs: setTariffs,
     promocodes: setPromocodes,
     tickets: setTickets,
@@ -600,6 +94,113 @@ function App() {
     },
     newsletters: setNewsletters,
     dashboardStats: setDashboardStats
+  };
+
+  // Улучшенная функция для загрузки данных секции бронирований
+  const fetchSectionDataEnhanced = async (sectionName, params = {}) => {
+    try {
+      switch (sectionName) {
+        case 'bookings':
+          try {
+            console.log('Загрузка бронирований с параметрами:', params);
+
+            // Используем упрощенный API для списка с улучшенной обработкой ошибок
+            const data = await bookingApi.getAllDetailed(params);
+
+            if (data && data.bookings) {
+              console.log(`Загружено ${data.bookings.length} бронирований из ${data.total_count}`);
+
+              setBookings(data.bookings);
+              setBookingsMeta({
+                total_count: data.total_count || 0,
+                page: data.page || 1,
+                per_page: data.per_page || 20,
+                total_pages: data.total_pages || 0
+              });
+            } else {
+              console.warn('Получен неожиданный формат данных:', data);
+
+              // Fallback для старого формата
+              const simpleData = await bookingApi.getAll(params);
+              console.log('Используем fallback, получено:', simpleData.length, 'записей');
+
+              setBookings(Array.isArray(simpleData) ? simpleData : []);
+              setBookingsMeta({
+                total_count: simpleData.length,
+                page: 1,
+                per_page: 20,
+                total_pages: Math.ceil(simpleData.length / 20)
+              });
+            }
+          } catch (error) {
+            console.error('Ошибка загрузки бронирований:', error);
+
+            // Детальная обработка различных типов ошибок
+            if (error.message?.includes('422')) {
+              console.error('422 ошибка валидации при загрузке бронирований');
+              toast({
+                title: 'Ошибка валидации',
+                description: 'Проблема с параметрами запроса бронирований',
+                status: 'error',
+                duration: 5000,
+                isClosable: true,
+              });
+            }
+
+            // Дополнительный fallback
+            try {
+              console.log('Пробуем резервный способ загрузки...');
+              const fallbackData = await bookingApi.getAll(params);
+              console.log('Резервная загрузка успешна:', fallbackData.length, 'записей');
+
+              setBookings(Array.isArray(fallbackData) ? fallbackData : []);
+              setBookingsMeta({
+                total_count: fallbackData.length,
+                page: 1,
+                per_page: 20,
+                total_pages: Math.ceil(fallbackData.length / 20)
+              });
+
+              toast({
+                title: 'Частичная загрузка',
+                description: 'Данные загружены в упрощенном режиме',
+                status: 'warning',
+                duration: 3000,
+              });
+            } catch (fallbackError) {
+              console.error('Fallback ошибка:', fallbackError);
+
+              // Устанавливаем пустые данные
+              setBookings([]);
+              setBookingsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
+
+              toast({
+                title: 'Ошибка загрузки',
+                description: 'Не удалось загрузить бронирования. Попробуйте обновить страницу.',
+                status: 'error',
+                duration: 7000,
+                isClosable: true,
+              });
+            }
+          }
+          break;
+
+        default:
+          // Для остальных секций используем стандартную загрузку
+          await fetchSectionData(sectionName, dataSetters);
+          break;
+      }
+    } catch (error) {
+      console.error(`Общая ошибка загрузки данных для ${sectionName}:`, error);
+
+      toast({
+        title: 'Ошибка загрузки',
+        description: `Не удалось загрузить данные для раздела ${sectionName}`,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
   };
 
   // Инициализация браузерных уведомлений
@@ -685,7 +286,7 @@ function App() {
   // При смене вкладки загружаем данные
   useEffect(() => {
     if (isAuthenticated) {
-      fetchSectionData(section, dataSetters);
+      fetchSectionDataEnhanced(section);
     }
   }, [section, isAuthenticated]);
 
@@ -895,14 +496,66 @@ function App() {
     }
   };
 
-  const openDetailModal = (item, type) => {
-    setSelectedItem({ ...item, type });
-    onOpen();
-  };
+  // Улучшенная функция openDetailModal с проверками
+  const openDetailModal = async (item, type) => {
+    try {
+      console.log('Открытие модального окна:', type, item.id);
 
-  // ИСПРАВЛЕННАЯ функция handleUpdate
+      // Для бронирований выполняем дополнительные проверки
+      if (type === 'booking') {
+        try {
+          // Проверяем валидность ID перед загрузкой
+          const validation = await bookingApi.validateId(item.id);
+          if (!validation.exists) {
+            toast({
+              title: 'Бронирование не найдено',
+              description: 'Бронирование могло быть удалено',
+              status: 'error',
+              duration: 5000,
+            });
+            return;
+          }
+
+          console.log('Валидация пройдена, открываем модальное окно');
+          setSelectedItem({ ...item, type });
+        } catch (error) {
+          console.error('Ошибка валидации бронирования:', error);
+
+          if (error.message?.includes('422')) {
+            toast({
+              title: 'Ошибка валидации',
+              description: 'Неверный ID бронирования',
+              status: 'error',
+              duration: 5000,
+            });
+            return;
+          }
+
+          // Fallback - открываем с базовыми данными
+          console.log('Используем fallback для открытия модального окна');
+          setSelectedItem({ ...item, type });
+        }
+      } else {
+        setSelectedItem({ ...item, type });
+      }
+
+      onOpen();
+    } catch (error) {
+      console.error('Ошибка открытия модального окна:', error);
+
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось открыть детальную информацию',
+        status: 'error',
+        duration: 5000,
+      });
+    }
+  };
+  // Улучшенная функция handleUpdate с дополнительной валидацией
   const handleUpdate = async (updatedData = null) => {
     try {
+      console.log('Обновление данных:', selectedItem?.type, updatedData);
+
       if (selectedItem?.type === 'ticket' && updatedData) {
         setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
         setTickets(prev => prev.map(ticket =>
@@ -910,44 +563,89 @@ function App() {
         ));
       } else if (selectedItem?.type === 'promocode') {
         // Для промокодов всегда перезагружаем список
-        await fetchSectionData('promocodes', dataSetters);
+        await fetchSectionDataEnhanced('promocodes');
         if (selectedItem?.id) {
           try {
             const updatedPromocode = await promocodeApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedPromocode, type: prev.type }));
           } catch (error) {
-            // Промокод мог быть удален
             console.log('Промокод не найден, возможно был удален');
+            onClose(); // Закрываем модальное окно если объект удален
           }
         }
       } else if (selectedItem?.type === 'tariff') {
         // Для тарифов всегда перезагружаем список
-        await fetchSectionData('tariffs', dataSetters);
+        await fetchSectionDataEnhanced('tariffs');
         if (selectedItem?.id) {
           try {
             const updatedTariff = await tariffApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedTariff, type: prev.type }));
           } catch (error) {
             console.log('Тариф не найден, возможно был удален');
+            onClose();
           }
         }
       } else if (selectedItem?.type === 'user') {
-        await fetchSectionData('users', dataSetters);
-        const updatedUser = await userApi.getById(selectedItem.id);
-        setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
+        await fetchSectionDataEnhanced('users');
+        if (selectedItem?.id) {
+          try {
+            const updatedUser = await userApi.getById(selectedItem.id);
+            setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
+          } catch (error) {
+            console.log('Пользователь не найден');
+            onClose();
+          }
+        }
+      } else if (selectedItem?.type === 'booking') {
+        // Обновляем список бронирований
+        console.log('Обновление списка бронирований...');
+        await fetchSectionDataEnhanced('bookings');
+
+        if (selectedItem?.id) {
+          try {
+            console.log('Обновление детального бронирования:', selectedItem.id);
+            const updatedBooking = await bookingApi.getByIdDetailed(selectedItem.id);
+            setSelectedItem(prev => ({ ...updatedBooking, type: prev.type }));
+            console.log('Детальное бронирование обновлено');
+          } catch (error) {
+            console.error('Ошибка обновления детального бронирования:', error);
+
+            if (error.message?.includes('422')) {
+              toast({
+                title: 'Ошибка обновления',
+                description: 'Проблема с загрузкой обновленных данных бронирования',
+                status: 'error',
+                duration: 5000,
+              });
+            } else {
+              console.log('Бронирование не найдено или удалено');
+              onClose();
+            }
+          }
+        }
       } else {
-        await fetchSectionData(section, dataSetters);
+        // Общий fallback
+        await fetchSectionDataEnhanced(section);
       }
+
+      console.log('Обновление завершено успешно');
     } catch (error) {
       console.error('Ошибка обновления:', error);
+
+      toast({
+        title: 'Ошибка обновления',
+        description: 'Не удалось обновить данные. Попробуйте еще раз.',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
     }
   };
-
   // Рендер секций
   const renderSection = () => {
     const sectionProps = {
       openDetailModal,
-      fetchData: () => fetchSectionData(section, dataSetters)
+      fetchData: () => fetchSectionDataEnhanced(section)
     };
 
     switch (section) {
@@ -968,13 +666,20 @@ function App() {
       case 'users':
         return <Users users={users} {...sectionProps} />;
       case 'bookings':
-        return <Bookings bookings={bookings} {...sectionProps} />;
+        return (
+          <Bookings
+            bookings={bookings}
+            bookingsMeta={bookingsMeta}
+            {...sectionProps}
+            onRefresh={() => fetchSectionDataEnhanced('bookings')}
+          />
+        );
       case 'tariffs':
         return (
           <Tariffs
             tariffs={tariffs}
             openDetailModal={openDetailModal}
-            onUpdate={() => fetchSectionData('tariffs', dataSetters)}
+            onUpdate={() => fetchSectionDataEnhanced('tariffs')}
           />
         );
       case 'promocodes':
@@ -982,7 +687,7 @@ function App() {
           <Promocodes
             promocodes={promocodes}
             openDetailModal={openDetailModal}
-            onUpdate={() => fetchSectionData('promocodes', dataSetters)}
+            onUpdate={() => fetchSectionDataEnhanced('promocodes')}
           />
         );
       case 'tickets':
@@ -993,7 +698,7 @@ function App() {
             notifications={notifications}
             openDetailModal={openDetailModal}
             setSection={setSection}
-            onRefresh={() => fetchSectionData('notifications', dataSetters)}
+            onRefresh={() => fetchSectionDataEnhanced('notifications')}
           />
         );
       case 'newsletters':
@@ -1074,6 +779,7 @@ function App() {
           isOpen={isOpen}
           onClose={onClose}
           booking={selectedItem}
+          onUpdate={handleUpdate}
         />
       )}
 
@@ -1082,7 +788,7 @@ function App() {
           isOpen={isOpen}
           onClose={onClose}
           tariff={selectedItem}
-          onUpdate={() => fetchSectionData('tariffs', dataSetters)}
+          onUpdate={() => fetchSectionDataEnhanced('tariffs')}
         />
       )}
 
@@ -1091,7 +797,7 @@ function App() {
           isOpen={isOpen}
           onClose={onClose}
           promocode={selectedItem}
-          onUpdate={() => fetchSectionData('promocodes', dataSetters)}
+          onUpdate={() => fetchSectionDataEnhanced('promocodes')}
         />
       )}
 

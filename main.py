@@ -22,6 +22,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
+from sqlalchemy import func
 from werkzeug.security import check_password_hash
 import sqlite3
 from sqlalchemy.exc import OperationalError, DatabaseError
@@ -30,6 +31,7 @@ from yookassa import Payment, Refund
 
 # Импорты моделей и утилит
 from models.models import *
+from models.models import engine, Session, init_db, create_admin
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -294,23 +296,6 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def create_engine_with_retry():
-    """Создание engine с настройками для надежной работы с SQLite."""
-    return create_engine(
-        f"sqlite:///data/coworking.db",
-        pool_pre_ping=True,
-        pool_recycle=300,
-        pool_timeout=20,
-        max_overflow=0,
-        echo=False,
-        connect_args={
-            "check_same_thread": False,
-            "timeout": 20,  # Таймаут для операций в секундах
-            "isolation_level": None,  # Автокоммит
-        },
-    )
-
-
 # Контекстный менеджер для повторных попыток операций с БД
 @contextmanager
 def db_retry_context(max_retries=3, delay=0.1):
@@ -335,25 +320,20 @@ def db_retry_context(max_retries=3, delay=0.1):
                 raise
 
 
-# Обновленный get_db с повторными попытками:
 def get_db():
     """Получение сессии БД с повторными попытками."""
-    db = None
+    db = Session()
     try:
-        with db_retry_context():
-            db = Session()
-            yield db
+        yield db
     except Exception as e:
-        if db:
-            db.rollback()
+        db.rollback()
         logger.error(f"Ошибка сессии БД: {e}")
         raise
     finally:
-        if db:
-            try:
-                db.close()
-            except Exception as e:
-                logger.error(f"Ошибка закрытия сессии БД: {e}")
+        try:
+            db.close()
+        except Exception as e:
+            logger.error(f"Ошибка закрытия сессии БД: {e}")
 
 
 def format_phone_for_rubitime(phone: str) -> str:
@@ -825,6 +805,170 @@ async def get_avatar(filename: str):
 # ================== BOOKING ENDPOINTS ==================
 
 
+# 1. СТАТИЧЕСКИЙ маршрут /bookings/detailed - должен идти ПЕРВЫМ
+@app.get("/bookings/detailed")
+async def get_bookings_detailed(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    user_query: Optional[str] = None,
+    date_query: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение бронирований - только данные из таблицы Booking."""
+    try:
+        # Базовый запрос - ТОЛЬКО таблица Booking
+        query = db.query(Booking)
+
+        # Фильтрация по дате (без JOIN'ов)
+        if date_query:
+            try:
+                # Поддерживаем различные форматы даты
+                if date_query.count("-") == 2:
+                    # YYYY-MM-DD формат
+                    query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
+                elif date_query.count(".") == 2:
+                    # DD.MM.YYYY формат
+                    query_date = datetime.strptime(date_query, "%d.%m.%Y").date()
+                else:
+                    raise ValueError("Unsupported date format")
+
+                query = query.filter(Booking.visit_date == query_date)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid date format. Use YYYY-MM-DD or DD.MM.YYYY",
+                )
+
+        # Фильтрация по статусу (без JOIN'ов)
+        if status_filter:
+            if status_filter == "paid":
+                query = query.filter(Booking.paid == True)
+            elif status_filter == "unpaid":
+                query = query.filter(Booking.paid == False)
+            elif status_filter == "confirmed":
+                query = query.filter(Booking.confirmed == True)
+            elif status_filter == "pending":
+                query = query.filter(Booking.confirmed == False)
+
+        # Получаем общее количество
+        total_count = query.count()
+
+        # Применяем пагинацию и сортировку
+        bookings = (
+            query.order_by(Booking.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+
+        # Формируем простой ответ - ТОЛЬКО данные из Booking
+        simple_bookings = []
+        for booking in bookings:
+            # Принудительно приводим типы для предотвращения JSON ошибок
+            booking_item = {
+                "id": int(booking.id),
+                "user_id": int(booking.user_id),
+                "tariff_id": int(booking.tariff_id),
+                "visit_date": booking.visit_date.isoformat(),
+                "visit_time": (
+                    booking.visit_time.isoformat() if booking.visit_time else None
+                ),
+                "duration": int(booking.duration) if booking.duration else None,
+                "promocode_id": (
+                    int(booking.promocode_id) if booking.promocode_id else None
+                ),
+                "amount": float(booking.amount),
+                "payment_id": booking.payment_id,
+                "paid": bool(booking.paid),
+                "rubitime_id": booking.rubitime_id,
+                "confirmed": bool(booking.confirmed),
+                "created_at": booking.created_at.isoformat(),
+            }
+            simple_bookings.append(booking_item)
+
+        total_pages = (total_count + per_page - 1) // per_page
+
+        return {
+            "bookings": simple_bookings,
+            "total_count": int(total_count),
+            "page": int(page),
+            "per_page": int(per_page),
+            "total_pages": int(total_pages),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении бронирований: {e}")
+        # Возвращаем детальную ошибку для отладки в development
+        import traceback
+
+        logger.error(f"Полный traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# 2. СТАТИЧЕСКИЙ маршрут /bookings/stats
+@app.get("/bookings/stats")
+async def get_booking_stats(
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение статистики по бронированиям."""
+    try:
+        total_bookings = db.query(Booking).count()
+        paid_bookings = db.query(Booking).filter(Booking.paid == True).count()
+        confirmed_bookings = db.query(Booking).filter(Booking.confirmed == True).count()
+
+        # Общая сумма оплаченных бронирований
+        total_revenue = (
+            db.query(func.sum(Booking.amount)).filter(Booking.paid == True).scalar()
+            or 0
+        )
+
+        # Статистика по текущему месяцу
+        current_month_start = datetime.now(MOSCOW_TZ).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+        current_month_bookings = (
+            db.query(Booking).filter(Booking.created_at >= current_month_start).count()
+        )
+        current_month_revenue = (
+            db.query(func.sum(Booking.amount))
+            .filter(Booking.created_at >= current_month_start, Booking.paid == True)
+            .scalar()
+            or 0
+        )
+
+        # Топ тарифы по количеству бронирований
+        top_tariffs = (
+            db.query(Tariff.name, func.count(Booking.id).label("booking_count"))
+            .join(Booking)
+            .group_by(Tariff.id, Tariff.name)
+            .order_by(func.count(Booking.id).desc())
+            .limit(5)
+            .all()
+        )
+
+        return {
+            "total_bookings": total_bookings,
+            "paid_bookings": paid_bookings,
+            "confirmed_bookings": confirmed_bookings,
+            "total_revenue": float(total_revenue),
+            "current_month_bookings": current_month_bookings,
+            "current_month_revenue": float(current_month_revenue),
+            "top_tariffs": [
+                {"name": tariff.name, "count": tariff.booking_count}
+                for tariff in top_tariffs
+            ],
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении статистики бронирований: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# 3. БАЗОВЫЙ маршрут /bookings (список)
 @app.get("/bookings", response_model=List[BookingBase])
 async def get_bookings(
     page: int = Query(1, ge=1),
@@ -853,17 +997,7 @@ async def get_bookings(
     return bookings
 
 
-@app.get("/bookings/{booking_id}", response_model=BookingBase)
-async def get_booking(
-    booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Получение бронирования по ID."""
-    booking = db.query(Booking).filter(Booking.id == booking_id).first()
-    if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
-    return booking
-
-
+# 4. СОЗДАНИЕ бронирования
 @app.post("/bookings", response_model=BookingBase)
 async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_db)):
     with db_retry_context():
@@ -924,6 +1058,201 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
             db.commit()
 
         return booking
+
+
+# 5. ТЕПЕРЬ ДИНАМИЧЕСКИЕ маршруты с {booking_id}
+# Маршрут для валидации ID (опциональный)
+@app.get("/bookings/{booking_id}/validate")
+async def validate_booking_id(
+    booking_id: str, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Проверка существования бронирования по ID."""
+    try:
+        booking_id_int = int(booking_id)
+        if booking_id_int <= 0:
+            raise HTTPException(status_code=400, detail="Booking ID must be positive")
+
+        booking = db.query(Booking).filter(Booking.id == booking_id_int).first()
+
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
+
+        return {
+            "id": booking.id,
+            "exists": True,
+            "user_id": booking.user_id,
+            "tariff_id": booking.tariff_id,
+            "paid": booking.paid,
+            "confirmed": booking.confirmed,
+        }
+
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid booking ID format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка валидации booking ID {booking_id}: {e}")
+        raise HTTPException(status_code=500, detail="Validation error")
+
+
+# Маршрут для детальной информации о конкретном бронировании
+@app.get("/bookings/{booking_id}/detailed")
+async def get_booking_detailed(
+    booking_id: str,  # Изменено с int на str для гибкости
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение детальной информации о конкретном бронировании."""
+    try:
+        # Пробуем преобразовать в int с валидацией
+        try:
+            booking_id_int = int(booking_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid booking ID format")
+
+        if booking_id_int <= 0:
+            raise HTTPException(status_code=400, detail="Booking ID must be positive")
+
+        # Сначала получаем само бронирование
+        booking = db.query(Booking).filter(Booking.id == booking_id_int).first()
+
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
+
+        # Получаем связанные объекты по отдельности с проверками
+        user = db.query(User).filter(User.id == booking.user_id).first()
+        tariff = db.query(Tariff).filter(Tariff.id == booking.tariff_id).first()
+        promocode = None
+
+        if booking.promocode_id:
+            promocode = (
+                db.query(Promocode).filter(Promocode.id == booking.promocode_id).first()
+            )
+
+        # Формируем ответ с безопасными проверками
+        booking_detail = {
+            "id": booking.id,
+            "user_id": booking.user_id,
+            "tariff_id": booking.tariff_id,
+            "visit_date": booking.visit_date.isoformat(),
+            "visit_time": (
+                booking.visit_time.isoformat() if booking.visit_time else None
+            ),
+            "duration": booking.duration,
+            "promocode_id": booking.promocode_id,
+            "amount": float(booking.amount),  # Принудительно преобразуем в float
+            "payment_id": booking.payment_id,
+            "paid": bool(booking.paid),  # Принудительно преобразуем в bool
+            "rubitime_id": booking.rubitime_id,
+            "confirmed": bool(booking.confirmed),  # Принудительно преобразуем в bool
+            "created_at": booking.created_at.isoformat(),
+            # Детальная информация о пользователе (с fallback)
+            "user": (
+                {
+                    "id": user.id if user else booking.user_id,
+                    "telegram_id": user.telegram_id if user else None,
+                    "full_name": user.full_name if user else "Пользователь не найден",
+                    "phone": user.phone if user else None,
+                    "email": user.email if user else None,
+                    "username": user.username if user else None,
+                    "successful_bookings": user.successful_bookings if user else 0,
+                    "language_code": user.language_code if user else "ru",
+                    "invited_count": user.invited_count if user else 0,
+                    "reg_date": (
+                        user.reg_date.isoformat() if user and user.reg_date else None
+                    ),
+                    "first_join_time": (
+                        user.first_join_time.isoformat() if user else None
+                    ),
+                    "agreed_to_terms": bool(user.agreed_to_terms) if user else False,
+                    "avatar": user.avatar if user else None,
+                    "referrer_id": user.referrer_id if user else None,
+                }
+                if user
+                else {
+                    "id": booking.user_id,
+                    "telegram_id": None,
+                    "full_name": "Пользователь не найден",
+                    "phone": None,
+                    "email": None,
+                    "username": None,
+                    "successful_bookings": 0,
+                    "language_code": "ru",
+                    "invited_count": 0,
+                    "reg_date": None,
+                    "first_join_time": None,
+                    "agreed_to_terms": False,
+                    "avatar": None,
+                    "referrer_id": None,
+                }
+            ),
+            # Детальная информация о тарифе (с fallback)
+            "tariff": (
+                {
+                    "id": tariff.id if tariff else booking.tariff_id,
+                    "name": tariff.name if tariff else "Тариф не найден",
+                    "description": (
+                        tariff.description if tariff else "Описание недоступно"
+                    ),
+                    "price": (
+                        float(tariff.price) if tariff else 0.0
+                    ),  # Принудительно float
+                    "purpose": tariff.purpose if tariff else None,
+                    "service_id": tariff.service_id if tariff else None,
+                    "is_active": bool(tariff.is_active) if tariff else False,
+                }
+                if tariff
+                else {
+                    "id": booking.tariff_id,
+                    "name": "Тариф не найден",
+                    "description": "Описание недоступно",
+                    "price": 0.0,
+                    "purpose": None,
+                    "service_id": None,
+                    "is_active": False,
+                }
+            ),
+            # Информация о промокоде (если есть)
+            "promocode": (
+                {
+                    "id": promocode.id,
+                    "name": promocode.name,
+                    "discount": int(promocode.discount),  # Принудительно int
+                    "usage_quantity": int(
+                        promocode.usage_quantity
+                    ),  # Принудительно int
+                    "expiration_date": (
+                        promocode.expiration_date.isoformat()
+                        if promocode.expiration_date
+                        else None
+                    ),
+                    "is_active": bool(promocode.is_active),
+                }
+                if promocode
+                else None
+            ),
+        }
+
+        return booking_detail
+
+    except HTTPException:
+        # Переподнимаем HTTP исключения
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении детального бронирования {booking_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# 6. Остальные динамические маршруты
+@app.get("/bookings/{booking_id}", response_model=BookingBase)
+async def get_booking(
+    booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение бронирования по ID."""
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return booking
 
 
 @app.put("/bookings/{booking_id}", response_model=BookingBase)
@@ -2124,24 +2453,74 @@ def start_db_maintenance():
     logger.info("Планировщик обслуживания БД запущен")
 
 
-# Добавьте в startup_event:
 @app.on_event("startup")
 async def startup_event():
     logger.info("Запуск приложения...")
 
-    # Создаем директории
-    TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
-    AVATARS_DIR.mkdir(exist_ok=True)
+    # Диагностика путей и прав
+    import os
 
-    init_db()
+    current_dir = os.getcwd()
+    logger.info(f"Текущая рабочая директория: {current_dir}")
+
+    # Создаем директории с правильными правами
+    data_dir = Path("/app/data")
+    avatars_dir = Path("/app/avatars")
+    ticket_photos_dir = Path("/app/ticket_photos")
+
+    for directory in [data_dir, avatars_dir, ticket_photos_dir]:
+        try:
+            directory.mkdir(exist_ok=True, parents=True)
+            # Проверяем права на запись
+            test_file = directory / "test_write"
+            test_file.touch()
+            test_file.unlink()
+            logger.info(f"Директория {directory} создана и доступна для записи")
+        except Exception as e:
+            logger.error(f"Ошибка с директорией {directory}: {e}")
+
+    # Проверяем путь к БД
+    db_path = data_dir / "coworking.db"
+    logger.info(f"Путь к БД: {db_path}")
+    logger.info(f"БД существует: {db_path.exists()}")
+
+    if db_path.exists():
+        logger.info(f"Размер БД: {db_path.stat().st_size} байт")
+
+    # Инициализируем БД
+    try:
+        logger.info("Инициализация БД...")
+        init_db()
+        logger.info("База данных инициализирована успешно")
+
+        # Проверяем что БД действительно создалась
+        if db_path.exists():
+            logger.info(f"БД создана, размер: {db_path.stat().st_size} байт")
+        else:
+            logger.error("БД не была создана!")
+
+    except Exception as e:
+        logger.error(f"Ошибка инициализации БД: {e}")
+        # Пробуем создать БД принудительно
+        try:
+            db_path.touch()
+            logger.info("Файл БД создан принудительно")
+        except Exception as create_error:
+            logger.error(f"Не удалось создать файл БД: {create_error}")
+
+    # Создаем админа
+    try:
+        admin_login = os.getenv("ADMIN_LOGIN", "admin")
+        admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
+        create_admin(admin_login, admin_password)
+        logger.info("Админ создан успешно")
+    except Exception as e:
+        logger.error(f"Ошибка создания админа: {e}")
+
+    logger.info("Запуск завершен")
 
     # Запускаем планировщики
     start_db_maintenance()
-
-    # Создаем админа
-    admin_login = os.getenv("ADMIN_LOGIN", "admin")
-    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-    create_admin(admin_login, admin_password)
 
     # Создаем placeholder аватар
     placeholder_path = AVATARS_DIR / "placeholder_avatar.png"

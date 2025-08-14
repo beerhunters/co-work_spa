@@ -23,7 +23,8 @@ from sqlalchemy import (
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from werkzeug.security import generate_password_hash, check_password_hash
-
+import os
+from pathlib import Path
 from utils.logger import get_logger
 
 # Тихая настройка логгера для модуля
@@ -32,8 +33,17 @@ logger = get_logger(__name__)
 Base = declarative_base()
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
+# Создаем директорию data если её нет
+DB_DIR = Path("/app/data")
+DB_DIR.mkdir(exist_ok=True)
+
 engine = create_engine(
-    "sqlite:////data/coworking.db", connect_args={"check_same_thread": False}
+    f"sqlite:///{DB_DIR}/coworking.db",  # Используем абсолютный путь
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 30,
+    },
+    echo=False,  # Для отладки можно поставить True
 )
 Session = sessionmaker(bind=engine)
 
@@ -77,15 +87,13 @@ class User(Base):
     username = Column(String)
     successful_bookings = Column(Integer, default=0)
     language_code = Column(String, default="ru")
-    invited_count = Column(
-        Integer, default=0
-    )  # Поле для подсчёта приглашённых пользователей
+    invited_count = Column(Integer, default=0)
     reg_date = Column(DateTime)
     agreed_to_terms = Column(Boolean, default=False)
     avatar = Column(String, nullable=True)
-    referrer_id = Column(
-        Integer, ForeignKey("users.telegram_id"), nullable=True
-    )  # Поле для реферального ID
+    referrer_id = Column(BigInteger, nullable=True)  # Убрать ForeignKey пока что
+
+    # Связи
     notifications = relationship(
         "Notification",
         back_populates="user",
@@ -104,9 +112,6 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
-    referrer = relationship(
-        "User", remote_side=[telegram_id], backref="invitees"
-    )  # Связь для пригласившего пользователя
 
     def __repr__(self) -> str:
         return f"<User {self.telegram_id} - {self.full_name}>"
@@ -158,7 +163,10 @@ class Booking(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
-        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,  # Изменено с BigInteger на Integer
     )
     tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=False)
     visit_date = Column(Date, nullable=False)
@@ -178,12 +186,7 @@ class Booking(Base):
     user = relationship("User", back_populates="bookings")
     tariff = relationship("Tariff", backref="bookings")
     promocode = relationship("Promocode", backref="promocodes")
-    notifications = relationship(
-        "Notification", back_populates="booking"
-    )  # ДОБАВИТЬ ЭТУ СТРОКУ
-
-    def __repr__(self) -> str:
-        return f"<Booking {self.id}: User {self.user_id}, Date {self.visit_date}>"
+    notifications = relationship("Notification", back_populates="booking")
 
 
 class Newsletter(Base):
@@ -231,10 +234,13 @@ class Notification(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(
-        BigInteger, ForeignKey("users.telegram_id"), nullable=False, index=True
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,  # Изменено с BigInteger на Integer
     )
-    message = Column(String, nullable=False)  # ДОБАВИТЬ ЭТО ПОЛЕ
-    target_url = Column(String, nullable=True)  # ДОБАВИТЬ ЭТО ПОЛЕ
+    message = Column(String, nullable=False)
+    target_url = Column(String, nullable=True)
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(
         DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
@@ -246,9 +252,6 @@ class Notification(Base):
     user = relationship("User", back_populates="notifications")
     booking = relationship("Booking", back_populates="notifications")
     ticket = relationship("Ticket", back_populates="notifications")
-
-    def __repr__(self) -> str:
-        return f"<Notification {self.id}: {self.message[:50]}>"
 
 
 def init_db() -> None:

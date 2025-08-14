@@ -200,31 +200,220 @@ export const userApi = {
 
 };
 
-// -------------------- API: Бронирования --------------------
+// -------------------- API: Бронирования (обновленный) --------------------
+// Улучшенный API для бронирований с обработкой ошибок
 export const bookingApi = {
   getAll: async (params = {}) => {
-    const res = await apiClient.get('/bookings', { params });
-    return res.data;
+    try {
+      const res = await apiClient.get('/bookings', { params });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения бронирований:', error);
+      throw error;
+    }
+  },
+
+  // Новый метод для получения детальных бронирований с улучшенной обработкой ошибок
+  getAllDetailed: async (params = {}) => {
+    try {
+      // Логируем параметры запроса
+      console.log('Запрос детальных бронирований с параметрами:', params);
+
+      const res = await apiClient.get('/bookings/detailed', { params });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения детальных бронирований:', error);
+
+      // Детальная обработка различных типов ошибок
+      if (error.response?.status === 422) {
+        console.error('422 Ошибка валидации:', error.response.data);
+        throw new Error('Ошибка валидации данных: ' + JSON.stringify(error.response.data));
+      }
+
+      if (error.response?.status === 404) {
+        console.warn('Endpoint не найден, используем fallback');
+        const res = await apiClient.get('/bookings', { params });
+        return {
+          bookings: res.data,
+          total_count: res.data.length,
+          page: params.page || 1,
+          per_page: params.per_page || 20,
+          total_pages: Math.ceil(res.data.length / (params.per_page || 20))
+        };
+      }
+
+      throw error;
+    }
   },
 
   getById: async (bookingId) => {
-    const res = await apiClient.get(`/bookings/${bookingId}`);
-    return res.data;
+    try {
+      // Убеждаемся, что ID передается как строка
+      const id = String(bookingId);
+      const res = await apiClient.get(`/bookings/${id}`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка получения бронирования ${bookingId}:`, error);
+      throw error;
+    }
+  },
+
+  // Новый метод для получения детального бронирования с улучшенной обработкой
+  getByIdDetailed: async (bookingId) => {
+    try {
+      // Убеждаемся, что ID передается как строка и валидный
+      const id = String(bookingId);
+
+      if (!id || id === 'undefined' || id === 'null') {
+        throw new Error('Invalid booking ID');
+      }
+
+      console.log(`Запрос детального бронирования ID: ${id}`);
+
+      const res = await apiClient.get(`/bookings/${id}/detailed`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка получения детального бронирования ${bookingId}:`, error);
+
+      // Детальная обработка ошибок 422
+      if (error.response?.status === 422) {
+        console.error('422 Ошибка при получении детального бронирования:', error.response.data);
+
+        // Проверяем, является ли проблема в format ID
+        if (error.response.data?.detail?.includes('booking ID')) {
+          throw new Error(`Неверный формат ID бронирования: ${bookingId}`);
+        }
+
+        throw new Error('Ошибка валидации: ' + JSON.stringify(error.response.data));
+      }
+
+      // Fallback на обычный метод если детальный недоступен
+      if (error.response?.status === 404) {
+        console.warn('Детальный endpoint недоступен, используем fallback');
+        return await bookingApi.getById(bookingId);
+      }
+
+      throw error;
+    }
+  },
+
+  // Новый метод для валидации ID перед запросом
+  validateId: async (bookingId) => {
+    try {
+      const id = String(bookingId);
+      const res = await apiClient.get(`/bookings/${id}/validate`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка валидации ID ${bookingId}:`, error);
+      return { exists: false, error: error.message };
+    }
   },
 
   create: async (bookingData) => {
-    const res = await apiClient.post('/bookings', bookingData);
-    return res.data;
+    try {
+      // Валидируем данные перед отправкой
+      const validatedData = {
+        ...bookingData,
+        user_id: Number(bookingData.user_id),
+        tariff_id: Number(bookingData.tariff_id),
+        amount: Number(bookingData.amount),
+        paid: Boolean(bookingData.paid),
+        confirmed: Boolean(bookingData.confirmed)
+      };
+
+      const res = await apiClient.post('/bookings', validatedData);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка создания бронирования:', error);
+
+      if (error.response?.status === 422) {
+        console.error('422 Ошибка при создании:', error.response.data);
+        throw new Error('Ошибка валидации данных: ' + JSON.stringify(error.response.data));
+      }
+
+      throw error;
+    }
   },
 
   update: async (bookingId, confirmed) => {
-    const res = await apiClient.put(`/bookings/${bookingId}`, { confirmed });
-    return res.data;
+    try {
+      const id = String(bookingId);
+      const res = await apiClient.put(`/bookings/${id}`, {
+        confirmed: Boolean(confirmed)
+      });
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка обновления бронирования ${bookingId}:`, error);
+      throw error;
+    }
   },
 
   delete: async (bookingId) => {
-    const res = await apiClient.delete(`/bookings/${bookingId}`);
-    return res.data;
+    try {
+      const id = String(bookingId);
+      const res = await apiClient.delete(`/bookings/${id}`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка удаления бронирования ${bookingId}:`, error);
+      throw error;
+    }
+  },
+
+  // Новый метод для получения статистики с улучшенной обработкой ошибок
+  getStats: async () => {
+    try {
+      const res = await apiClient.get('/bookings/stats');
+      return res.data;
+    } catch (error) {
+      console.warn('Статистика бронирований недоступна:', error);
+
+      // Возвращаем дефолтные значения если статистика недоступна
+      return {
+        total_bookings: 0,
+        paid_bookings: 0,
+        confirmed_bookings: 0,
+        total_revenue: 0,
+        current_month_bookings: 0,
+        current_month_revenue: 0,
+        top_tariffs: []
+      };
+    }
+  },
+
+  // Вспомогательный метод для отладки
+  debug: async (bookingId) => {
+    try {
+      const id = String(bookingId);
+      console.group(`Отладка бронирования ID: ${id}`);
+
+      // Проверяем валидность ID
+      const validation = await bookingApi.validateId(id);
+      console.log('Валидация ID:', validation);
+
+      if (validation.exists) {
+        // Пробуем получить базовую информацию
+        try {
+          const basic = await bookingApi.getById(id);
+          console.log('Базовая информация:', basic);
+        } catch (basicError) {
+          console.error('Ошибка получения базовой информации:', basicError);
+        }
+
+        // Пробуем получить детальную информацию
+        try {
+          const detailed = await bookingApi.getByIdDetailed(id);
+          console.log('Детальная информация:', detailed);
+        } catch (detailedError) {
+          console.error('Ошибка получения детальной информации:', detailedError);
+        }
+      }
+
+      console.groupEnd();
+      return validation;
+    } catch (error) {
+      console.error('Ошибка отладки:', error);
+      return { error: error.message };
+    }
   }
 };
 
