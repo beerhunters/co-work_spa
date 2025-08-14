@@ -57,6 +57,47 @@ def format_payment_notification(user, booking_data, status="SUCCESS") -> str:
 
     status_text = status_texts.get(status, "НЕИЗВЕСТНЫЙ СТАТУС")
 
+    # Правильное форматирование даты
+    visit_date = booking_data.get("visit_date")
+    visit_time = booking_data.get("visit_time")
+
+    if visit_date:
+        if hasattr(visit_date, "strftime"):
+            date_str = visit_date.strftime("%d.%m.%Y")
+        else:
+            try:
+                if isinstance(visit_date, str):
+                    date_obj = datetime.strptime(visit_date, "%Y-%m-%d").date()
+                    date_str = date_obj.strftime("%d.%m.%Y")
+                else:
+                    date_str = str(visit_date)
+            except:
+                date_str = "Неизвестно"
+    else:
+        date_str = "Неизвестно"
+
+    # Добавляем время если есть
+    if visit_time:
+        if hasattr(visit_time, "strftime"):
+            time_str = f" в {visit_time.strftime('%H:%M')}"
+        else:
+            try:
+                if isinstance(visit_time, str):
+                    time_obj = datetime.strptime(visit_time, "%H:%M:%S").time()
+                    time_str = f" в {time_obj.strftime('%H:%M')}"
+                else:
+                    time_str = ""
+            except:
+                time_str = ""
+    else:
+        time_str = ""
+
+    full_date_str = date_str + time_str
+
+    # Добавляем информацию о длительности
+    duration = booking_data.get("duration")
+    duration_str = f" ({duration}ч)" if duration else ""
+
     message = f"""💳 <b>{status_text}</b> {status_emoji}
 
 👤 <b>Клиент:</b> {user.get('full_name') or 'Не указано'}
@@ -65,7 +106,7 @@ def format_payment_notification(user, booking_data, status="SUCCESS") -> str:
 💰 <b>Детали платежа:</b>
 ├ <b>Сумма:</b> {booking_data.get('amount', 0):.2f} ₽
 ├ <b>Тариф:</b> {booking_data.get('tariff_name', 'Неизвестно')}
-├ <b>Дата брони:</b> {booking_data.get('visit_date', '').strftime('%d.%m.%Y') if booking_data.get('visit_date') else 'Неизвестно'}
+├ <b>Дата брони:</b> {full_date_str}{duration_str}
 └ <b>Payment ID:</b> <code>{booking_data.get('payment_id', 'Неизвестно')}</code>
 
 ⏰ <i>Время: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
@@ -804,13 +845,32 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                             message.from_user.id
                         )
 
+                    # ВАЖНО: Получаем данные состояния ДО создания брони (до очистки состояния)
+                    booking_data = await state.get_data()
+
+                    # Логирование для отладки
+                    logger.info(f"Данные состояния ДО создания брони: {booking_data}")
+
+                    # Дополняем данные для уведомления о платеже
+                    payment_data = {
+                        "amount": booking_data.get("amount", 0),
+                        "tariff_name": booking_data.get("tariff_name", "Неизвестно"),
+                        "visit_date": booking_data.get("visit_date"),
+                        "visit_time": booking_data.get("visit_time"),
+                        "duration": booking_data.get("duration"),
+                        "promocode_name": booking_data.get("promocode_name"),
+                        "discount": booking_data.get("discount", 0),
+                        "payment_id": payment_id,
+                    }
+
+                    logger.info(f"Данные для payment_notification: {payment_data}")
+
                     # Создаем подтвержденную бронь после успешной оплаты
                     await create_booking_after_payment(message, state, user)
 
-                    # Отправка уведомления администратору об успешном платеже
-                    booking_data = await state.get_data()
+                    # Отправка уведомления администратору об успешном платеже (ПОСЛЕ создания брони)
                     payment_notification = format_payment_notification(
-                        user, booking_data, "SUCCESS"
+                        user, payment_data, "SUCCESS"
                     )
 
                     if ADMIN_TELEGRAM_ID:
@@ -831,6 +891,9 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                     return
 
                 elif status in ["canceled", "cancelled"]:
+                    # Получаем данные состояния ДО очистки
+                    booking_data = await state.get_data()
+
                     # Платеж отменен
                     await bot.edit_message_text(
                         chat_id=message.chat.id,
@@ -845,9 +908,18 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                             message.from_user.id
                         )
 
-                    booking_data = await state.get_data()
+                    payment_data = {
+                        "amount": booking_data.get("amount", 0),
+                        "tariff_name": booking_data.get("tariff_name", "Неизвестно"),
+                        "visit_date": booking_data.get("visit_date"),
+                        "visit_time": booking_data.get("visit_time"),
+                        "duration": booking_data.get("duration"),
+                        "promocode_name": booking_data.get("promocode_name"),
+                        "discount": booking_data.get("discount", 0),
+                        "payment_id": payment_id,
+                    }
                     payment_notification = format_payment_notification(
-                        user, booking_data, "CANCELLED"
+                        user, payment_data, "CANCELLED"
                     )
 
                     if ADMIN_TELEGRAM_ID:
@@ -861,6 +933,9 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                     return
 
                 elif status == "failed":
+                    # Получаем данные состояния ДО очистки
+                    booking_data = await state.get_data()
+
                     # Платеж не прошел
                     await bot.edit_message_text(
                         chat_id=message.chat.id,
@@ -875,9 +950,18 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                             message.from_user.id
                         )
 
-                    booking_data = await state.get_data()
+                    payment_data = {
+                        "amount": booking_data.get("amount", 0),
+                        "tariff_name": booking_data.get("tariff_name", "Неизвестно"),
+                        "visit_date": booking_data.get("visit_date"),
+                        "visit_time": booking_data.get("visit_time"),
+                        "duration": booking_data.get("duration"),
+                        "promocode_name": booking_data.get("promocode_name"),
+                        "discount": booking_data.get("discount", 0),
+                        "payment_id": payment_id,
+                    }
                     payment_notification = format_payment_notification(
-                        user, booking_data, "FAILED"
+                        user, payment_data, "FAILED"
                     )
 
                     if ADMIN_TELEGRAM_ID:
