@@ -14,8 +14,6 @@ import {
   Button,
   Box,
   Icon,
-  Grid,
-  GridItem,
   Card,
   CardBody,
   useColorModeValue,
@@ -43,7 +41,8 @@ import {
   FiExternalLink,
   FiCopy,
   FiRefreshCw,
-  FiAlertTriangle
+  FiAlertTriangle,
+  FiInfo
 } from 'react-icons/fi';
 import { getStatusColor } from '../../styles/styles';
 import { bookingApi } from '../../utils/api';
@@ -53,6 +52,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false });
   const toast = useToast();
 
   const bgColor = useColorModeValue('white', 'gray.800');
@@ -177,6 +177,84 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
     });
   };
 
+  // Подтверждение бронирования
+  const handleConfirmBooking = async () => {
+    setActionLoading(prev => ({ ...prev, confirm: true }));
+
+    try {
+      await bookingApi.updateBooking(booking.id, { confirmed: true });
+
+      toast({
+        title: 'Бронирование подтверждено',
+        description: 'Пользователь получит уведомление',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем локальные данные
+      if (detailedBooking) {
+        setDetailedBooking(prev => ({ ...prev, confirmed: true }));
+      }
+
+      // Вызываем callback для обновления родительского компонента
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка подтверждения бронирования:', error);
+      toast({
+        title: 'Ошибка подтверждения',
+        description: error.message || 'Не удалось подтвердить бронирование',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, confirm: false }));
+    }
+  };
+
+  // Отметить как оплачено
+  const handleMarkAsPaid = async () => {
+    setActionLoading(prev => ({ ...prev, markPaid: true }));
+
+    try {
+      await bookingApi.updateBooking(booking.id, { paid: true });
+
+      toast({
+        title: 'Отмечено как оплачено',
+        description: 'Пользователь получит уведомление о зачислении оплаты',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем локальные данные
+      if (detailedBooking) {
+        setDetailedBooking(prev => ({ ...prev, paid: true }));
+      }
+
+      // Вызываем callback для обновления родительского компонента
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка отметки оплаты:', error);
+      toast({
+        title: 'Ошибка обновления',
+        description: error.message || 'Не удалось отметить как оплачено',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, markPaid: false }));
+    }
+  };
+
   if (!booking) return null;
 
   const data = detailedBooking || booking;
@@ -236,7 +314,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
               </Alert>
             )}
 
-            {/* Информация о клиенте */}
+            {/* Блок 1: Информация о клиенте */}
             <Card>
               <CardBody>
                 <VStack align="stretch" spacing={4}>
@@ -246,217 +324,238 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                   </HStack>
 
                   {loading ? (
-                    <VStack spacing={2}>
+                    <VStack spacing={3}>
                       <Skeleton height="20px" />
-                      <Skeleton height="16px" />
-                      <Skeleton height="16px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
                     </VStack>
                   ) : (
-                    <Grid templateColumns="1fr 1fr" gap={4}>
-                      <GridItem>
-                        <VStack align="start" spacing={2}>
-                          <HStack>
-                            <Text fontWeight="medium">Имя:</Text>
-                            <Text>{user.full_name || 'Не указано'}</Text>
-                          </HStack>
+                    <VStack align="stretch" spacing={3}>
+                      <HStack justify="space-between">
+                        <Text fontWeight="medium">Имя:</Text>
+                        <Text>{user.full_name || 'Не указано'}</Text>
+                      </HStack>
 
+                      <HStack justify="space-between">
+                        <HStack>
+                          <Icon as={FiPhone} color="green.500" />
+                          <Text fontWeight="medium">Телефон:</Text>
+                        </HStack>
+                        {user.phone ? (
                           <HStack>
-                            <Icon as={FiPhone} color="green.500" />
-                            <Text fontWeight="medium">Телефон:</Text>
-                            {user.phone ? (
-                              <HStack>
-                                <Text>{user.phone}</Text>
-                                <Tooltip label="Скопировать">
-                                  <Button
-                                    size="xs"
-                                    variant="ghost"
-                                    onClick={() => copyToClipboard(user.phone, 'Телефон')}
-                                  >
-                                    <FiCopy />
-                                  </Button>
-                                </Tooltip>
-                              </HStack>
-                            ) : (
-                              <Text color="gray.500">Не указан</Text>
-                            )}
+                            <Text>{user.phone}</Text>
+                            <Tooltip label="Скопировать">
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => copyToClipboard(user.phone, 'Телефон')}
+                              >
+                                <FiCopy />
+                              </Button>
+                            </Tooltip>
                           </HStack>
+                        ) : (
+                          <Text color="gray.500">Не указан</Text>
+                        )}
+                      </HStack>
 
-                          <HStack>
-                            <Icon as={FiMail} color="orange.500" />
-                            <Text fontWeight="medium">Email:</Text>
-                            {user.email ? (
-                              <Link href={getMailtoUrl(user.email)} color="blue.500" isExternal>
-                                {user.email}
-                                <Icon as={FiExternalLink} mx="2px" />
-                              </Link>
-                            ) : (
-                              <Text color="gray.500">Не указан</Text>
-                            )}
-                          </HStack>
-                        </VStack>
-                      </GridItem>
+                      <HStack justify="space-between">
+                        <HStack>
+                          <Icon as={FiMail} color="orange.500" />
+                          <Text fontWeight="medium">Почта:</Text>
+                        </HStack>
+                        {user.email ? (
+                          <Link href={getMailtoUrl(user.email)} color="blue.500" isExternal>
+                            {user.email}
+                            <Icon as={FiExternalLink} mx="2px" />
+                          </Link>
+                        ) : (
+                          <Text color="gray.500">Не указана</Text>
+                        )}
+                      </HStack>
 
-                      <GridItem>
-                        <VStack align="start" spacing={2}>
-                          <HStack>
-                            <Icon as={FiMessageCircle} color="purple.500" />
-                            <Text fontWeight="medium">Telegram:</Text>
-                            {user.username ? (
-                              <Link href={getTelegramUrl(user.username)} color="blue.500" isExternal>
-                                @{user.username}
-                                <Icon as={FiExternalLink} mx="2px" />
-                              </Link>
-                            ) : (
-                              <Text color="gray.500">Не указан</Text>
-                            )}
-                          </HStack>
-
-                          <HStack>
-                            <Text fontWeight="medium">Telegram ID:</Text>
-                            <HStack>
-                              <Text fontFamily="mono">{user.telegram_id || 'Неизвестно'}</Text>
-                              {user.telegram_id && (
-                                <Tooltip label="Скопировать">
-                                  <Button
-                                    size="xs"
-                                    variant="ghost"
-                                    onClick={() => copyToClipboard(user.telegram_id, 'Telegram ID')}
-                                  >
-                                    <FiCopy />
-                                  </Button>
-                                </Tooltip>
-                              )}
-                            </HStack>
-                          </HStack>
-                        </VStack>
-                      </GridItem>
-                    </Grid>
+                      <HStack justify="space-between">
+                        <HStack>
+                          <Icon as={FiMessageCircle} color="purple.500" />
+                          <Text fontWeight="medium">Telegram:</Text>
+                        </HStack>
+                        {user.username ? (
+                          <Link href={getTelegramUrl(user.username)} color="blue.500" isExternal>
+                            @{user.username}
+                            <Icon as={FiExternalLink} mx="2px" />
+                          </Link>
+                        ) : (
+                          <Text color="gray.500">Не указан</Text>
+                        )}
+                      </HStack>
+                    </VStack>
                   )}
                 </VStack>
               </CardBody>
             </Card>
 
-            {/* Детали тарифа */}
-            <Card>
-              <CardBody>
-                <VStack align="stretch" spacing={4}>
-                  <HStack>
-                    <Icon as={FiTag} color="cyan.500" boxSize={5} />
-                    <Text fontSize="lg" fontWeight="semibold">Детали тарифа</Text>
-                  </HStack>
-
-                  <Grid templateColumns="1fr 1fr" gap={4}>
-                    <GridItem>
-                      <VStack align="start" spacing={2}>
-                        <HStack>
-                          <Text fontWeight="medium">Название:</Text>
-                          <Text fontSize="lg" fontWeight="semibold">{tariff.name || 'Неизвестно'}</Text>
-                        </HStack>
-                      </VStack>
-                    </GridItem>
-
-                    <GridItem>
-                      <VStack align="start" spacing={2}>
-                        <HStack>
-                          <Text fontWeight="medium">Базовая цена:</Text>
-                          <Text fontWeight="bold" color="green.500">
-                            {tariff.price ? `${tariff.price} ₽` : 'Неизвестно'}
-                          </Text>
-                        </HStack>
-                      </VStack>
-                    </GridItem>
-                  </Grid>
-
-                  {tariff.description && (
-                    <Box p={3} bg="gray.50" borderRadius="md" borderLeft="4px solid" borderLeftColor="cyan.400">
-                      <Text fontSize="sm">{tariff.description}</Text>
-                    </Box>
-                  )}
-                </VStack>
-              </CardBody>
-            </Card>
-
-            {/* Детали визита */}
+            {/* Блок 2: Детали бронирования */}
             <Card>
               <CardBody>
                 <VStack align="stretch" spacing={4}>
                   <HStack>
                     <Icon as={FiCalendar} color="orange.500" boxSize={5} />
-                    <Text fontSize="lg" fontWeight="semibold">Детали визита</Text>
+                    <Text fontSize="lg" fontWeight="semibold">Детали бронирования</Text>
                   </HStack>
 
-                  <Grid templateColumns="1fr 1fr" gap={4}>
-                    <GridItem>
-                      <VStack align="start" spacing={3}>
+                  {loading ? (
+                    <VStack spacing={3}>
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                    </VStack>
+                  ) : (
+                    <VStack align="stretch" spacing={3}>
+                      <HStack justify="space-between">
+                        <HStack>
+                          <Icon as={FiTag} color="cyan.500" />
+                          <Text fontWeight="medium">Название тарифа:</Text>
+                        </HStack>
+                        <Text fontSize="lg" fontWeight="semibold">{tariff.name || 'Неизвестно'}</Text>
+                      </HStack>
+
+                      <HStack justify="space-between">
                         <HStack>
                           <Icon as={FiCalendar} color="blue.500" />
                           <Text fontWeight="medium">Дата визита:</Text>
-                          <Text fontSize="lg">{formatDate(data.visit_date)}</Text>
                         </HStack>
+                        <Text fontSize="lg">{formatDate(data.visit_date)}</Text>
+                      </HStack>
 
+                      <HStack justify="space-between">
                         <HStack>
                           <Icon as={FiClock} color="purple.500" />
                           <Text fontWeight="medium">Время:</Text>
-                          <Text>{formatTime(data.visit_time)}</Text>
                         </HStack>
+                        <Text>{formatTime(data.visit_time)}</Text>
+                      </HStack>
 
-                        {data.duration && (
-                          <HStack>
-                            <Text fontWeight="medium">Длительность:</Text>
-                            <Badge colorScheme="orange">{data.duration} час(ов)</Badge>
-                          </HStack>
-                        )}
-                      </VStack>
-                    </GridItem>
+                      {data.duration && (
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">Длительность:</Text>
+                          <Badge colorScheme="orange">{data.duration} час(ов)</Badge>
+                        </HStack>
+                      )}
 
-                    <GridItem>
-                      <VStack align="start" spacing={3}>
+                      <HStack justify="space-between">
                         <HStack>
                           <Icon as={FiDollarSign} color="green.500" />
                           <Text fontWeight="medium">Итоговая сумма:</Text>
-                          <Text fontSize="lg" fontWeight="bold" color="green.500">
-                            {data.amount} ₽
-                          </Text>
                         </HStack>
+                        <Text fontSize="lg" fontWeight="bold" color="green.500">
+                          {data.amount} ₽
+                        </Text>
+                      </HStack>
 
-                        <HStack>
-                          <Text fontWeight="medium">Статус оплаты:</Text>
-                          <Badge colorScheme={getStatusColor(data.paid ? 'paid' : 'unpaid')}>
-                            {data.paid ? (
-                              <HStack spacing={1}>
-                                <Icon as={FiCheck} />
-                                <Text>Оплачено</Text>
-                              </HStack>
-                            ) : (
-                              <HStack spacing={1}>
-                                <Icon as={FiX} />
-                                <Text>Не оплачено</Text>
-                              </HStack>
-                            )}
-                          </Badge>
-                        </HStack>
+                      <HStack justify="space-between">
+                        <Text fontWeight="medium">Статус оплаты:</Text>
+                        <Badge colorScheme={getStatusColor(data.paid ? 'paid' : 'unpaid')}>
+                          {data.paid ? (
+                            <HStack spacing={1}>
+                              <Icon as={FiCheck} />
+                              <Text>Оплачено</Text>
+                            </HStack>
+                          ) : (
+                            <HStack spacing={1}>
+                              <Icon as={FiX} />
+                              <Text>Не оплачено</Text>
+                            </HStack>
+                          )}
+                        </Badge>
+                      </HStack>
 
-                        <HStack>
-                          <Text fontWeight="medium">Подтверждение:</Text>
-                          <Badge colorScheme={getStatusColor(data.confirmed ? 'confirmed' : 'pending')}>
-                            {data.confirmed ? (
-                              <HStack spacing={1}>
-                                <Icon as={FiCheck} />
-                                <Text>Подтверждено</Text>
-                              </HStack>
-                            ) : (
-                              <Text>Ожидает подтверждения</Text>
-                            )}
-                          </Badge>
-                        </HStack>
-                      </VStack>
-                    </GridItem>
-                  </Grid>
+                      <HStack justify="space-between">
+                        <Text fontWeight="medium">Подтверждение:</Text>
+                        <Badge colorScheme={getStatusColor(data.confirmed ? 'confirmed' : 'pending')}>
+                          {data.confirmed ? (
+                            <HStack spacing={1}>
+                              <Icon as={FiCheck} />
+                              <Text>Подтверждено</Text>
+                            </HStack>
+                          ) : (
+                            <Text>Ожидает подтверждения</Text>
+                          )}
+                        </Badge>
+                      </HStack>
+                    </VStack>
+                  )}
                 </VStack>
               </CardBody>
             </Card>
 
-            {/* Информация о промокоде */}
+            {/* Блок 3: Дополнительная информация */}
+            <Card>
+              <CardBody>
+                <VStack align="stretch" spacing={4}>
+                  <HStack>
+                    <Icon as={FiInfo} color="gray.500" boxSize={5} />
+                    <Text fontSize="lg" fontWeight="semibold">Дополнительная информация</Text>
+                  </HStack>
+
+                  {loading ? (
+                    <VStack spacing={3}>
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                      <Skeleton height="20px" />
+                    </VStack>
+                  ) : (
+                    <VStack align="stretch" spacing={3}>
+                      <HStack justify="space-between">
+                        <Text fontWeight="medium">Дата создания:</Text>
+                        <Text fontSize="sm">{formatDateTime(data.created_at)}</Text>
+                      </HStack>
+
+                      {data.rubitime_id && (
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">Rubitime ID:</Text>
+                          <HStack>
+                            <Text fontFamily="mono" fontSize="sm">{data.rubitime_id}</Text>
+                            <Tooltip label="Скопировать">
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => copyToClipboard(data.rubitime_id, 'Rubitime ID')}
+                              >
+                                <FiCopy />
+                              </Button>
+                            </Tooltip>
+                          </HStack>
+                        </HStack>
+                      )}
+
+                      {data.payment_id && (
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">ID платежа:</Text>
+                          <HStack>
+                            <Text fontFamily="mono" fontSize="sm">{data.payment_id}</Text>
+                            <Tooltip label="Скопировать">
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => copyToClipboard(data.payment_id, 'ID платежа')}
+                              >
+                                <FiCopy />
+                              </Button>
+                            </Tooltip>
+                          </HStack>
+                        </HStack>
+                      )}
+                    </VStack>
+                  )}
+                </VStack>
+              </CardBody>
+            </Card>
+
+            {/* Информация о промокоде (если есть) */}
             {data.promocode_id && (
               <Card>
                 <CardBody>
@@ -469,38 +568,30 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                     {loading ? (
                       <Skeleton height="40px" />
                     ) : promocode ? (
-                      <Grid templateColumns="1fr 1fr" gap={4}>
-                        <GridItem>
-                          <VStack align="start" spacing={2}>
-                            <HStack>
-                              <Text fontWeight="medium">Название:</Text>
-                              <Text fontSize="lg" fontWeight="bold" fontFamily="mono" color="purple.500">
-                                {promocode.name}
-                              </Text>
-                            </HStack>
-                            <HStack>
-                              <Text fontWeight="medium">Скидка:</Text>
-                              <Badge colorScheme="purple" fontSize="md">
-                                -{promocode.discount}%
-                              </Badge>
-                            </HStack>
-                          </VStack>
-                        </GridItem>
-                        <GridItem>
-                          <VStack align="start" spacing={2}>
-                            <HStack>
-                              <Text fontWeight="medium">Статус:</Text>
-                              <Badge colorScheme={promocode.is_active ? 'green' : 'red'}>
-                                {promocode.is_active ? 'Активен' : 'Неактивен'}
-                              </Badge>
-                            </HStack>
-                            <HStack>
-                              <Text fontWeight="medium">Остается использований:</Text>
-                              <Text>{promocode.usage_quantity || 0}</Text>
-                            </HStack>
-                          </VStack>
-                        </GridItem>
-                      </Grid>
+                      <VStack align="stretch" spacing={3}>
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">Название:</Text>
+                          <Text fontSize="lg" fontWeight="bold" fontFamily="mono" color="purple.500">
+                            {promocode.name}
+                          </Text>
+                        </HStack>
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">Скидка:</Text>
+                          <Badge colorScheme="purple" fontSize="md">
+                            -{promocode.discount}%
+                          </Badge>
+                        </HStack>
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">Статус:</Text>
+                          <Badge colorScheme={promocode.is_active ? 'green' : 'red'}>
+                            {promocode.is_active ? 'Активен' : 'Неактивен'}
+                          </Badge>
+                        </HStack>
+                        <HStack justify="space-between">
+                          <Text fontWeight="medium">Остается использований:</Text>
+                          <Text>{promocode.usage_quantity || 0}</Text>
+                        </HStack>
+                      </VStack>
                     ) : (
                       <Box p={3} bg="orange.50" borderRadius="md" borderLeft="4px solid" borderLeftColor="orange.400">
                         <Text fontSize="sm" color="orange.700">
@@ -513,104 +604,59 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
               </Card>
             )}
 
-            {/* Дополнительная информация */}
-            <Card>
-              <CardBody>
-                <VStack align="stretch" spacing={3}>
-                  <Text fontSize="lg" fontWeight="semibold">Дополнительная информация</Text>
+            {/* Предупреждения */}
+            {!data.confirmed && data.paid && (
+              <Box p={3} bg="yellow.50" borderRadius="md" borderLeft="4px solid" borderLeftColor="yellow.400">
+                <Text fontSize="sm" color="yellow.700">
+                  ⚠️ Бронирование оплачено, но требует подтверждения администратора
+                </Text>
+              </Box>
+            )}
 
-                  <Grid templateColumns="1fr 1fr" gap={4}>
-                    <GridItem>
-                      <VStack align="start" spacing={2}>
-                        <HStack>
-                          <Text fontWeight="medium">Дата создания:</Text>
-                          <Text fontSize="sm">{formatDateTime(data.created_at)}</Text>
-                        </HStack>
+            {!data.paid && (
+              <Box p={3} bg="red.50" borderRadius="md" borderLeft="4px solid" borderLeftColor="red.400">
+                <Text fontSize="sm" color="red.700">
+                  ❌ Бронирование не оплачено. Клиент может не иметь доступа к услуге.
+                </Text>
+              </Box>
+            )}
 
-                        {data.payment_id && (
-                          <HStack>
-                            <Text fontWeight="medium">ID платежа:</Text>
-                            <HStack>
-                              <Text fontFamily="mono" fontSize="sm">{data.payment_id}</Text>
-                              <Tooltip label="Скопировать">
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
-                                  onClick={() => copyToClipboard(data.payment_id, 'ID платежа')}
-                                >
-                                  <FiCopy />
-                                </Button>
-                              </Tooltip>
-                            </HStack>
-                          </HStack>
-                        )}
-                      </VStack>
-                    </GridItem>
-
-                    <GridItem>
-                      <VStack align="start" spacing={2}>
-                        {data.rubitime_id && (
-                          <HStack>
-                            <Text fontWeight="medium">Rubitime ID:</Text>
-                            <HStack>
-                              <Text fontFamily="mono" fontSize="sm">{data.rubitime_id}</Text>
-                              <Tooltip label="Скопировать">
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
-                                  onClick={() => copyToClipboard(data.rubitime_id, 'Rubitime ID')}
-                                >
-                                  <FiCopy />
-                                </Button>
-                              </Tooltip>
-                            </HStack>
-                          </HStack>
-                        )}
-
-                        <HStack>
-                          <Text fontWeight="medium">Статус в системе:</Text>
-                          <Badge
-                            colorScheme={
-                              data.paid && data.confirmed ? 'green' :
-                              data.paid ? 'yellow' : 'red'
-                            }
-                          >
-                            {data.paid && data.confirmed ? 'Готово к посещению' :
-                             data.paid ? 'Ожидает подтверждения' :
-                             'Требует оплаты'}
-                          </Badge>
-                        </HStack>
-                      </VStack>
-                    </GridItem>
-                  </Grid>
-
-                  {/* Предупреждения */}
-                  {!data.confirmed && data.paid && (
-                    <Box p={3} bg="yellow.50" borderRadius="md" borderLeft="4px solid" borderLeftColor="yellow.400">
-                      <Text fontSize="sm" color="yellow.700">
-                        ⚠️ Бронирование оплачено, но требует подтверждения администратора
-                      </Text>
-                    </Box>
-                  )}
-
-                  {!data.paid && (
-                    <Box p={3} bg="red.50" borderRadius="md" borderLeft="4px solid" borderLeftColor="red.400">
-                      <Text fontSize="sm" color="red.700">
-                        ❌ Бронирование не оплачено. Клиент может не иметь доступа к услуге.
-                      </Text>
-                    </Box>
-                  )}
-                </VStack>
-              </CardBody>
-            </Card>
           </VStack>
         </ModalBody>
 
         <ModalFooter>
           <HStack spacing={3}>
+            {/* Кнопки действий */}
+            {!data.confirmed && (
+              <Button
+                leftIcon={<FiCheck />}
+                colorScheme="green"
+                onClick={handleConfirmBooking}
+                isLoading={actionLoading.confirm}
+                loadingText="Подтверждаем..."
+              >
+                Подтвердить
+              </Button>
+            )}
+
+            {!data.paid && (
+              <Button
+                leftIcon={<FiDollarSign />}
+                colorScheme="teal"
+                variant="outline"
+                onClick={handleMarkAsPaid}
+                isLoading={actionLoading.markPaid}
+                loadingText="Обновляем..."
+              >
+                Отметить как оплачено
+              </Button>
+            )}
+
+            {/* Основные кнопки */}
             <Button colorScheme="blue" onClick={onClose}>
               Закрыть
             </Button>
+
             {user.username && (
               <Link href={getTelegramUrl(user.username)} isExternal>
                 <Button leftIcon={<FiMessageCircle />} colorScheme="purple" variant="outline">
@@ -618,6 +664,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                 </Button>
               </Link>
             )}
+
             {error && (
               <Button leftIcon={<FiAlertTriangle />} variant="outline" onClick={debugBooking}>
                 Отладка

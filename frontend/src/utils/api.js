@@ -335,17 +335,81 @@ export const bookingApi = {
     }
   },
 
-  update: async (bookingId, confirmed) => {
+  // Обновленный основной метод для изменения статуса бронирования
+  updateBooking: async (bookingId, updateData) => {
     try {
       const id = String(bookingId);
-      const res = await apiClient.put(`/bookings/${id}`, {
-        confirmed: Boolean(confirmed)
-      });
+
+      console.log(`Обновление бронирования ${id} с данными:`, updateData);
+
+      // Валидируем данные перед отправкой
+      const validatedData = {};
+
+      if ('confirmed' in updateData) {
+        validatedData.confirmed = Boolean(updateData.confirmed);
+      }
+
+      if ('paid' in updateData) {
+        validatedData.paid = Boolean(updateData.paid);
+      }
+
+      // Можно добавить другие поля при необходимости
+      if ('amount' in updateData) {
+        validatedData.amount = Number(updateData.amount);
+      }
+
+      const res = await apiClient.put(`/bookings/${id}`, validatedData);
       return res.data;
     } catch (error) {
       console.error(`Ошибка обновления бронирования ${bookingId}:`, error);
-      throw error;
+
+      // Детальная обработка ошибок
+      if (error.response?.status === 404) {
+        throw new Error('Бронирование не найдено');
+      }
+
+      if (error.response?.status === 422) {
+        console.error('422 Ошибка валидации при обновлении:', error.response.data);
+        throw new Error('Ошибка валидации данных: ' + (error.response.data?.detail || 'неизвестная ошибка'));
+      }
+
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail);
+      }
+
+      throw new Error('Не удалось обновить бронирование');
     }
+  },
+
+  // Метод для подтверждения бронирования (legacy - для совместимости)
+  update: async (bookingId, confirmed) => {
+    console.warn('bookingApi.update deprecated, используйте bookingApi.updateBooking');
+    return await bookingApi.updateBooking(bookingId, { confirmed: Boolean(confirmed) });
+  },
+
+  // Удобные методы для конкретных действий
+  markAsPaid: async (bookingId) => {
+    return await bookingApi.updateBooking(bookingId, { paid: true });
+  },
+
+  markAsUnpaid: async (bookingId) => {
+    return await bookingApi.updateBooking(bookingId, { paid: false });
+  },
+
+  confirm: async (bookingId) => {
+    return await bookingApi.updateBooking(bookingId, { confirmed: true });
+  },
+
+  unconfirm: async (bookingId) => {
+    return await bookingApi.updateBooking(bookingId, { confirmed: false });
+  },
+
+  // Комбинированные методы
+  confirmAndMarkPaid: async (bookingId) => {
+    return await bookingApi.updateBooking(bookingId, {
+      confirmed: true,
+      paid: true
+    });
   },
 
   delete: async (bookingId) => {
@@ -355,7 +419,16 @@ export const bookingApi = {
       return res.data;
     } catch (error) {
       console.error(`Ошибка удаления бронирования ${bookingId}:`, error);
-      throw error;
+
+      if (error.response?.status === 404) {
+        throw new Error('Бронирование не найдено');
+      }
+
+      if (error.response?.data?.detail) {
+        throw new Error(error.response.data.detail);
+      }
+
+      throw new Error('Не удалось удалить бронирование');
     }
   },
 
@@ -384,35 +457,92 @@ export const bookingApi = {
   debug: async (bookingId) => {
     try {
       const id = String(bookingId);
-      console.group(`Отладка бронирования ID: ${id}`);
+      console.group(`🔍 Отладка бронирования ID: ${id}`);
 
       // Проверяем валидность ID
+      console.log('Шаг 1: Валидация ID...');
       const validation = await bookingApi.validateId(id);
-      console.log('Валидация ID:', validation);
+      console.log('Результат валидации:', validation);
 
       if (validation.exists) {
         // Пробуем получить базовую информацию
+        console.log('Шаг 2: Получение базовой информации...');
         try {
           const basic = await bookingApi.getById(id);
-          console.log('Базовая информация:', basic);
+          console.log('✅ Базовая информация получена:', basic);
         } catch (basicError) {
-          console.error('Ошибка получения базовой информации:', basicError);
+          console.error('❌ Ошибка получения базовой информации:', basicError);
         }
 
         // Пробуем получить детальную информацию
+        console.log('Шаг 3: Получение детальной информации...');
         try {
           const detailed = await bookingApi.getByIdDetailed(id);
-          console.log('Детальная информация:', detailed);
+          console.log('✅ Детальная информация получена:', detailed);
         } catch (detailedError) {
-          console.error('Ошибка получения детальной информации:', detailedError);
+          console.error('❌ Ошибка получения детальной информации:', detailedError);
         }
+
+        // Проверяем доступные действия
+        console.log('Шаг 4: Проверка доступных действий...');
+        const actions = {
+          canConfirm: !validation.confirmed,
+          canMarkPaid: !validation.paid,
+          canUnconfirm: validation.confirmed,
+          canMarkUnpaid: validation.paid
+        };
+        console.log('Доступные действия:', actions);
+      } else {
+        console.log('❌ Бронирование не существует или недоступно');
       }
 
       console.groupEnd();
-      return validation;
+      return {
+        ...validation,
+        debugCompleted: true,
+        timestamp: new Date().toISOString()
+      };
     } catch (error) {
-      console.error('Ошибка отладки:', error);
-      return { error: error.message };
+      console.error('❌ Критическая ошибка отладки:', error);
+      console.groupEnd();
+      return {
+        error: error.message,
+        debugCompleted: false,
+        timestamp: new Date().toISOString()
+      };
+    }
+  },
+
+  // Метод для массовых операций (опциональный)
+  bulkUpdate: async (bookingIds, updateData) => {
+    try {
+      console.log(`Массовое обновление ${bookingIds.length} бронирований:`, updateData);
+
+      const promises = bookingIds.map(id =>
+        bookingApi.updateBooking(id, updateData)
+      );
+
+      const results = await Promise.allSettled(promises);
+
+      const successful = results.filter(r => r.status === 'fulfilled');
+      const failed = results.filter(r => r.status === 'rejected');
+
+      console.log(`✅ Успешно обновлено: ${successful.length}`);
+      if (failed.length > 0) {
+        console.log(`❌ Ошибок при обновлении: ${failed.length}`);
+        failed.forEach((result, index) => {
+          console.error(`Ошибка для ID ${bookingIds[index]}:`, result.reason);
+        });
+      }
+
+      return {
+        successful: successful.length,
+        failed: failed.length,
+        results: results
+      };
+    } catch (error) {
+      console.error('Ошибка массового обновления:', error);
+      throw error;
     }
   }
 };

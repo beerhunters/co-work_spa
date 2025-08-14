@@ -1414,37 +1414,251 @@ async def get_booking(
     return booking
 
 
-@app.put("/bookings/{booking_id}", response_model=BookingBase)
+# ОБНОВЛЕННЫЙ PUT endpoint - ЗАМЕНЯЕТ СТАРУЮ ВЕРСИЮ
+@app.put("/bookings/{booking_id}")
 async def update_booking(
     booking_id: int,
-    confirmed: bool,
+    update_data: dict,
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
-    """Подтверждение или отклонение бронирования."""
-    booking = db.query(Booking).get(booking_id)
-    if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
+    """Обновление статуса бронирования (подтверждение/оплата)."""
+    try:
+        booking = db.query(Booking).filter(Booking.id == booking_id).first()
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
 
-    booking.confirmed = confirmed
-    db.commit()
+        # Получаем связанные объекты
+        user = db.query(User).filter(User.id == booking.user_id).first()
+        tariff = db.query(Tariff).filter(Tariff.id == booking.tariff_id).first()
 
-    # Уведомляем пользователя
-    if bot:
-        user = db.query(User).get(booking.user_id)
-        tariff = db.query(Tariff).get(booking.tariff_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not tariff:
+            raise HTTPException(status_code=404, detail="Tariff not found")
 
-        if confirmed:
-            message = f"✅ Ваша бронь подтверждена!\n\n📋 Тариф: {tariff.name}\n📅 Дата: {booking.visit_date}"
-        else:
-            message = f"❌ Ваша бронь отклонена.\n\n📋 Тариф: {tariff.name}\n📅 Дата: {booking.visit_date}"
+        # Сохраняем старые значения для проверки изменений
+        old_confirmed = booking.confirmed
+        old_paid = booking.paid
 
-        try:
-            await bot.send_message(user.telegram_id, message)
-        except Exception as e:
-            logger.error(f"Не удалось отправить уведомление пользователю: {e}")
+        # Обновляем статусы
+        if "confirmed" in update_data:
+            booking.confirmed = update_data["confirmed"]
 
-    return booking
+        if "paid" in update_data:
+            booking.paid = update_data["paid"]
+
+        # Если подтверждаем бронирование И у нас нет записи в Rubitime - создаем её
+        if (
+            "confirmed" in update_data
+            and update_data["confirmed"]
+            and not old_confirmed
+            and not booking.rubitime_id
+            and tariff.service_id
+        ):
+
+            try:
+                logger.info(
+                    f"Создание записи Rubitime для подтвержденной брони #{booking.id}"
+                )
+
+                # Форматируем телефон для Rubitime
+                def format_phone_for_rubitime(phone: str) -> str:
+                    if not phone:
+                        return "Не указано"
+
+                    import re
+
+                    digits = re.sub(r"[^0-9]", "", phone)
+
+                    if len(digits) == 11 and digits.startswith("8"):
+                        digits = "7" + digits[1:]
+                    elif len(digits) == 10:
+                        digits = "7" + digits
+                    elif len(digits) == 11 and digits.startswith("7"):
+                        pass
+                    else:
+                        return "Не указано"
+
+                    if len(digits) == 11:
+                        return "+" + digits
+                    else:
+                        return "Не указано"
+
+                formatted_phone = format_phone_for_rubitime(user.phone or "")
+
+                if formatted_phone != "Не указано":
+                    # Формируем дату и время для Rubitime
+                    if booking.visit_time and booking.duration:
+                        rubitime_date = datetime.combine(
+                            booking.visit_date, booking.visit_time
+                        ).strftime("%Y-%m-%d %H:%M:%S")
+                        rubitime_duration = booking.duration * 60
+                    else:
+                        rubitime_date = (
+                            booking.visit_date.strftime("%Y-%m-%d") + " 09:00:00"
+                        )
+                        rubitime_duration = None
+
+                    # Формируем комментарий
+                    comment_parts = [
+                        f"Подтвержденная бронь через Telegram бота - {tariff.name}"
+                    ]
+
+                    # Добавляем информацию о промокоде если есть
+                    if booking.promocode_id:
+                        promocode = (
+                            db.query(Promocode)
+                            .filter(Promocode.id == booking.promocode_id)
+                            .first()
+                        )
+                        if promocode:
+                            comment_parts.append(
+                                f"Промокод: {promocode.name} (-{promocode.discount}%)"
+                            )
+
+                    # Добавляем информацию о длительности для переговорных
+                    if booking.duration and booking.duration > 1:
+                        comment_parts.append(
+                            f"Длительность: {booking.duration} час(ов)"
+                        )
+
+                    final_comment = " | ".join(comment_parts)
+
+                    rubitime_params = {
+                        "service_id": tariff.service_id,
+                        "date": rubitime_date,
+                        "phone": formatted_phone,
+                        "name": user.full_name or "Клиент",
+                        "comment": final_comment,
+                        "source": "Telegram Bot Admin",
+                    }
+
+                    if rubitime_duration is not None:
+                        rubitime_params["duration"] = rubitime_duration
+
+                    if user.email and user.email.strip():
+                        rubitime_params["email"] = user.email.strip()
+
+                    logger.info(f"Параметры для Rubitime: {rubitime_params}")
+
+                    # Создаем запись в Rubitime
+                    rubitime_id = await rubitime("create_record", rubitime_params)
+
+                    if rubitime_id:
+                        booking.rubitime_id = str(rubitime_id)
+                        logger.info(
+                            f"✅ Создана запись Rubitime #{booking.rubitime_id} для подтвержденной брони #{booking.id}"
+                        )
+                    else:
+                        logger.warning(
+                            f"⚠️ Не удалось создать запись в Rubitime для брони #{booking.id}"
+                        )
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Ошибка создания записи в Rubitime при подтверждении брони #{booking.id}: {e}"
+                )
+                # Не блокируем подтверждение из-за ошибки Rubitime
+
+        # Обновляем счетчик успешных бронирований при отметке как оплачено
+        if (
+            "paid" in update_data
+            and update_data["paid"]
+            and not old_paid
+            and tariff.purpose
+            and tariff.purpose.lower() in ["опенспейс", "coworking"]
+        ):
+            old_bookings = user.successful_bookings or 0
+            user.successful_bookings = old_bookings + 1
+            logger.info(
+                f"👤 Счетчик бронирований пользователя {user.telegram_id}: {old_bookings} -> {user.successful_bookings}"
+            )
+
+        # Сохраняем изменения
+        db.commit()
+        db.refresh(booking)
+
+        # Отправляем уведомления пользователю через бота
+        if bot and user.telegram_id:
+            try:
+                if (
+                    "confirmed" in update_data
+                    and update_data["confirmed"]
+                    and not old_confirmed
+                ):
+                    # Уведомление о подтверждении
+                    visit_time_str = (
+                        f" в {booking.visit_time.strftime('%H:%M')}"
+                        if booking.visit_time
+                        else ""
+                    )
+                    duration_str = f" ({booking.duration}ч)" if booking.duration else ""
+
+                    message = f"""✅ <b>Ваша бронь подтверждена!</b>
+
+📋 <b>Тариф:</b> {tariff.name}
+📅 <b>Дата:</b> {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}{duration_str}
+💰 <b>Сумма:</b> {booking.amount:.2f} ₽
+
+💡 <b>Что дальше:</b> Ждем вас в назначенное время!"""
+
+                    await bot.send_message(user.telegram_id, message, parse_mode="HTML")
+                    logger.info(
+                        f"📤 Отправлено уведомление о подтверждении пользователю {user.telegram_id}"
+                    )
+
+                elif "paid" in update_data and update_data["paid"] and not old_paid:
+                    # Уведомление об оплате
+                    visit_time_str = (
+                        f" в {booking.visit_time.strftime('%H:%M')}"
+                        if booking.visit_time
+                        else ""
+                    )
+
+                    message = f"""💳 <b>Оплата зачислена!</b>
+
+📋 <b>Тариф:</b> {tariff.name}
+📅 <b>Дата:</b> {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}
+💰 <b>Сумма:</b> {booking.amount:.2f} ₽
+
+✅ Ваша оплата успешно обработана и зачислена."""
+
+                    await bot.send_message(user.telegram_id, message, parse_mode="HTML")
+                    logger.info(
+                        f"📤 Отправлено уведомление об оплате пользователю {user.telegram_id}"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Не удалось отправить уведомление пользователю {user.telegram_id}: {e}"
+                )
+
+        # Возвращаем обновленное бронирование
+        return {
+            "id": booking.id,
+            "user_id": booking.user_id,
+            "tariff_id": booking.tariff_id,
+            "visit_date": booking.visit_date.isoformat(),
+            "visit_time": (
+                booking.visit_time.isoformat() if booking.visit_time else None
+            ),
+            "duration": booking.duration,
+            "promocode_id": booking.promocode_id,
+            "amount": float(booking.amount),
+            "payment_id": booking.payment_id,
+            "paid": bool(booking.paid),
+            "rubitime_id": booking.rubitime_id,
+            "confirmed": bool(booking.confirmed),
+            "created_at": booking.created_at.isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления бронирования {booking_id}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.delete("/bookings/{booking_id}")
