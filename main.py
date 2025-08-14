@@ -29,6 +29,9 @@ import sqlite3
 from sqlalchemy.exc import OperationalError, DatabaseError
 from contextlib import contextmanager
 from yookassa import Payment, Refund, Configuration
+from pathlib import Path
+from fastapi import File, UploadFile
+from fastapi.responses import FileResponse
 
 
 # Импорты моделей и утилит
@@ -2657,10 +2660,6 @@ async def get_dashboard_stats(
 
 # ================== TICKET ENDPOINTS ==================
 
-# Создаем директорию для фото ответов
-TICKET_PHOTOS_DIR = Path(__file__).parent / "ticket_photos"
-TICKET_PHOTOS_DIR.mkdir(exist_ok=True)
-
 
 @app.get("/tickets", response_model=List[dict])
 async def get_tickets(
@@ -2708,6 +2707,50 @@ async def get_tickets(
     return result
 
 
+@app.get("/tickets/{ticket_id}")
+async def get_ticket_by_id(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение конкретного тикета по ID."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    user = db.query(User).filter(User.id == ticket.user_id).first()
+
+    return {
+        "id": ticket.id,
+        "description": ticket.description,
+        "photo_id": ticket.photo_id,
+        "response_photo_id": ticket.response_photo_id,
+        "status": ticket.status.name,
+        "comment": ticket.comment,
+        "created_at": ticket.created_at.isoformat(),
+        "updated_at": ticket.updated_at.isoformat(),
+        "user": (
+            {
+                "id": user.id if user else None,
+                "telegram_id": user.telegram_id if user else None,
+                "full_name": user.full_name if user else "Пользователь не найден",
+                "username": user.username if user else None,
+                "phone": user.phone if user else None,
+                "email": user.email if user else None,
+            }
+            if user
+            else {
+                "id": ticket.user_id,
+                "telegram_id": None,
+                "full_name": "Пользователь не найден",
+                "username": None,
+                "phone": None,
+                "email": None,
+            }
+        ),
+    }
+
+
 @app.post("/tickets")
 async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
     """Создание нового тикета. Используется ботом."""
@@ -2727,7 +2770,7 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
     ticket = Ticket(
         user_id=user.id,
         description=ticket_data.description,
-        photo_id=ticket_data.photo_id,
+        photo_id=ticket_data.photo_id,  # Сохраняем Telegram file_id как есть
         status=status_enum,
         comment=ticket_data.comment,
         created_at=datetime.now(MOSCOW_TZ),
@@ -2739,6 +2782,238 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
     db.refresh(ticket)
 
     return {"id": ticket.id, "message": "Ticket created successfully"}
+
+
+@app.put("/tickets/{ticket_id}")
+async def update_ticket(
+    ticket_id: int,
+    update_data: dict,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Обновление тикета (статус, комментарий)."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        # Получаем пользователя для отправки уведомления
+        user = db.query(User).filter(User.id == ticket.user_id).first()
+
+        # Сохраняем старые значения
+        old_status = ticket.status
+        old_comment = ticket.comment
+
+        # Обновляем статус
+        if "status" in update_data:
+            try:
+                new_status = TicketStatus[update_data["status"]]
+                ticket.status = new_status
+            except KeyError:
+                raise HTTPException(status_code=400, detail="Invalid status")
+
+        # Обновляем комментарий
+        if "comment" in update_data:
+            ticket.comment = update_data["comment"]
+
+        # Обновляем время изменения
+        ticket.updated_at = datetime.now(MOSCOW_TZ)
+
+        db.commit()
+        db.refresh(ticket)
+
+        # Отправляем уведомление пользователю
+        if bot and user and user.telegram_id:
+            try:
+                status_changed = old_status != ticket.status
+                comment_changed = ticket.comment and ticket.comment != old_comment
+
+                if status_changed or comment_changed:
+                    status_messages = {
+                        TicketStatus.OPEN: "📋 Ваша заявка получена и находится в обработке",
+                        TicketStatus.IN_PROGRESS: "⚙️ Ваша заявка взята в работу",
+                        TicketStatus.CLOSED: "✅ Ваша заявка решена",
+                    }
+
+                    message = f"🎫 <b>Обновление по заявке #{ticket.id}</b>\n\n"
+
+                    if status_changed:
+                        message += status_messages.get(
+                            ticket.status, f"Статус: {ticket.status.name}"
+                        )
+
+                    if comment_changed:
+                        message += f"\n\n💬 <b>Комментарий администратора:</b>\n{ticket.comment}"
+
+                    await bot.send_message(
+                        chat_id=user.telegram_id, text=message, parse_mode="HTML"
+                    )
+                    logger.info(
+                        f"📤 Отправлено уведомление об обновлении тикета #{ticket.id} пользователю {user.telegram_id}"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Ошибка отправки уведомления о тикете #{ticket.id}: {e}"
+                )
+
+        # Возвращаем обновленный тикет
+        return {
+            "id": ticket.id,
+            "description": ticket.description,
+            "photo_id": ticket.photo_id,
+            "response_photo_id": ticket.response_photo_id,
+            "status": ticket.status.name,
+            "comment": ticket.comment,
+            "created_at": ticket.created_at.isoformat(),
+            "updated_at": ticket.updated_at.isoformat(),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления тикета {ticket_id}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/tickets/{ticket_id}/photo-base64")
+async def get_ticket_photo_base64(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение фото в формате base64 для использования в React."""
+
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    if not ticket.photo_id:
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    if not bot:
+        raise HTTPException(status_code=503, detail="Bot not available")
+
+    try:
+        # Получаем файл через Telegram Bot API
+        file_info = await bot.get_file(ticket.photo_id)
+        file_url = f"https://api.telegram.org/file/bot{bot.token}/{file_info.file_path}"
+
+        # Скачиваем изображение
+        import aiohttp
+        import base64
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(file_url) as response:
+                if response.status == 200:
+                    image_data = await response.read()
+
+                    # Определяем MIME-тип
+                    import mimetypes
+
+                    mime_type, _ = mimetypes.guess_type(file_info.file_path)
+                    if not mime_type or not mime_type.startswith("image/"):
+                        mime_type = "image/jpeg"
+
+                    # Конвертируем в base64
+                    base64_data = base64.b64encode(image_data).decode("utf-8")
+                    data_url = f"data:{mime_type};base64,{base64_data}"
+
+                    return {
+                        "photo_url": data_url,
+                        "mime_type": mime_type,
+                        "size": len(image_data),
+                    }
+                else:
+                    raise HTTPException(
+                        status_code=404, detail="Photo not accessible from Telegram"
+                    )
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения фото из Telegram: {e}")
+        raise HTTPException(status_code=404, detail="Photo not accessible")
+
+
+@app.post("/tickets/{ticket_id}/photo")
+async def upload_response_photo(
+    ticket_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Загрузка фото в ответе администратора (отправляем в Telegram, не сохраняем)."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    # Получаем пользователя
+    user = db.query(User).filter(User.id == ticket.user_id).first()
+    if not user or not user.telegram_id:
+        raise HTTPException(status_code=404, detail="User telegram not found")
+
+    # Проверяем тип файла
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+
+    # Проверяем размер файла (максимум 10MB)
+    if file.size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File size must be less than 10MB")
+
+    if not bot:
+        raise HTTPException(status_code=503, detail="Bot not available")
+
+    try:
+        # Читаем файл в память
+        file_content = await file.read()
+
+        # Правильный способ отправки фото через aiogram
+        from aiogram.types import BufferedInputFile
+
+        # Создаем BufferedInputFile для aiogram
+        photo_file = BufferedInputFile(
+            file=file_content, filename=file.filename or f"photo_{ticket_id}.jpg"
+        )
+
+        # Отправляем фото пользователю через бота
+        await bot.send_photo(
+            chat_id=user.telegram_id,
+            photo=photo_file,
+            caption=f"📷 Фото к ответу по заявке #{ticket.id}",
+        )
+
+        logger.info(
+            f"📷 Фото отправлено пользователю {user.telegram_id} по тикету #{ticket.id}"
+        )
+
+        # Возвращаем успешный ответ без сохранения файла
+        return {
+            "message": "Photo sent to user successfully",
+            "sent_to": user.telegram_id,
+            "ticket_id": ticket.id,
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки фото пользователю: {e}")
+        raise HTTPException(status_code=500, detail="Error sending photo to user")
+
+
+@app.delete("/tickets/{ticket_id}")
+async def delete_ticket(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Удаление тикета."""
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    db.delete(ticket)
+    db.commit()
+
+    logger.info(f"🗑 Удален тикет #{ticket_id}")
+    return {"message": "Ticket deleted successfully"}
 
 
 # ================== STARTUP EVENT ==================

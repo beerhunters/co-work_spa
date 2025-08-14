@@ -618,52 +618,43 @@ export const promocodeApi = {
   }
 };
 
-// -------------------- API: Заявки --------------------
-
+// -------------------- API: Заявки (обновленный) --------------------
 export const ticketApi = {
   getAll: async (params = {}) => {
     const res = await apiClient.get('/tickets', { params });
     return res.data;
   },
-
   getById: async (ticketId) => {
     const res = await apiClient.get(`/tickets/${ticketId}`);
     return res.data;
   },
-
   create: async (ticketData) => {
     const res = await apiClient.post('/tickets', ticketData);
     return res.data;
   },
-
   update: async (ticketId, status, comment, responsePhoto = null) => {
     let updateData = { status, comment };
-
-    // Если есть фото, сначала загружаем его
+    // Если есть фото, сначала отправляем его пользователю
     if (responsePhoto) {
       try {
-        const photoData = await ticketApi.uploadResponsePhoto(ticketId, responsePhoto);
-        updateData.response_photo_id = photoData.photo_id;
+        const photoResult = await ticketApi.sendPhotoToUser(ticketId, responsePhoto);
+        console.log('Фото отправлено пользователю:', photoResult);
       } catch (error) {
-        console.error('Ошибка загрузки фото:', error);
-        throw new Error('Не удалось загрузить фото к ответу');
+        console.error('Ошибка отправки фото пользователю:', error);
+        throw new Error('Не удалось отправить фото пользователю');
       }
     }
-
     const res = await apiClient.put(`/tickets/${ticketId}`, updateData);
     return res.data;
   },
-
   delete: async (ticketId) => {
     const res = await apiClient.delete(`/tickets/${ticketId}`);
     return res.data;
   },
-
-  // Загрузка фото в ответе администратора
-  uploadResponsePhoto: async (ticketId, file) => {
+  // Отправка фото пользователю (заменяет uploadResponsePhoto)
+  sendPhotoToUser: async (ticketId, file) => {
     const formData = new FormData();
     formData.append('file', file);
-
     const res = await apiClient.post(`/tickets/${ticketId}/photo`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -672,17 +663,31 @@ export const ticketApi = {
     return res.data;
   },
 
-  // Получение фото пользователя (прикрепленного к тикету)
-  getPhoto: async (ticketId) => {
-    const res = await apiClient.get(`/tickets/${ticketId}/photo`, {
-      responseType: 'blob'
-    });
-    return res.data;
+  // ВАРИАНТ 1: Получение фото с токеном в URL
+  getPhotoUrl: (ticketId) => {
+    const token = localStorage.getItem('token');
+    return `${apiClient.defaults.baseURL}/tickets/${ticketId}/photo?token=${encodeURIComponent(token)}`;
   },
 
-  // Получение URL для отображения фото
-  getPhotoUrl: (ticketId) => {
-    return `${apiClient.defaults.baseURL}/tickets/${ticketId}/photo`;
+  // ВАРИАНТ 2: Получение фото в base64 (рекомендуемый)
+  getPhotoBase64: async (ticketId) => {
+    try {
+      const res = await apiClient.get(`/tickets/${ticketId}/photo-base64`);
+      return res.data.photo_url; // Возвращает data URL
+    } catch (error) {
+      console.error('Ошибка получения фото:', error);
+      return null;
+    }
+  },
+
+  // Устаревшие методы для совместимости
+  uploadResponsePhoto: async (ticketId, file) => {
+    console.warn('uploadResponsePhoto deprecated, используйте sendPhotoToUser');
+    return await ticketApi.sendPhotoToUser(ticketId, file);
+  },
+  getPhoto: async (ticketId) => {
+    console.warn('getPhoto deprecated, используйте getPhotoBase64');
+    return await ticketApi.getPhotoBase64(ticketId);
   }
 };
 

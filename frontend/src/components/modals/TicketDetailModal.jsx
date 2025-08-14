@@ -26,7 +26,9 @@ import {
   CardBody,
   Alert,
   AlertIcon,
-  AlertDescription
+  AlertDescription,
+  Spinner,
+  Center
 } from '@chakra-ui/react';
 import { FiEdit, FiSave, FiX, FiImage, FiUser, FiClock } from 'react-icons/fi';
 import { getStatusColor } from '../../styles/styles';
@@ -38,6 +40,9 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
   const [comment, setComment] = useState('');
   const [responsePhoto, setResponsePhoto] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoError, setPhotoError] = useState(false);
+  const [photoUrl, setPhotoUrl] = useState(null);
   const toast = useToast();
 
   useEffect(() => {
@@ -45,8 +50,36 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
       setStatus(ticket.status || 'OPEN');
       setComment(ticket.comment || '');
       setResponsePhoto(null);
+      setPhotoError(false);
+      setPhotoUrl(null);
+
+      // Загружаем фото, если оно есть
+      if (ticket.photo_id) {
+        loadTicketPhoto();
+      }
     }
   }, [ticket]);
+
+  const loadTicketPhoto = async () => {
+    if (!ticket?.photo_id) return;
+
+    setPhotoLoading(true);
+    setPhotoError(false);
+
+    try {
+      const photoDataUrl = await ticketApi.getPhotoBase64(ticket.id);
+      if (photoDataUrl) {
+        setPhotoUrl(photoDataUrl);
+      } else {
+        setPhotoError(true);
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки фото:', error);
+      setPhotoError(true);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
 
   const getStatusLabel = (status) => {
     const statusLabels = {
@@ -178,6 +211,12 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
     }
   };
 
+  const handleRetryPhoto = () => {
+    if (ticket?.photo_id) {
+      loadTicketPhoto();
+    }
+  };
+
   if (!ticket) return null;
 
   const availableStatuses = getAvailableStatuses(ticket.status);
@@ -234,16 +273,45 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
                       <Text fontSize="sm" color="gray.500" mb={2} fontWeight="medium">
                         Прикрепленное фото
                       </Text>
-                      <Image
-                        src={ticketApi.getPhotoUrl(ticket.id)}
-                        alt="Прикрепленное фото"
-                        maxH="300px"
-                        maxW="100%"
-                        borderRadius="md"
-                        border="1px solid"
-                        borderColor="gray.200"
-                        objectFit="contain"
-                      />
+
+                      {photoLoading && (
+                        <Center p={8} borderRadius="md" border="1px solid" borderColor="gray.200">
+                          <VStack spacing={2}>
+                            <Spinner size="lg" />
+                            <Text fontSize="sm" color="gray.500">Загружается...</Text>
+                          </VStack>
+                        </Center>
+                      )}
+
+                      {photoError && !photoLoading && (
+                        <Alert status="warning" borderRadius="md">
+                          <AlertIcon />
+                          <VStack align="start" spacing={2} flex={1}>
+                            <AlertDescription>
+                              Не удалось загрузить изображение. Возможно, фото больше недоступно в Telegram.
+                            </AlertDescription>
+                            <Button size="sm" onClick={handleRetryPhoto} variant="outline">
+                              Попробовать снова
+                            </Button>
+                          </VStack>
+                        </Alert>
+                      )}
+
+                      {photoUrl && !photoLoading && (
+                        <Image
+                          src={photoUrl}
+                          alt="Прикрепленное фото"
+                          maxH="400px"
+                          maxW="100%"
+                          borderRadius="md"
+                          border="1px solid"
+                          borderColor="gray.200"
+                          objectFit="contain"
+                          cursor="pointer"
+                          onClick={() => window.open(photoUrl, '_blank')}
+                          _hover={{ opacity: 0.8 }}
+                        />
+                      )}
                     </Box>
                   )}
                 </VStack>
