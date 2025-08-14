@@ -624,53 +624,65 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
           </VStack>
         </ModalBody>
 
-        <ModalFooter>
-          <HStack spacing={3}>
-            {/* Кнопки действий */}
-            {!data.confirmed && (
-              <Button
-                leftIcon={<FiCheck />}
-                colorScheme="green"
-                onClick={handleConfirmBooking}
-                isLoading={actionLoading.confirm}
-                loadingText="Подтверждаем..."
-              >
-                Подтвердить
-              </Button>
+        <ModalFooter p={4}>
+          <VStack spacing={2} width="100%">
+            {/* Первый ряд - кнопки действий */}
+            {(!data.confirmed || !data.paid) && (
+              <HStack spacing={2} width="100%" justify="center">
+                {!data.confirmed && (
+                  <Button
+                    leftIcon={<FiCheck />}
+                    colorScheme="green"
+                    size="sm"
+                    onClick={handleConfirmBooking}
+                    isLoading={actionLoading.confirm}
+                    loadingText="Подтверждение..."
+                    flex={1}
+                    maxW="150px"
+                  >
+                    Подтвердить
+                  </Button>
+                )}
+
+                {!data.paid && (
+                  <Button
+                    leftIcon={<FiDollarSign />}
+                    colorScheme="teal"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMarkAsPaid}
+                    isLoading={actionLoading.markPaid}
+                    loadingText="Обновление..."
+                    flex={1}
+                    maxW="150px"
+                  >
+                    Оплачено
+                  </Button>
+                )}
+              </HStack>
             )}
 
-            {!data.paid && (
-              <Button
-                leftIcon={<FiDollarSign />}
-                colorScheme="teal"
-                variant="outline"
-                onClick={handleMarkAsPaid}
-                isLoading={actionLoading.markPaid}
-                loadingText="Обновляем..."
-              >
-                Отметить как оплачено
+            {/* Второй ряд - основные кнопки */}
+            <HStack spacing={2} width="100%" justify="center">
+              <Button colorScheme="blue" onClick={onClose} size="sm">
+                Закрыть
               </Button>
-            )}
 
-            {/* Основные кнопки */}
-            <Button colorScheme="blue" onClick={onClose}>
-              Закрыть
-            </Button>
+              {user.username && (
+                <Link href={getTelegramUrl(user.username)} isExternal>
+                  <Button leftIcon={<FiMessageCircle />} colorScheme="purple" variant="outline" size="sm">
+                    Telegram
+                  </Button>
+                </Link>
+              )}
 
-            {user.username && (
-              <Link href={getTelegramUrl(user.username)} isExternal>
-                <Button leftIcon={<FiMessageCircle />} colorScheme="purple" variant="outline">
-                  Написать в Telegram
+              {error && (
+                <Button leftIcon={<FiAlertTriangle />} variant="outline" onClick={debugBooking} size="sm">
+                  Отладка
                 </Button>
-              </Link>
-            )}
-
-            {error && (
-              <Button leftIcon={<FiAlertTriangle />} variant="outline" onClick={debugBooking}>
-                Отладка
-              </Button>
-            )}
-          </HStack>
+              )}
+            </HStack>
+          </VStack>
         </ModalFooter>
       </ModalContent>
     </Modal>
