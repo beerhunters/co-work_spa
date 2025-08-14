@@ -633,28 +633,42 @@ export const ticketApi = {
     return res.data;
   },
   update: async (ticketId, status, comment, responsePhoto = null) => {
-    let updateData = { status, comment };
-    // Если есть фото, сначала отправляем его пользователю
+    // Если есть фото, отправляем его пользователю с комментарием и статусом
     if (responsePhoto) {
       try {
-        const photoResult = await ticketApi.sendPhotoToUser(ticketId, responsePhoto);
-        console.log('Фото отправлено пользователю:', photoResult);
+        const photoResult = await ticketApi.sendPhotoToUser(ticketId, responsePhoto, comment, status);
+        console.log('Фото с комментарием отправлено пользователю:', photoResult);
+
+        // Возвращаем обновленный тикет из ответа
+        return photoResult.updated_ticket;
       } catch (error) {
         console.error('Ошибка отправки фото пользователю:', error);
         throw new Error('Не удалось отправить фото пользователю');
       }
+    } else {
+      // Обычное обновление без фото
+      const updateData = { status, comment };
+      const res = await apiClient.put(`/tickets/${ticketId}`, updateData);
+      return res.data;
     }
-    const res = await apiClient.put(`/tickets/${ticketId}`, updateData);
-    return res.data;
   },
   delete: async (ticketId) => {
     const res = await apiClient.delete(`/tickets/${ticketId}`);
     return res.data;
   },
-  // Отправка фото пользователю (заменяет uploadResponsePhoto)
-  sendPhotoToUser: async (ticketId, file) => {
+  // Отправка фото пользователю с комментарием и статусом
+  sendPhotoToUser: async (ticketId, file, comment = null, status = null) => {
     const formData = new FormData();
     formData.append('file', file);
+
+    if (comment && comment.trim()) {
+      formData.append('comment', comment.trim());
+    }
+
+    if (status) {
+      formData.append('status', status);
+    }
+
     const res = await apiClient.post(`/tickets/${ticketId}/photo`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -662,13 +676,11 @@ export const ticketApi = {
     });
     return res.data;
   },
-
   // ВАРИАНТ 1: Получение фото с токеном в URL
   getPhotoUrl: (ticketId) => {
     const token = localStorage.getItem('token');
     return `${apiClient.defaults.baseURL}/tickets/${ticketId}/photo?token=${encodeURIComponent(token)}`;
   },
-
   // ВАРИАНТ 2: Получение фото в base64 (рекомендуемый)
   getPhotoBase64: async (ticketId) => {
     try {
@@ -679,7 +691,6 @@ export const ticketApi = {
       return null;
     }
   },
-
   // Устаревшие методы для совместимости
   uploadResponsePhoto: async (ticketId, file) => {
     console.warn('uploadResponsePhoto deprecated, используйте sendPhotoToUser');
@@ -690,7 +701,6 @@ export const ticketApi = {
     return await ticketApi.getPhotoBase64(ticketId);
   }
 };
-
 // -------------------- API: Рассылки --------------------
 
 export const newsletterApi = {

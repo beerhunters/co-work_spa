@@ -33,6 +33,7 @@ import {
 import { FiEdit, FiSave, FiX, FiImage, FiUser, FiClock } from 'react-icons/fi';
 import { getStatusColor } from '../../styles/styles';
 import { ticketApi } from '../../utils/api';
+import PhotoModal from './PhotoModal';
 
 const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -43,6 +44,7 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoError, setPhotoError] = useState(false);
   const [photoUrl, setPhotoUrl] = useState(null);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -298,19 +300,41 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
                       )}
 
                       {photoUrl && !photoLoading && (
-                        <Image
-                          src={photoUrl}
-                          alt="Прикрепленное фото"
-                          maxH="400px"
-                          maxW="100%"
-                          borderRadius="md"
-                          border="1px solid"
-                          borderColor="gray.200"
-                          objectFit="contain"
-                          cursor="pointer"
-                          onClick={() => window.open(photoUrl, '_blank')}
-                          _hover={{ opacity: 0.8 }}
-                        />
+                        <Box position="relative">
+                          <Image
+                            src={photoUrl}
+                            alt="Прикрепленное фото"
+                            maxH="400px"
+                            maxW="100%"
+                            borderRadius="md"
+                            border="1px solid"
+                            borderColor="gray.200"
+                            objectFit="contain"
+                            cursor="pointer"
+                            onClick={() => setIsPhotoModalOpen(true)}
+                            _hover={{
+                              opacity: 0.8,
+                              transform: 'scale(1.02)',
+                              transition: 'all 0.2s'
+                            }}
+                            transition="all 0.2s"
+                          />
+                          <Box
+                            position="absolute"
+                            top={2}
+                            right={2}
+                            bg="blackAlpha.600"
+                            color="white"
+                            p={1}
+                            borderRadius="md"
+                            fontSize="xs"
+                            opacity={0}
+                            _groupHover={{ opacity: 1 }}
+                            pointerEvents="none"
+                          >
+                            Нажмите для увеличения
+                          </Box>
+                        </Box>
                       )}
                     </Box>
                   )}
@@ -477,6 +501,14 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
           </VStack>
         </ModalBody>
       </ModalContent>
+
+      {/* Модальное окно для просмотра фото */}
+      <PhotoModal
+        isOpen={isPhotoModalOpen}
+        onClose={() => setIsPhotoModalOpen(false)}
+        photoUrl={photoUrl}
+        ticketId={ticket.id}
+      />
     </ChakraModal>
   );
 };

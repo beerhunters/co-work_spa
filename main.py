@@ -15,7 +15,7 @@ import jwt
 import pytz
 import schedule
 from aiogram import Bot
-from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form
 from fastapi import Query
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -2812,9 +2812,13 @@ async def update_ticket(
             except KeyError:
                 raise HTTPException(status_code=400, detail="Invalid status")
 
-        # Обновляем комментарий
+        # Обновляем комментарий (всегда сохраняем в БД)
         if "comment" in update_data:
             ticket.comment = update_data["comment"]
+
+        # Обновляем response_photo_id если указано
+        if "response_photo_id" in update_data:
+            ticket.response_photo_id = update_data["response_photo_id"]
 
         # Обновляем время изменения
         ticket.updated_at = datetime.now(MOSCOW_TZ)
@@ -2822,8 +2826,9 @@ async def update_ticket(
         db.commit()
         db.refresh(ticket)
 
-        # Отправляем уведомление пользователю
-        if bot and user and user.telegram_id:
+        # Отправляем уведомление пользователю (только если нет фото)
+        # Если было фото, уведомление уже отправлено в /photo эндпоинте
+        if bot and user and user.telegram_id and not update_data.get("photo_sent"):
             try:
                 status_changed = old_status != ticket.status
                 comment_changed = ticket.comment and ticket.comment != old_comment
@@ -2939,10 +2944,12 @@ async def get_ticket_photo_base64(
 async def upload_response_photo(
     ticket_id: int,
     file: UploadFile = File(...),
+    comment: Optional[str] = Form(None),
+    status: Optional[str] = Form(None),  # Добавляем статус
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
-    """Загрузка фото в ответе администратора (отправляем в Telegram, не сохраняем)."""
+    """Загрузка фото в ответе администратора (отправляем в Telegram с caption, не сохраняем)."""
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
@@ -2975,22 +2982,56 @@ async def upload_response_photo(
             file=file_content, filename=file.filename or f"photo_{ticket_id}.jpg"
         )
 
-        # Отправляем фото пользователю через бота
-        await bot.send_photo(
+        # Формируем caption с информацией о тикете и комментарием
+        caption = f"📷 Фото к ответу по заявке #{ticket.id}"
+
+        if comment and comment.strip():
+            caption += f"\n\n💬 Комментарий администратора:\n{comment.strip()}"
+
+        # Отправляем фото пользователю с caption
+        sent_message = await bot.send_photo(
             chat_id=user.telegram_id,
             photo=photo_file,
-            caption=f"📷 Фото к ответу по заявке #{ticket.id}",
+            caption=caption,
+            parse_mode="HTML",
         )
 
         logger.info(
-            f"📷 Фото отправлено пользователю {user.telegram_id} по тикету #{ticket.id}"
+            f"📷 Фото с комментарием отправлено пользователю {user.telegram_id} по тикету #{ticket.id}"
         )
 
-        # Возвращаем успешный ответ без сохранения файла
+        # Сохраняем информацию о том, что фото было отправлено
+        photo_sent_id = f"photo_sent_{ticket.id}_{sent_message.message_id}"
+
+        # Обновляем тикет в БД
+        update_data = {
+            "response_photo_id": photo_sent_id,  # Сохраняем факт отправки фото
+            "photo_sent": True,  # Флаг для предотвращения повторной отправки уведомления
+        }
+
+        if comment and comment.strip():
+            update_data["comment"] = comment.strip()
+
+        if status:
+            update_data["status"] = status
+
+        # Вызываем обновление тикета
+        from fastapi import Request
+        from unittest.mock import Mock
+
+        # Создаем mock request для обновления
+        mock_request = {"method": "PUT", "url": f"/tickets/{ticket_id}"}
+
+        updated_ticket = await update_ticket(ticket_id, update_data, db, _)
+
+        # Возвращаем успешный ответ
         return {
-            "message": "Photo sent to user successfully",
+            "message": "Photo with comment sent to user successfully",
             "sent_to": user.telegram_id,
             "ticket_id": ticket.id,
+            "caption": caption,
+            "photo_sent_id": photo_sent_id,
+            "updated_ticket": updated_ticket,
         }
 
     except Exception as e:
