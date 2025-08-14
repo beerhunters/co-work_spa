@@ -28,7 +28,8 @@ from werkzeug.security import check_password_hash
 import sqlite3
 from sqlalchemy.exc import OperationalError, DatabaseError
 from contextlib import contextmanager
-from yookassa import Payment, Refund
+from yookassa import Payment, Refund, Configuration
+
 
 # Импорты моделей и утилит
 from models.models import *
@@ -61,6 +62,10 @@ RUBITIME_API_KEY = os.getenv("RUBITIME_API_KEY")
 RUBITIME_BASE_URL = "https://rubitime.ru/api2/"
 RUBITIME_BRANCH_ID = int(os.getenv("RUBITIME_BRANCH_ID", "12595"))
 RUBITIME_COOPERATOR_ID = int(os.getenv("RUBITIME_COOPERATOR_ID", "25786"))
+
+# Настройка Yookassa
+Configuration.account_id = os.getenv("YOKASSA_ACCOUNT_ID")
+Configuration.secret_key = os.getenv("YOKASSA_SECRET_KEY")
 
 # Security
 security = HTTPBearer()
@@ -2093,16 +2098,6 @@ async def create_rubitime_record_from_bot(rubitime_params: dict):
     except Exception as e:
         logger.error(f"Ошибка создания записи Rubitime: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-async def check_payment_status(payment_id: str) -> Optional[str]:
-    """Проверка статуса платежа через YooKassa."""
-    try:
-        payment = await Payment.find_one(payment_id)
-        return payment.status
-    except Exception as e:
-        logger.error(f"Ошибка проверки платежа: {e}")
-        return None
 
 
 # ================== PAYMENT ENDPOINTS ==================
