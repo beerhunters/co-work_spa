@@ -155,7 +155,7 @@ const NotificationPermissionModal = ({ isOpen, onClose, onPermissionGranted }) =
                 <Button
                   size="sm"
                   variant="outline"
-                  leftIcon={<Icon as={FiVolume2} boxSize={4} />}  // ← Обернули в Icon
+                  leftIcon={<FiVolume2 size={14} />}
                   onClick={handleTestSound}
                   flex="1"
                 >
@@ -165,7 +165,7 @@ const NotificationPermissionModal = ({ isOpen, onClose, onPermissionGranted }) =
                   <Button
                     size="sm"
                     variant="outline"
-                    leftIcon={<Icon as={FiBell} boxSize={4} />}  // ← Обернули в Icon
+                    leftIcon={<FiBell size={14} />}
                     onClick={handleTestNotification}
                     flex="1"
                   >

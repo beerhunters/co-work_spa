@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
 from sqlalchemy import func
+from sqlalchemy.orm import joinedload
 from werkzeug.security import check_password_hash
 import sqlite3
 from sqlalchemy.exc import OperationalError, DatabaseError
@@ -805,7 +806,6 @@ async def get_avatar(filename: str):
 # ================== BOOKING ENDPOINTS ==================
 
 
-# 1. СТАТИЧЕСКИЙ маршрут /bookings/detailed - должен идти ПЕРВЫМ
 @app.get("/bookings/detailed")
 async def get_bookings_detailed(
     page: int = Query(1, ge=1),
@@ -816,24 +816,20 @@ async def get_bookings_detailed(
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
-    """Получение бронирований - только данные из таблицы Booking."""
+    """Получение бронирований с данными тарифов (оптимизированная версия)."""
     try:
-        # Базовый запрос - ТОЛЬКО таблица Booking
-        query = db.query(Booking)
+        # Базовый запрос с eager loading тарифа
+        query = db.query(Booking).options(joinedload(Booking.tariff))
 
-        # Фильтрация по дате (без JOIN'ов)
+        # Фильтрация по дате
         if date_query:
             try:
-                # Поддерживаем различные форматы даты
                 if date_query.count("-") == 2:
-                    # YYYY-MM-DD формат
                     query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
                 elif date_query.count(".") == 2:
-                    # DD.MM.YYYY формат
                     query_date = datetime.strptime(date_query, "%d.%m.%Y").date()
                 else:
                     raise ValueError("Unsupported date format")
-
                 query = query.filter(Booking.visit_date == query_date)
             except ValueError:
                 raise HTTPException(
@@ -841,7 +837,7 @@ async def get_bookings_detailed(
                     detail="Invalid date format. Use YYYY-MM-DD or DD.MM.YYYY",
                 )
 
-        # Фильтрация по статусу (без JOIN'ов)
+        # Фильтрация по статусу
         if status_filter:
             if status_filter == "paid":
                 query = query.filter(Booking.paid == True)
@@ -863,10 +859,9 @@ async def get_bookings_detailed(
             .all()
         )
 
-        # Формируем простой ответ - ТОЛЬКО данные из Booking
-        simple_bookings = []
+        # Формируем ответ с использованием relationship
+        enriched_bookings = []
         for booking in bookings:
-            # Принудительно приводим типы для предотвращения JSON ошибок
             booking_item = {
                 "id": int(booking.id),
                 "user_id": int(booking.user_id),
@@ -885,13 +880,33 @@ async def get_bookings_detailed(
                 "rubitime_id": booking.rubitime_id,
                 "confirmed": bool(booking.confirmed),
                 "created_at": booking.created_at.isoformat(),
+                # Используем relationship для получения тарифа
+                "tariff": (
+                    {
+                        "id": booking.tariff.id,
+                        "name": booking.tariff.name,
+                        "price": float(booking.tariff.price),
+                        "description": booking.tariff.description,
+                        "purpose": booking.tariff.purpose,
+                        "is_active": bool(booking.tariff.is_active),
+                    }
+                    if booking.tariff
+                    else {
+                        "id": booking.tariff_id,
+                        "name": f"Тариф #{booking.tariff_id} (удален)",
+                        "price": 0.0,
+                        "description": "Тариф не найден",
+                        "purpose": None,
+                        "is_active": False,
+                    }
+                ),
             }
-            simple_bookings.append(booking_item)
+            enriched_bookings.append(booking_item)
 
         total_pages = (total_count + per_page - 1) // per_page
 
         return {
-            "bookings": simple_bookings,
+            "bookings": enriched_bookings,
             "total_count": int(total_count),
             "page": int(page),
             "per_page": int(per_page),
@@ -902,11 +917,80 @@ async def get_bookings_detailed(
         raise
     except Exception as e:
         logger.error(f"Ошибка при получении бронирований: {e}")
-        # Возвращаем детальную ошибку для отладки в development
         import traceback
 
         logger.error(f"Полный traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+        # Fallback на простую версию без тарифов
+        try:
+            logger.info("Пытаемся fallback на простую версию...")
+            query = db.query(Booking)
+
+            if status_filter:
+                if status_filter == "paid":
+                    query = query.filter(Booking.paid == True)
+                elif status_filter == "unpaid":
+                    query = query.filter(Booking.paid == False)
+                elif status_filter == "confirmed":
+                    query = query.filter(Booking.confirmed == True)
+                elif status_filter == "pending":
+                    query = query.filter(Booking.confirmed == False)
+
+            total_count = query.count()
+            bookings = (
+                query.order_by(Booking.created_at.desc())
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+                .all()
+            )
+
+            simple_bookings = []
+            for booking in bookings:
+                booking_item = {
+                    "id": int(booking.id),
+                    "user_id": int(booking.user_id),
+                    "tariff_id": int(booking.tariff_id),
+                    "visit_date": booking.visit_date.isoformat(),
+                    "visit_time": (
+                        booking.visit_time.isoformat() if booking.visit_time else None
+                    ),
+                    "duration": int(booking.duration) if booking.duration else None,
+                    "promocode_id": (
+                        int(booking.promocode_id) if booking.promocode_id else None
+                    ),
+                    "amount": float(booking.amount),
+                    "payment_id": booking.payment_id,
+                    "paid": bool(booking.paid),
+                    "rubitime_id": booking.rubitime_id,
+                    "confirmed": bool(booking.confirmed),
+                    "created_at": booking.created_at.isoformat(),
+                    # Fallback тариф
+                    "tariff": {
+                        "id": booking.tariff_id,
+                        "name": f"Тариф #{booking.tariff_id}",
+                        "price": 0.0,
+                        "description": "Данные тарифа недоступны",
+                        "purpose": None,
+                        "is_active": True,
+                    },
+                }
+                simple_bookings.append(booking_item)
+
+            total_pages = (total_count + per_page - 1) // per_page
+
+            return {
+                "bookings": simple_bookings,
+                "total_count": int(total_count),
+                "page": int(page),
+                "per_page": int(per_page),
+                "total_pages": int(total_pages),
+            }
+
+        except Exception as fallback_error:
+            logger.error(f"Fallback также не удался: {fallback_error}")
+            raise HTTPException(
+                status_code=500, detail=f"Critical server error: {str(e)}"
+            )
 
 
 # 2. СТАТИЧЕСКИЙ маршрут /bookings/stats

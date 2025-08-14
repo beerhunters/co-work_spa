@@ -202,13 +202,13 @@ const Navbar = ({
                     <Text fontSize="sm" fontWeight="bold" color="gray.600">
                       Настройки уведомлений
                     </Text>
-                    <Icon as={FiSettings} color="gray.400" size="sm" />
+                    <Icon as={FiSettings} color="gray.400" boxSize={4} />
                   </HStack>
 
                   <FormControl display="flex" alignItems="center" size="sm">
                     <FormLabel htmlFor="sound-notifications" mb="0" fontSize="sm" flex="1">
                       <HStack spacing={2}>
-                        <Icon as={soundEnabled ? FiVolume2 : FiBellOff} />
+                        <Icon as={soundEnabled ? FiVolume2 : FiBellOff} boxSize={4} />
                         <Text>Звуковые уведомления</Text>
                       </HStack>
                     </FormLabel>
@@ -228,6 +228,7 @@ const Navbar = ({
                         <Button
                           size="xs"
                           variant="outline"
+                          leftIcon={<FiVolume2 size={12} />}
                           onClick={handleTestSound}
                           flex="1"
                         >
@@ -236,6 +237,7 @@ const Navbar = ({
                         <Button
                           size="xs"
                           variant="outline"
+                          leftIcon={<FiBell size={12} />}
                           onClick={handleTestNotification}
                           isLoading={soundTestLoading}
                           flex="1"
