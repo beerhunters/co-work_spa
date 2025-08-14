@@ -220,7 +220,7 @@ const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
                   value={formData.purpose}
                   onChange={(e) => setFormData({...formData, purpose: e.target.value})}
                 >
-                  <option value="coworking">Коворкинг</option>
+                  <option value="coworking">Опенспейс</option>
                   <option value="meeting_room">Переговорная</option>
                   <option value="event">Мероприятие</option>
                   <option value="other">Другое</option>
@@ -300,7 +300,7 @@ const Tariffs = ({ tariffs, openDetailModal, onUpdate }) => {
 
   const getPurposeLabel = (purpose) => {
     const labels = {
-      'coworking': 'Коворкинг',
+      'coworking': 'Опенспейс',
       'meeting_room': 'Переговорная',
       'event': 'Мероприятие',
       'other': 'Другое'
