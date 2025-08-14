@@ -1084,29 +1084,76 @@ async def get_bookings(
 # 4. СОЗДАНИЕ бронирования
 @app.post("/bookings", response_model=BookingBase)
 async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_db)):
+    logger.info(
+        f"Создание бронирования: user_id={booking_data.user_id}, tariff_id={booking_data.tariff_id}, promocode_id={booking_data.promocode_id}"
+    )
+
     with db_retry_context():
+        # Находим пользователя
         user = db.query(User).filter(User.telegram_id == booking_data.user_id).first()
         if not user:
+            logger.error(f"Пользователь с telegram_id {booking_data.user_id} не найден")
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Находим тариф
         tariff = db.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
         if not tariff:
+            logger.error(f"Тариф с ID {booking_data.tariff_id} не найден")
             raise HTTPException(status_code=404, detail="Tariff not found")
 
         amount = booking_data.amount
         promocode = None
+
+        # Обработка промокода
         if booking_data.promocode_id:
+            logger.info(f"Обработка промокода ID: {booking_data.promocode_id}")
+
             promocode = (
                 db.query(Promocode)
                 .filter(Promocode.id == booking_data.promocode_id)
                 .first()
             )
-            if promocode:
-                amount = amount * (1 - promocode.discount / 100)
 
-        # НЕ создаем запись в Rubitime здесь - это делается в боте
-        # чтобы избежать дублирования и ограничения "5 секунд"
+            if not promocode:
+                logger.error(f"Промокод с ID {booking_data.promocode_id} не найден")
+                raise HTTPException(status_code=404, detail="Promocode not found")
 
+            logger.info(
+                f"Найден промокод: {promocode.name}, скидка: {promocode.discount}%, осталось использований: {promocode.usage_quantity}"
+            )
+
+            # Проверяем доступность промокода
+            if not promocode.is_active:
+                logger.warning(f"Промокод {promocode.name} неактивен")
+                raise HTTPException(status_code=400, detail="Promocode is not active")
+
+            if promocode.expiration_date and promocode.expiration_date < datetime.now(
+                MOSCOW_TZ
+            ):
+                logger.warning(f"Промокод {promocode.name} истек")
+                raise HTTPException(status_code=410, detail="Promocode expired")
+
+            if promocode.usage_quantity <= 0:
+                logger.warning(f"Промокод {promocode.name} исчерпан")
+                raise HTTPException(
+                    status_code=410, detail="Promocode usage limit exceeded"
+                )
+
+            # Пересчитываем сумму с учетом скидки
+            original_amount = amount
+            amount = amount * (1 - promocode.discount / 100)
+            logger.info(
+                f"Сумма пересчитана: {original_amount} -> {amount} (скидка {promocode.discount}%)"
+            )
+
+            # КРИТИЧЕСКИ ВАЖНО: Уменьшаем счетчик использований промокода
+            old_usage = promocode.usage_quantity
+            promocode.usage_quantity -= 1
+            logger.info(
+                f"🎫 ПРОМОКОД {promocode.name}: использований было {old_usage}, стало {promocode.usage_quantity}"
+            )
+
+        # Создаем бронирование
         booking = Booking(
             user_id=user.id,
             tariff_id=tariff.id,
@@ -1118,14 +1165,28 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
             payment_id=booking_data.payment_id,
             paid=booking_data.paid,
             confirmed=booking_data.confirmed,
-            rubitime_id=booking_data.rubitime_id,  # Получаем от бота
+            rubitime_id=booking_data.rubitime_id,
         )
 
         db.add(booking)
-        db.commit()
-        db.refresh(booking)
 
-        # ТОЛЬКО создаем уведомление в БД (без отправки в Telegram)
+        # Коммитим все изменения сразу (и бронирование, и промокод)
+        try:
+            db.commit()
+            db.refresh(booking)
+            logger.info(f"✅ Создано бронирование #{booking.id} с суммой {amount} ₽")
+
+            if promocode:
+                logger.info(
+                    f"✅ Промокод {promocode.name} успешно использован, осталось: {promocode.usage_quantity}"
+                )
+
+        except Exception as e:
+            db.rollback()
+            logger.error(f"❌ Ошибка при сохранении бронирования: {e}")
+            raise HTTPException(status_code=500, detail="Failed to create booking")
+
+        # Создаем уведомление в БД
         notification = Notification(
             user_id=user.id,
             message=f"Создана новая бронь от {user.full_name or 'пользователя'}",
@@ -1133,13 +1194,22 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
             booking_id=booking.id,
         )
         db.add(notification)
-        db.commit()
 
-        # Обновляем счетчик успешных бронирований
+        # Обновляем счетчик успешных бронирований ТОЛЬКО если оплачено
         if booking_data.paid:
-            current_bookings = user.successful_bookings or 0
-            user.successful_bookings = current_bookings + 1
+            old_bookings = user.successful_bookings or 0
+            user.successful_bookings = old_bookings + 1
+            logger.info(
+                f"👤 Счетчик бронирований пользователя {user.telegram_id}: {old_bookings} -> {user.successful_bookings}"
+            )
+
+        # Финальный коммит для уведомления и счетчика пользователя
+        try:
             db.commit()
+            logger.info("✅ Уведомление и счетчики обновлены")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при сохранении уведомления: {e}")
+            # Не критично, бронирование уже создано
 
         return booking
 
