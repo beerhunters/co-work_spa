@@ -1,12 +1,11 @@
 import os
-
-
 import threading
-import time as tm
+import time as time_module
 import uuid
 import re
-from datetime import time, date
+from datetime import date
 from datetime import timedelta
+from datetime import time as time_type
 from pathlib import Path
 from typing import List
 
@@ -21,9 +20,11 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, event
 from sqlalchemy import func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, sessionmaker, scoped_session
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 from werkzeug.security import check_password_hash
 import sqlite3
 from sqlalchemy.exc import OperationalError, DatabaseError
@@ -35,7 +36,7 @@ from fastapi.responses import FileResponse
 
 # Импорты моделей и утилит
 from models.models import *
-from models.models import engine, Session, init_db, create_admin
+from models.models import init_db, create_admin, DatabaseManager
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -45,6 +46,27 @@ app = FastAPI()
 AVATARS_DIR = Path(__file__).parent / "avatars"
 AVATARS_DIR.mkdir(exist_ok=True)
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
+
+# Создаем директорию data если её нет
+data_dir = Path("/app/data")
+data_dir.mkdir(exist_ok=True)
+
+# Создаем улучшенный engine для SQLite (заменяем импортированный)
+engine = create_engine(
+    f"sqlite:///{data_dir}/coworking.db",
+    connect_args={
+        "check_same_thread": False,
+        "timeout": 60,
+        "isolation_level": None,
+    },
+    echo=False,
+    poolclass=StaticPool,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+)
+
+# Используем scoped_session для thread-safe работы
+Session = scoped_session(sessionmaker(bind=engine))
 
 # Переменные окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -183,7 +205,7 @@ class BookingBase(BaseModel):
     user_id: int
     tariff_id: int
     visit_date: date
-    visit_time: Optional[time]
+    visit_time: Optional[time_type]
     duration: Optional[int]
     promocode_id: Optional[int]
     amount: float
@@ -201,7 +223,7 @@ class BookingCreate(BaseModel):
     user_id: int  # Это будет telegram_id
     tariff_id: int
     visit_date: date
-    visit_time: Optional[time] = None
+    visit_time: Optional[time_type] = None
     duration: Optional[int] = None
     promocode_id: Optional[int] = None
     amount: float
@@ -304,42 +326,18 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-# Контекстный менеджер для повторных попыток операций с БД
-@contextmanager
-def db_retry_context(max_retries=3, delay=0.1):
-    """Контекстный менеджер для повторных попыток операций с БД."""
-    for attempt in range(max_retries):
-        try:
-            yield
-            break
-        except (OperationalError, DatabaseError, sqlite3.OperationalError) as e:
-            if attempt == max_retries - 1:
-                logger.error(f"Ошибка БД после {max_retries} попыток: {e}")
-                raise
-
-            error_message = str(e).lower()
-            if (
-                "disk i/o error" in error_message
-                or "database is locked" in error_message
-            ):
-                logger.warning(f"Попытка {attempt + 1}/{max_retries}: {e}")
-                tm.sleep(delay * (attempt + 1))  # Экспоненциальная задержка
-            else:
-                raise
-
-
 def get_db():
-    """Получение сессии БД с повторными попытками."""
-    db = Session()
+    """Получение сессии БД с улучшенной обработкой ошибок."""
+    session = Session()
     try:
-        yield db
+        yield session
     except Exception as e:
-        db.rollback()
+        session.rollback()
         logger.error(f"Ошибка сессии БД: {e}")
         raise
     finally:
         try:
-            db.close()
+            session.close()
         except Exception as e:
             logger.error(f"Ошибка закрытия сессии БД: {e}")
 
@@ -446,7 +444,7 @@ def format_booking_notification(user, tariff, booking_data) -> str:
         else:
             # Если visit_time - строка
             try:
-                time_obj = datetime.strptime(str(visit_time), "%H:%M:%S").time()
+                time_obj = datetime.strptime(str(visit_time), "%H:%M:%S").time_type()
                 time_str = time_obj.strftime("%H:%M")
             except:
                 time_str = str(visit_time)
@@ -531,10 +529,40 @@ async def logout():
 
 
 @app.get("/users", response_model=List[UserBase])
-async def get_users(db: Session = Depends(get_db), _: str = Depends(verify_token)):
+async def get_users(_: str = Depends(verify_token)):
     """Получение списка всех пользователей."""
-    users = db.query(User).order_by(User.first_join_time.desc()).all()
-    return users
+
+    def _get_users(session):
+        users = session.query(User).order_by(User.first_join_time.desc()).all()
+
+        # Преобразуем SQLAlchemy объекты в словари
+        users_data = []
+        for user in users:
+            user_dict = {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+                "phone": user.phone,
+                "email": user.email,
+                "username": user.username,
+                "successful_bookings": user.successful_bookings or 0,
+                "language_code": user.language_code or "ru",
+                "invited_count": user.invited_count or 0,
+                "reg_date": user.reg_date,
+                "first_join_time": user.first_join_time,
+                "agreed_to_terms": user.agreed_to_terms or False,
+                "avatar": user.avatar,
+                "referrer_id": user.referrer_id,
+            }
+            users_data.append(user_dict)
+
+        return users_data
+
+    try:
+        return DatabaseManager.safe_execute(_get_users)
+    except Exception as e:
+        logger.error(f"Ошибка в get_users: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка получения пользователей")
 
 
 @app.get("/users/{user_id}", response_model=UserBase)
@@ -580,98 +608,21 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
 
 
 @app.put("/users/telegram/{telegram_id}")
-async def update_user_by_telegram_id(
-    telegram_id: int, user_data: UserUpdate, db: Session = Depends(get_db)
-):
+async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
     """Обновление пользователя по telegram_id."""
-    try:
-        with db_retry_context():
-            user = db.query(User).filter(User.telegram_id == telegram_id).first()
-            if not user:
-                raise HTTPException(status_code=404, detail="User not found")
 
-            update_dict = user_data.dict(exclude_unset=True)
+    def _update_user(session):
+        user = session.query(User).filter(User.telegram_id == telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
-            for field, value in update_dict.items():
-                if hasattr(user, field):
-                    setattr(user, field, value)
+        update_dict = user_data.dict(exclude_unset=True)
+        for field, value in update_dict.items():
+            if hasattr(user, field):
+                setattr(user, field, value)
 
-            db.commit()
-            db.refresh(user)
-
-            return {
-                "id": user.id,
-                "telegram_id": user.telegram_id,
-                "full_name": user.full_name,
-                "phone": user.phone,
-                "email": user.email,
-                "username": user.username,
-                "successful_bookings": user.successful_bookings,
-                "language_code": user.language_code,
-                "invited_count": user.invited_count,
-                "reg_date": user.reg_date,
-                "first_join_time": user.first_join_time,
-                "agreed_to_terms": user.agreed_to_terms,
-                "avatar": user.avatar,
-                "referrer_id": user.referrer_id,
-            }
-    except Exception as e:
-        logger.error(f"Ошибка обновления пользователя: {e}")
-        db.rollback()
-        raise HTTPException(
-            status_code=500, detail=f"Ошибка обновления пользователя: {str(e)}"
-        )
-
-
-@app.post("/users/check_and_add")
-async def check_and_add_user(
-    telegram_id: int,
-    username: Optional[str] = None,
-    language_code: str = "ru",
-    referrer_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-):
-    """
-    Проверка и добавление пользователя в БД. Используется ботом при команде /start.
-    Фиксирует дату первого обращения (first_join_time).
-    """
-    user = db.query(User).filter_by(telegram_id=telegram_id).first()
-    is_new = False
-
-    if not user:
-        # Создаем нового пользователя с минимальными данными
-        user = User(
-            telegram_id=telegram_id,
-            username=username if username else None,
-            language_code=language_code,
-            first_join_time=datetime.now(MOSCOW_TZ),
-            referrer_id=referrer_id if referrer_id else None,
-            agreed_to_terms=False,
-            successful_bookings=0,
-            invited_count=0,
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        is_new = True
-
-        # Обновляем счетчик приглашений у реферера
-        if referrer_id:
-            referrer = db.query(User).filter_by(telegram_id=referrer_id).first()
-            if referrer:
-                referrer.invited_count += 1
-                db.commit()
-    else:
-        # Обновляем username, если изменился
-        if username and user.username != username:
-            user.username = username
-            db.commit()
-
-    # Проверяем полноту регистрации
-    is_complete = all([user.full_name, user.phone, user.email, user.agreed_to_terms])
-
-    return {
-        "user": {
+        session.flush()  # Обновляем объект без коммита
+        return {
             "id": user.id,
             "telegram_id": user.telegram_id,
             "full_name": user.full_name,
@@ -686,10 +637,91 @@ async def check_and_add_user(
             "agreed_to_terms": user.agreed_to_terms,
             "avatar": user.avatar,
             "referrer_id": user.referrer_id,
-        },
-        "is_new": is_new,
-        "is_complete": is_complete,
-    }
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_update_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка обновления пользователя: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Ошибка обновления пользователя: {str(e)}"
+        )
+
+
+@app.post("/users/check_and_add")
+async def check_and_add_user(
+    telegram_id: int,
+    username: Optional[str] = None,
+    language_code: str = "ru",
+    referrer_id: Optional[int] = None,
+):
+    """Проверка и добавление пользователя в БД с улучшенной обработкой."""
+
+    def _check_and_add_user(session):
+        user = session.query(User).filter_by(telegram_id=telegram_id).first()
+        is_new = False
+
+        if not user:
+            # Создаем нового пользователя с минимальными данными
+            user = User(
+                telegram_id=telegram_id,
+                username=username if username else None,
+                language_code=language_code,
+                first_join_time=datetime.now(MOSCOW_TZ),
+                referrer_id=referrer_id if referrer_id else None,
+                agreed_to_terms=False,
+                successful_bookings=0,
+                invited_count=0,
+            )
+            session.add(user)
+            session.flush()
+            is_new = True
+
+            # Обновляем счетчик приглашений у реферера
+            if referrer_id:
+                referrer = (
+                    session.query(User).filter_by(telegram_id=referrer_id).first()
+                )
+                if referrer:
+                    referrer.invited_count += 1
+        else:
+            # Обновляем username, если изменился
+            if username and user.username != username:
+                user.username = username
+
+        # Проверяем полноту регистрации
+        is_complete = all(
+            [user.full_name, user.phone, user.email, user.agreed_to_terms]
+        )
+
+        return {
+            "user": {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+                "phone": user.phone,
+                "email": user.email,
+                "username": user.username,
+                "successful_bookings": user.successful_bookings,
+                "language_code": user.language_code,
+                "invited_count": user.invited_count,
+                "reg_date": user.reg_date,
+                "first_join_time": user.first_join_time,
+                "agreed_to_terms": user.agreed_to_terms,
+                "avatar": user.avatar,
+                "referrer_id": user.referrer_id,
+            },
+            "is_new": is_new,
+            "is_complete": is_complete,
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_check_and_add_user)
+    except Exception as e:
+        logger.error(f"Ошибка в check_and_add_user: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.put("/users/{user_identifier}")
@@ -699,19 +731,19 @@ async def update_user(
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
-    with db_retry_context():
+    def _update_user(session):
         # Пробуем найти пользователя по ID или по telegram_id
         user = None
 
         # Сначала пробуем как обычный ID
         if user_identifier.isdigit():
             user_id = int(user_identifier)
-            user = db.query(User).filter(User.id == user_id).first()
+            user = session.query(User).filter(User.id == user_id).first()
 
         # Если не найден, пробуем как telegram_id
         if not user and user_identifier.isdigit():
             telegram_id = int(user_identifier)
-            user = db.query(User).filter(User.telegram_id == telegram_id).first()
+            user = session.query(User).filter(User.telegram_id == telegram_id).first()
 
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -731,9 +763,16 @@ async def update_user(
             if hasattr(user, key):
                 setattr(user, key, value)
 
-        db.commit()
-        db.refresh(user)
+        session.flush()
         return user
+
+    try:
+        return DatabaseManager.safe_execute(_update_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка обновления пользователя: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/users/{user_id}/avatar")
@@ -813,26 +852,39 @@ async def get_avatar(filename: str):
 @app.post("/users/{user_id}/download-telegram-avatar")
 async def download_telegram_avatar(
     user_id: int,
-    db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
     """Скачивание аватара пользователя из Telegram."""
-    try:
-        # Находим пользователя
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
 
-        if not user.telegram_id:
-            raise HTTPException(status_code=400, detail="User has no Telegram ID")
+    try:
+        # Получаем данные пользователя (не объект SQLAlchemy)
+        def _get_user_data(session):
+            user = session.query(User).filter(User.id == user_id).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            if not user.telegram_id:
+                raise HTTPException(status_code=400, detail="User has no Telegram ID")
+
+            # Возвращаем только данные, а не объект SQLAlchemy
+            return {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+            }
+
+        # Получаем данные пользователя
+        user_data = DatabaseManager.safe_execute(_get_user_data)
 
         if not bot:
             raise HTTPException(status_code=503, detail="Bot not available")
 
-        logger.info(f"Попытка скачать аватар для пользователя {user.telegram_id}")
+        logger.info(
+            f"Попытка скачать аватар для пользователя {user_data['telegram_id']}"
+        )
 
-        # Используем функцию сохранения аватара
-        avatar_path = await save_user_avatar(bot, user.telegram_id)
+        # Скачиваем аватар
+        avatar_path = await save_user_avatar(bot, user_data["telegram_id"])
 
         if not avatar_path:
             raise HTTPException(
@@ -840,23 +892,35 @@ async def download_telegram_avatar(
                 detail="User has no profile photo or photo is not accessible",
             )
 
-        # Извлекаем только имя файла из пути
+        # Обновляем пользователя в БД
         avatar_filename = os.path.basename(avatar_path)
 
-        # Обновляем пользователя в БД
-        user.avatar = avatar_filename
-        db.commit()
-        db.refresh(user)
+        def _update_avatar(session):
+            user_obj = session.query(User).filter(User.id == user_id).first()
+            if user_obj:
+                user_obj.avatar = avatar_filename
+                session.commit()  # Добавляем commit
+                return {
+                    "id": user_obj.id,
+                    "telegram_id": user_obj.telegram_id,
+                    "avatar": user_obj.avatar,
+                }
+            return None
+
+        updated_user_data = DatabaseManager.safe_execute(_update_avatar)
+
+        if not updated_user_data:
+            raise HTTPException(status_code=404, detail="Failed to update user")
 
         logger.info(
-            f"Аватар пользователя {user.telegram_id} успешно загружен: {avatar_filename}"
+            f"Аватар пользователя {user_data['telegram_id']} успешно загружен: {avatar_filename}"
         )
 
         return {
             "message": "Avatar downloaded successfully",
             "avatar_filename": avatar_filename,
-            "user_id": user.id,
-            "telegram_id": user.telegram_id,
+            "user_id": updated_user_data["id"],
+            "telegram_id": updated_user_data["telegram_id"],
         }
 
     except HTTPException:
@@ -868,7 +932,6 @@ async def download_telegram_avatar(
         )
 
 
-# Функция сохранения аватара (добавить если её нет в main.py)
 async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
     """
     Сохранение аватара пользователя.
@@ -881,6 +944,8 @@ async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
         Путь к сохраненному файлу или None
     """
     try:
+        logger.info(f"Начинаем загрузку аватара для пользователя {user_id}")
+
         # Получаем фото профиля
         profile_photos = await bot.get_user_profile_photos(user_id=user_id, limit=1)
 
@@ -892,36 +957,81 @@ async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
         photo = profile_photos.photos[0][-1]
         file = await bot.get_file(photo.file_id)
 
+        logger.info(
+            f"Найдено фото профиля для пользователя {user_id}, file_path: {file.file_path}"
+        )
+
         # Создаем директорию для аватаров если её нет
-        AVATARS_DIR.mkdir(exist_ok=True)
+        AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Директория аватаров: {AVATARS_DIR.absolute()}")
 
         # Формируем путь к файлу
         avatar_filename = f"{user_id}.jpg"
         file_path = AVATARS_DIR / avatar_filename
 
         # Скачиваем файл
-        file_content = await bot.download_file(file.file_path)
+        logger.info(f"Скачиваем файл из Telegram: {file.file_path}")
 
-        # Преобразуем в байты если нужно
-        if hasattr(file_content, "read"):
-            content_bytes = file_content.read()
-        else:
-            content_bytes = (
-                file_content.getvalue()
-                if hasattr(file_content, "getvalue")
-                else bytes(file_content)
-            )
-
-        # Сохраняем файл
-        with open(file_path, "wb") as f:
-            f.write(content_bytes)
+        # Используем метод download напрямую в файл
+        await bot.download_file(file.file_path, destination=file_path)
 
         logger.info(f"Аватар пользователя {user_id} сохранен: {file_path}")
         return str(file_path)
 
     except Exception as e:
         logger.error(f"Ошибка при сохранении аватара пользователя {user_id}: {e}")
+        logger.error(f"Тип ошибки: {type(e).__name__}")
+        import traceback
+
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None
+
+
+@app.delete("/users/{user_id}")
+async def delete_user(user_id: int, _: str = Depends(verify_token)):
+    """Удаление пользователя и всех связанных данных."""
+
+    def _delete_user(session):
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        user_name = user.full_name or f"Пользователь #{user.telegram_id}"
+        telegram_id = user.telegram_id
+
+        # Удаляем аватар, если есть
+        if user.avatar:
+            try:
+                avatar_path = AVATARS_DIR / user.avatar
+                if avatar_path.exists():
+                    avatar_path.unlink()
+                    logger.info(f"Удален аватар: {avatar_path}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить аватар: {e}")
+
+        # Удаляем пользователя (связанные записи удалятся автоматически благодаря cascade)
+        session.delete(user)
+
+        logger.info(
+            f"Удален пользователь: {user_name} (ID: {user_id}, Telegram ID: {telegram_id})"
+        )
+
+        return {
+            "message": f"Пользователь {user_name} успешно удален",
+            "deleted_user": {
+                "id": user_id,
+                "telegram_id": telegram_id,
+                "full_name": user_name,
+            },
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_delete_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка удаления пользователя {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка удаления пользователя")
 
 
 # ================== BOOKING ENDPOINTS ==================
@@ -934,174 +1044,40 @@ async def get_bookings_detailed(
     user_query: Optional[str] = None,
     date_query: Optional[str] = None,
     status_filter: Optional[str] = None,
-    db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
     """Получение бронирований с данными тарифов и пользователей (оптимизированная версия)."""
-    try:
-        logger.info(
-            f"Запрос бронирований: page={page}, per_page={per_page}, user_query='{user_query}', date_query='{date_query}', status_filter='{status_filter}'"
-        )
 
-        # Базовый запрос с eager loading тарифа и пользователя
-        query = db.query(Booking).options(
-            joinedload(Booking.tariff), joinedload(Booking.user)
-        )
-
-        # Фильтрация по пользователю (поиск по ФИО)
-        if user_query and user_query.strip():
-            search_term = f"%{user_query.strip()}%"
-            logger.info(f"Применяем фильтр по пользователю: '{search_term}'")
-            query = query.join(User).filter(User.full_name.ilike(search_term))
-
-        # Фильтрация по дате
-        if date_query and date_query.strip():
-            try:
-                if date_query.count("-") == 2:
-                    query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
-                elif date_query.count(".") == 2:
-                    query_date = datetime.strptime(date_query, "%d.%m.%Y").date()
-                else:
-                    raise ValueError("Unsupported date format")
-
-                logger.info(f"Применяем фильтр по дате: {query_date}")
-                query = query.filter(Booking.visit_date == query_date)
-            except ValueError as e:
-                logger.error(f"Ошибка формата даты: {e}")
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid date format. Use YYYY-MM-DD or DD.MM.YYYY",
-                )
-
-        # Фильтрация по статусу
-        if status_filter and status_filter.strip():
-            logger.info(f"Применяем фильтр по статусу: '{status_filter}'")
-            if status_filter == "paid":
-                query = query.filter(Booking.paid == True)
-            elif status_filter == "unpaid":
-                query = query.filter(Booking.paid == False)
-            elif status_filter == "confirmed":
-                query = query.filter(Booking.confirmed == True)
-            elif status_filter == "pending":
-                query = query.filter(Booking.confirmed == False)
-
-        # Получаем общее количество ДО применения пагинации
-        total_count = query.count()
-        logger.info(f"Найдено бронирований после фильтрации: {total_count}")
-
-        # Применяем пагинацию и сортировку
-        bookings = (
-            query.order_by(Booking.created_at.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
-
-        logger.info(f"Загружено бронирований на странице {page}: {len(bookings)}")
-
-        # Формируем ответ с использованием relationships
-        enriched_bookings = []
-        for booking in bookings:
-            # Безопасное получение данных пользователя
-            user_data = None
-            if booking.user:
-                user_data = {
-                    "id": booking.user.id,
-                    "telegram_id": booking.user.telegram_id,
-                    "full_name": booking.user.full_name or "Имя не указано",
-                    "username": booking.user.username,
-                    "phone": booking.user.phone,
-                    "email": booking.user.email,
-                }
-            else:
-                # Fallback если пользователь не найден
-                user_data = {
-                    "id": booking.user_id,
-                    "telegram_id": None,
-                    "full_name": "Пользователь не найден",
-                    "username": None,
-                    "phone": None,
-                    "email": None,
-                }
-
-            # Безопасное получение данных тарифа
-            tariff_data = None
-            if booking.tariff:
-                tariff_data = {
-                    "id": booking.tariff.id,
-                    "name": booking.tariff.name,
-                    "price": float(booking.tariff.price),
-                    "description": booking.tariff.description,
-                    "purpose": booking.tariff.purpose,
-                    "is_active": bool(booking.tariff.is_active),
-                }
-            else:
-                # Fallback если тариф не найден
-                tariff_data = {
-                    "id": booking.tariff_id,
-                    "name": f"Тариф #{booking.tariff_id} (удален)",
-                    "price": 0.0,
-                    "description": "Тариф не найден",
-                    "purpose": None,
-                    "is_active": False,
-                }
-
-            booking_item = {
-                "id": int(booking.id),
-                "user_id": int(booking.user_id),
-                "tariff_id": int(booking.tariff_id),
-                "visit_date": booking.visit_date.isoformat(),
-                "visit_time": (
-                    booking.visit_time.isoformat() if booking.visit_time else None
-                ),
-                "duration": int(booking.duration) if booking.duration else None,
-                "promocode_id": (
-                    int(booking.promocode_id) if booking.promocode_id else None
-                ),
-                "amount": float(booking.amount),
-                "payment_id": booking.payment_id,
-                "paid": bool(booking.paid),
-                "rubitime_id": booking.rubitime_id,
-                "confirmed": bool(booking.confirmed),
-                "created_at": booking.created_at.isoformat(),
-                "user": user_data,
-                "tariff": tariff_data,
-            }
-            enriched_bookings.append(booking_item)
-
-        total_pages = (total_count + per_page - 1) // per_page
-
-        result = {
-            "bookings": enriched_bookings,
-            "total_count": int(total_count),
-            "page": int(page),
-            "per_page": int(per_page),
-            "total_pages": int(total_pages),
-        }
-
-        logger.info(
-            f"Возвращаем результат: {len(enriched_bookings)} бронирований, страница {page} из {total_pages}"
-        )
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка при получении бронирований: {e}")
-        import traceback
-
-        logger.error(f"Полный traceback: {traceback.format_exc()}")
-
-        # Fallback на простую версию без relationships
+    def _get_bookings(session):
         try:
-            logger.info("Пытаемся fallback на простую версию...")
-            query = db.query(Booking)
+            logger.info(
+                f"Запрос бронирований: page={page}, per_page={per_page}, "
+                f"user_query='{user_query}', date_query='{date_query}', status_filter='{status_filter}'"
+            )
 
-            # Применяем те же фильтры для fallback
+            # Используем прямые SQL-запросы для лучшей производительности
+            base_query = """
+                SELECT 
+                    b.id, b.user_id, b.tariff_id, b.visit_date, b.visit_time,
+                    b.duration, b.promocode_id, b.amount, b.payment_id, b.paid,
+                    b.rubitime_id, b.confirmed, b.created_at,
+                    u.telegram_id, u.full_name, u.username, u.phone, u.email,
+                    t.name as tariff_name, t.price as tariff_price, 
+                    t.description as tariff_description, t.purpose as tariff_purpose, t.is_active
+                FROM bookings b
+                LEFT JOIN users u ON b.user_id = u.id
+                LEFT JOIN tariffs t ON b.tariff_id = t.id
+            """
+
+            where_conditions = []
+            params = {}
+
+            # Фильтрация по пользователю
             if user_query and user_query.strip():
-                search_term = f"%{user_query.strip()}%"
-                query = query.join(User).filter(User.full_name.ilike(search_term))
+                where_conditions.append("u.full_name LIKE :user_query")
+                params["user_query"] = f"%{user_query.strip()}%"
 
+            # Фильтрация по дате
             if date_query and date_query.strip():
                 try:
                     if date_query.count("-") == 2:
@@ -1110,140 +1086,178 @@ async def get_bookings_detailed(
                         query_date = datetime.strptime(date_query, "%d.%m.%Y").date()
                     else:
                         raise ValueError("Unsupported date format")
-                    query = query.filter(Booking.visit_date == query_date)
-                except ValueError:
-                    pass  # Игнорируем ошибки даты в fallback
 
+                    where_conditions.append("b.visit_date = :date_query")
+                    params["date_query"] = query_date.isoformat()
+                except ValueError:
+                    logger.error(f"Ошибка формата даты: {date_query}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid date format. Use YYYY-MM-DD or DD.MM.YYYY",
+                    )
+
+            # Фильтрация по статусу
             if status_filter and status_filter.strip():
                 if status_filter == "paid":
-                    query = query.filter(Booking.paid == True)
+                    where_conditions.append("b.paid = 1")
                 elif status_filter == "unpaid":
-                    query = query.filter(Booking.paid == False)
+                    where_conditions.append("b.paid = 0")
                 elif status_filter == "confirmed":
-                    query = query.filter(Booking.confirmed == True)
+                    where_conditions.append("b.confirmed = 1")
                 elif status_filter == "pending":
-                    query = query.filter(Booking.confirmed == False)
+                    where_conditions.append("b.confirmed = 0")
 
-            total_count = query.count()
-            bookings = (
-                query.order_by(Booking.created_at.desc())
-                .offset((page - 1) * per_page)
-                .limit(per_page)
-                .all()
+            # Собираем финальный запрос
+            if where_conditions:
+                base_query += " WHERE " + " AND ".join(where_conditions)
+
+            # Подсчет общего количества
+            count_query = f"SELECT COUNT(*) FROM ({base_query}) as counted"
+            total_count = session.execute(text(count_query), params).scalar()
+
+            # Основной запрос с пагинацией
+            final_query = (
+                base_query + " ORDER BY b.created_at DESC LIMIT :limit OFFSET :offset"
             )
+            params["limit"] = per_page
+            params["offset"] = (page - 1) * per_page
 
-            simple_bookings = []
-            for booking in bookings:
+            result = session.execute(text(final_query), params).fetchall()
+
+            # Формируем ответ
+            enriched_bookings = []
+            for row in result:
                 booking_item = {
-                    "id": int(booking.id),
-                    "user_id": int(booking.user_id),
-                    "tariff_id": int(booking.tariff_id),
-                    "visit_date": booking.visit_date.isoformat(),
-                    "visit_time": (
-                        booking.visit_time.isoformat() if booking.visit_time else None
-                    ),
-                    "duration": int(booking.duration) if booking.duration else None,
-                    "promocode_id": (
-                        int(booking.promocode_id) if booking.promocode_id else None
-                    ),
-                    "amount": float(booking.amount),
-                    "payment_id": booking.payment_id,
-                    "paid": bool(booking.paid),
-                    "rubitime_id": booking.rubitime_id,
-                    "confirmed": bool(booking.confirmed),
-                    "created_at": booking.created_at.isoformat(),
-                    # Fallback данные
+                    "id": int(row.id),
+                    "user_id": int(row.user_id),
+                    "tariff_id": int(row.tariff_id),
+                    "visit_date": row.visit_date,
+                    "visit_time": row.visit_time,
+                    "duration": int(row.duration) if row.duration else None,
+                    "promocode_id": int(row.promocode_id) if row.promocode_id else None,
+                    "amount": float(row.amount),
+                    "payment_id": row.payment_id,
+                    "paid": bool(row.paid),
+                    "rubitime_id": row.rubitime_id,
+                    "confirmed": bool(row.confirmed),
+                    "created_at": row.created_at,
                     "user": {
-                        "id": booking.user_id,
-                        "telegram_id": None,
-                        "full_name": "Данные недоступны",
-                        "username": None,
-                        "phone": None,
-                        "email": None,
+                        "id": row.user_id,
+                        "telegram_id": row.telegram_id,
+                        "full_name": row.full_name or "Имя не указано",
+                        "username": row.username,
+                        "phone": row.phone,
+                        "email": row.email,
                     },
                     "tariff": {
-                        "id": booking.tariff_id,
-                        "name": f"Тариф #{booking.tariff_id}",
-                        "price": 0.0,
-                        "description": "Данные тарифа недоступны",
-                        "purpose": None,
-                        "is_active": True,
+                        "id": row.tariff_id,
+                        "name": row.tariff_name or f"Тариф #{row.tariff_id}",
+                        "price": float(row.tariff_price) if row.tariff_price else 0.0,
+                        "description": row.tariff_description or "Описание недоступно",
+                        "purpose": row.tariff_purpose,
+                        "is_active": (
+                            bool(row.is_active) if row.is_active is not None else False
+                        ),
                     },
                 }
-                simple_bookings.append(booking_item)
+                enriched_bookings.append(booking_item)
 
             total_pages = (total_count + per_page - 1) // per_page
 
-            logger.info(f"Fallback успешен: {len(simple_bookings)} бронирований")
             return {
-                "bookings": simple_bookings,
+                "bookings": enriched_bookings,
                 "total_count": int(total_count),
                 "page": int(page),
                 "per_page": int(per_page),
                 "total_pages": int(total_pages),
             }
 
-        except Exception as fallback_error:
-            logger.error(f"Fallback также не удался: {fallback_error}")
-            raise HTTPException(
-                status_code=500, detail=f"Critical server error: {str(e)}"
+        except Exception as e:
+            logger.error(f"Ошибка в _get_bookings: {e}")
+            raise
+
+    try:
+        return DatabaseManager.safe_execute(_get_bookings)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка при получении бронирований: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/bookings/stats")
+async def get_booking_stats(_: str = Depends(verify_token)):
+    """Получение статистики по бронированиям."""
+
+    def _get_stats(session):
+        try:
+            total_bookings = session.execute(
+                text("SELECT COUNT(*) FROM bookings")
+            ).scalar()
+            paid_bookings = session.execute(
+                text("SELECT COUNT(*) FROM bookings WHERE paid = 1")
+            ).scalar()
+            confirmed_bookings = session.execute(
+                text("SELECT COUNT(*) FROM bookings WHERE confirmed = 1")
+            ).scalar()
+
+            # Общая сумма оплаченных бронирований
+            total_revenue = session.execute(
+                text("SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1")
+            ).scalar()
+
+            # Статистика по текущему месяцу
+            current_month_start = (
+                datetime.now(MOSCOW_TZ)
+                .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
             )
 
+            current_month_bookings = session.execute(
+                text("SELECT COUNT(*) FROM bookings WHERE created_at >= :start_date"),
+                {"start_date": current_month_start},
+            ).scalar()
 
-# 2. СТАТИЧЕСКИЙ маршрут /bookings/stats
-@app.get("/bookings/stats")
-async def get_booking_stats(
-    db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Получение статистики по бронированиям."""
+            current_month_revenue = session.execute(
+                text(
+                    "SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE created_at >= :start_date AND paid = 1"
+                ),
+                {"start_date": current_month_start},
+            ).scalar()
+
+            # Топ тарифы по количеству бронирований
+            top_tariffs = session.execute(
+                text(
+                    """
+                    SELECT t.name, COUNT(b.id) as booking_count
+                    FROM tariffs t
+                    JOIN bookings b ON t.id = b.tariff_id
+                    GROUP BY t.id, t.name
+                    ORDER BY booking_count DESC
+                    LIMIT 5
+                """
+                )
+            ).fetchall()
+
+            return {
+                "total_bookings": total_bookings,
+                "paid_bookings": paid_bookings,
+                "confirmed_bookings": confirmed_bookings,
+                "total_revenue": float(total_revenue),
+                "current_month_bookings": current_month_bookings,
+                "current_month_revenue": float(current_month_revenue),
+                "top_tariffs": [
+                    {"name": row.name, "count": row.booking_count}
+                    for row in top_tariffs
+                ],
+            }
+
+        except Exception as e:
+            logger.error(f"Ошибка в _get_stats: {e}")
+            raise
+
     try:
-        total_bookings = db.query(Booking).count()
-        paid_bookings = db.query(Booking).filter(Booking.paid == True).count()
-        confirmed_bookings = db.query(Booking).filter(Booking.confirmed == True).count()
-
-        # Общая сумма оплаченных бронирований
-        total_revenue = (
-            db.query(func.sum(Booking.amount)).filter(Booking.paid == True).scalar()
-            or 0
-        )
-
-        # Статистика по текущему месяцу
-        current_month_start = datetime.now(MOSCOW_TZ).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
-        current_month_bookings = (
-            db.query(Booking).filter(Booking.created_at >= current_month_start).count()
-        )
-        current_month_revenue = (
-            db.query(func.sum(Booking.amount))
-            .filter(Booking.created_at >= current_month_start, Booking.paid == True)
-            .scalar()
-            or 0
-        )
-
-        # Топ тарифы по количеству бронирований
-        top_tariffs = (
-            db.query(Tariff.name, func.count(Booking.id).label("booking_count"))
-            .join(Booking)
-            .group_by(Tariff.id, Tariff.name)
-            .order_by(func.count(Booking.id).desc())
-            .limit(5)
-            .all()
-        )
-
-        return {
-            "total_bookings": total_bookings,
-            "paid_bookings": paid_bookings,
-            "confirmed_bookings": confirmed_bookings,
-            "total_revenue": float(total_revenue),
-            "current_month_bookings": current_month_bookings,
-            "current_month_revenue": float(current_month_revenue),
-            "top_tariffs": [
-                {"name": tariff.name, "count": tariff.booking_count}
-                for tariff in top_tariffs
-            ],
-        }
-
+        return DatabaseManager.safe_execute(_get_stats)
     except Exception as e:
         logger.error(f"Ошибка при получении статистики бронирований: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -1278,22 +1292,28 @@ async def get_bookings(
     return bookings
 
 
-# 4. СОЗДАНИЕ бронирования
 @app.post("/bookings", response_model=BookingBase)
-async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_db)):
-    logger.info(
-        f"Создание бронирования: user_id={booking_data.user_id}, tariff_id={booking_data.tariff_id}, promocode_id={booking_data.promocode_id}"
-    )
+async def create_booking(booking_data: BookingCreate):
+    """Создание бронирования с улучшенной обработкой промокодов."""
 
-    with db_retry_context():
+    def _create_booking(session):
+        logger.info(
+            f"Создание бронирования: user_id={booking_data.user_id}, "
+            f"tariff_id={booking_data.tariff_id}, promocode_id={booking_data.promocode_id}"
+        )
+
         # Находим пользователя
-        user = db.query(User).filter(User.telegram_id == booking_data.user_id).first()
+        user = (
+            session.query(User).filter(User.telegram_id == booking_data.user_id).first()
+        )
         if not user:
             logger.error(f"Пользователь с telegram_id {booking_data.user_id} не найден")
             raise HTTPException(status_code=404, detail="User not found")
 
         # Находим тариф
-        tariff = db.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+        tariff = (
+            session.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+        )
         if not tariff:
             logger.error(f"Тариф с ID {booking_data.tariff_id} не найден")
             raise HTTPException(status_code=404, detail="Tariff not found")
@@ -1306,7 +1326,7 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
             logger.info(f"Обработка промокода ID: {booking_data.promocode_id}")
 
             promocode = (
-                db.query(Promocode)
+                session.query(Promocode)
                 .filter(Promocode.id == booking_data.promocode_id)
                 .first()
             )
@@ -1316,7 +1336,8 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
                 raise HTTPException(status_code=404, detail="Promocode not found")
 
             logger.info(
-                f"Найден промокод: {promocode.name}, скидка: {promocode.discount}%, осталось использований: {promocode.usage_quantity}"
+                f"Найден промокод: {promocode.name}, скидка: {promocode.discount}%, "
+                f"осталось использований: {promocode.usage_quantity}"
             )
 
             # Проверяем доступность промокода
@@ -1343,7 +1364,7 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
                 f"Сумма пересчитана: {original_amount} -> {amount} (скидка {promocode.discount}%)"
             )
 
-            # КРИТИЧЕСКИ ВАЖНО: Уменьшаем счетчик использований промокода
+            # Уменьшаем счетчик использований промокода
             old_usage = promocode.usage_quantity
             promocode.usage_quantity -= 1
             logger.info(
@@ -1365,23 +1386,8 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
             rubitime_id=booking_data.rubitime_id,
         )
 
-        db.add(booking)
-
-        # Коммитим все изменения сразу (и бронирование, и промокод)
-        try:
-            db.commit()
-            db.refresh(booking)
-            logger.info(f"✅ Создано бронирование #{booking.id} с суммой {amount} ₽")
-
-            if promocode:
-                logger.info(
-                    f"✅ Промокод {promocode.name} успешно использован, осталось: {promocode.usage_quantity}"
-                )
-
-        except Exception as e:
-            db.rollback()
-            logger.error(f"❌ Ошибка при сохранении бронирования: {e}")
-            raise HTTPException(status_code=500, detail="Failed to create booking")
+        session.add(booking)
+        session.flush()  # Получаем ID бронирования
 
         # Создаем уведомление в БД
         notification = Notification(
@@ -1390,7 +1396,7 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
             target_url=f"/bookings/{booking.id}",
             booking_id=booking.id,
         )
-        db.add(notification)
+        session.add(notification)
 
         # Обновляем счетчик успешных бронирований ТОЛЬКО если оплачено
         if booking_data.paid:
@@ -1400,15 +1406,40 @@ async def create_booking(booking_data: BookingCreate, db: Session = Depends(get_
                 f"👤 Счетчик бронирований пользователя {user.telegram_id}: {old_bookings} -> {user.successful_bookings}"
             )
 
-        # Финальный коммит для уведомления и счетчика пользователя
-        try:
-            db.commit()
-            logger.info("✅ Уведомление и счетчики обновлены")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при сохранении уведомления: {e}")
-            # Не критично, бронирование уже создано
+        logger.info(f"✅ Создано бронирование #{booking.id} с суммой {amount} ₽")
 
-        return booking
+        if promocode:
+            logger.info(
+                f"✅ Промокод {promocode.name} успешно использован, осталось: {promocode.usage_quantity}"
+            )
+
+        # ИСПРАВЛЕНИЕ: Возвращаем словарь вместо SQLAlchemy объекта
+        # Это решает проблему DetachedInstanceError
+        booking_dict = {
+            "id": booking.id,
+            "user_id": booking.user_id,
+            "tariff_id": booking.tariff_id,
+            "visit_date": booking.visit_date,
+            "visit_time": booking.visit_time,
+            "duration": booking.duration,
+            "promocode_id": booking.promocode_id,
+            "amount": float(booking.amount),
+            "payment_id": booking.payment_id,
+            "paid": booking.paid,
+            "rubitime_id": booking.rubitime_id,
+            "confirmed": booking.confirmed,
+            "created_at": booking.created_at,
+        }
+
+        return booking_dict
+
+    try:
+        return DatabaseManager.safe_execute(_create_booking)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка создания бронирования: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create booking")
 
 
 # 5. ТЕПЕРЬ ДИНАМИЧЕСКИЕ маршруты с {booking_id}
@@ -2830,21 +2861,32 @@ async def create_newsletter(
 
 
 @app.get("/dashboard/stats")
-async def get_dashboard_stats(
-    db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
+async def get_dashboard_stats(_: str = Depends(verify_token)):
     """Получение статистики для дашборда."""
-    total_users = db.query(User).count()
-    total_bookings = db.query(Booking).count()
-    open_tickets = db.query(Ticket).filter(Ticket.status != TicketStatus.CLOSED).count()
-    active_tariffs = db.query(Tariff).filter(Tariff.is_active == True).count()
 
-    return {
-        "total_users": total_users,
-        "total_bookings": total_bookings,
-        "open_tickets": open_tickets,
-        "active_tariffs": active_tariffs,
-    }
+    def _get_stats(session):
+        # Используем прямые SQL запросы для лучшей производительности
+        total_users = session.execute(text("SELECT COUNT(*) FROM users")).scalar()
+        total_bookings = session.execute(text("SELECT COUNT(*) FROM bookings")).scalar()
+        open_tickets = session.execute(
+            text("SELECT COUNT(*) FROM tickets WHERE status != 'CLOSED'")
+        ).scalar()
+        active_tariffs = session.execute(
+            text("SELECT COUNT(*) FROM tariffs WHERE is_active = 1")
+        ).scalar()
+
+        return {
+            "total_users": total_users,
+            "total_bookings": total_bookings,
+            "open_tickets": open_tickets,
+            "active_tariffs": active_tariffs,
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_get_stats)
+    except Exception as e:
+        logger.error(f"Ошибка в get_dashboard_stats: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка получения статистики")
 
 
 # ================== TICKET ENDPOINTS ==================
@@ -2856,175 +2898,101 @@ async def get_tickets_detailed(
     per_page: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
     user_query: Optional[str] = None,
-    db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
     """Получение тикетов с данными пользователей и фильтрацией."""
-    try:
-        logger.info(
-            f"Запрос тикетов: page={page}, per_page={per_page}, status='{status}', user_query='{user_query}'"
-        )
 
-        # Базовый запрос с eager loading пользователя
-        query = db.query(Ticket).options(joinedload(Ticket.user))
-
-        # Фильтрация по пользователю (поиск по ФИО)
-        if user_query and user_query.strip():
-            search_term = f"%{user_query.strip()}%"
-            logger.info(f"Применяем фильтр по пользователю: '{search_term}'")
-            query = query.join(User).filter(User.full_name.ilike(search_term))
-
-        # Фильтрация по статусу
-        if status and status.strip():
-            logger.info(f"Применяем фильтр по статусу: '{status}'")
-            try:
-                status_enum = TicketStatus[status]
-                query = query.filter(Ticket.status == status_enum)
-            except KeyError:
-                logger.error(f"Неверный статус: {status}")
-                raise HTTPException(status_code=400, detail="Invalid status")
-
-        # Получаем общее количество ДО применения пагинации
-        total_count = query.count()
-        logger.info(f"Найдено тикетов после фильтрации: {total_count}")
-
-        # Применяем пагинацию и сортировку
-        tickets = (
-            query.order_by(Ticket.created_at.desc())
-            .offset((page - 1) * per_page)
-            .limit(per_page)
-            .all()
-        )
-
-        logger.info(f"Загружено тикетов на странице {page}: {len(tickets)}")
-
-        # Формируем ответ с использованием relationships
-        enriched_tickets = []
-        for ticket in tickets:
-            # Безопасное получение данных пользователя
-            user_data = None
-            if ticket.user:
-                user_data = {
-                    "id": ticket.user.id,
-                    "telegram_id": ticket.user.telegram_id,
-                    "full_name": ticket.user.full_name or "Имя не указано",
-                    "username": ticket.user.username,
-                    "phone": ticket.user.phone,
-                    "email": ticket.user.email,
-                }
-            else:
-                # Fallback если пользователь не найден
-                user_data = {
-                    "id": ticket.user_id,
-                    "telegram_id": None,
-                    "full_name": "Пользователь не найден",
-                    "username": None,
-                    "phone": None,
-                    "email": None,
-                }
-
-            ticket_item = {
-                "id": int(ticket.id),
-                "user_id": int(ticket.user_id),
-                "description": ticket.description,
-                "photo_id": ticket.photo_id,
-                "response_photo_id": ticket.response_photo_id,
-                "status": ticket.status.name,
-                "comment": ticket.comment,
-                "created_at": ticket.created_at.isoformat(),
-                "updated_at": ticket.updated_at.isoformat(),
-                "user": user_data,
-            }
-            enriched_tickets.append(ticket_item)
-
-        total_pages = (total_count + per_page - 1) // per_page
-
-        result = {
-            "tickets": enriched_tickets,
-            "total_count": int(total_count),
-            "page": int(page),
-            "per_page": int(per_page),
-            "total_pages": int(total_pages),
-        }
-
-        logger.info(
-            f"Возвращаем результат: {len(enriched_tickets)} тикетов, страница {page} из {total_pages}"
-        )
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Ошибка при получении тикетов: {e}")
-        import traceback
-
-        logger.error(f"Полный traceback: {traceback.format_exc()}")
-
-        # Fallback на простую версию
+    def _get_tickets(session):
         try:
-            logger.info("Пытаемся fallback на простую версию...")
-            query = db.query(Ticket)
-
-            # Применяем те же фильтры для fallback
-            if user_query and user_query.strip():
-                search_term = f"%{user_query.strip()}%"
-                query = query.join(User).filter(User.full_name.ilike(search_term))
-
-            if status and status.strip():
-                try:
-                    status_enum = TicketStatus[status]
-                    query = query.filter(Ticket.status == status_enum)
-                except KeyError:
-                    pass  # Игнорируем ошибки статуса в fallback
-
-            total_count = query.count()
-            tickets = (
-                query.order_by(Ticket.created_at.desc())
-                .offset((page - 1) * per_page)
-                .limit(per_page)
-                .all()
+            logger.info(
+                f"Запрос тикетов: page={page}, per_page={per_page}, status='{status}', user_query='{user_query}'"
             )
 
-            simple_tickets = []
-            for ticket in tickets:
+            # Используем прямые SQL-запросы для лучшей производительности
+            base_query = """
+                SELECT 
+                    t.id, t.user_id, t.description, t.photo_id, t.response_photo_id,
+                    t.status, t.comment, t.created_at, t.updated_at,
+                    u.telegram_id, u.full_name, u.username, u.phone, u.email
+                FROM tickets t
+                LEFT JOIN users u ON t.user_id = u.id
+            """
+
+            where_conditions = []
+            params = {}
+
+            # Фильтрация по пользователю
+            if user_query and user_query.strip():
+                where_conditions.append("u.full_name LIKE :user_query")
+                params["user_query"] = f"%{user_query.strip()}%"
+
+            # Фильтрация по статусу
+            if status and status.strip():
+                where_conditions.append("t.status = :status")
+                params["status"] = status.strip()
+
+            # Собираем финальный запрос
+            if where_conditions:
+                base_query += " WHERE " + " AND ".join(where_conditions)
+
+            # Подсчет общего количества
+            count_query = f"SELECT COUNT(*) FROM ({base_query}) as counted"
+            total_count = session.execute(text(count_query), params).scalar()
+
+            # Основной запрос с пагинацией
+            final_query = (
+                base_query + " ORDER BY t.created_at DESC LIMIT :limit OFFSET :offset"
+            )
+            params["limit"] = per_page
+            params["offset"] = (page - 1) * per_page
+
+            result = session.execute(text(final_query), params).fetchall()
+
+            # Формируем ответ
+            enriched_tickets = []
+            for row in result:
                 ticket_item = {
-                    "id": int(ticket.id),
-                    "user_id": int(ticket.user_id),
-                    "description": ticket.description,
-                    "photo_id": ticket.photo_id,
-                    "response_photo_id": ticket.response_photo_id,
-                    "status": ticket.status.name,
-                    "comment": ticket.comment,
-                    "created_at": ticket.created_at.isoformat(),
-                    "updated_at": ticket.updated_at.isoformat(),
-                    # Fallback данные
+                    "id": int(row.id),
+                    "user_id": int(row.user_id),
+                    "description": row.description,
+                    "photo_id": row.photo_id,
+                    "response_photo_id": row.response_photo_id,
+                    "status": row.status,
+                    "comment": row.comment,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
                     "user": {
-                        "id": ticket.user_id,
-                        "telegram_id": None,
-                        "full_name": "Данные недоступны",
-                        "username": None,
-                        "phone": None,
-                        "email": None,
+                        "id": row.user_id,
+                        "telegram_id": row.telegram_id,
+                        "full_name": row.full_name or "Имя не указано",
+                        "username": row.username,
+                        "phone": row.phone,
+                        "email": row.email,
                     },
                 }
-                simple_tickets.append(ticket_item)
+                enriched_tickets.append(ticket_item)
 
             total_pages = (total_count + per_page - 1) // per_page
 
-            logger.info(f"Fallback успешен: {len(simple_tickets)} тикетов")
             return {
-                "tickets": simple_tickets,
+                "tickets": enriched_tickets,
                 "total_count": int(total_count),
                 "page": int(page),
                 "per_page": int(per_page),
                 "total_pages": int(total_pages),
             }
 
-        except Exception as fallback_error:
-            logger.error(f"Fallback также не удался: {fallback_error}")
-            raise HTTPException(
-                status_code=500, detail=f"Critical server error: {str(e)}"
-            )
+        except Exception as e:
+            logger.error(f"Ошибка в _get_tickets: {e}")
+            raise
+
+    try:
+        return DatabaseManager.safe_execute(_get_tickets)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка при получении тикетов: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # Также добавим эндпоинт для статистики тикетов
@@ -3440,6 +3408,60 @@ async def upload_response_photo(
         raise HTTPException(status_code=500, detail="Error sending photo to user")
 
 
+@app.get("/users/telegram/{telegram_id}/tickets")
+async def get_user_tickets_by_telegram_id(
+    telegram_id: int, status: Optional[str] = Query(None), db: Session = Depends(get_db)
+):
+    """Получение тикетов пользователя по его Telegram ID."""
+    try:
+        # Сначала находим пользователя по telegram_id
+        user = db.query(User).filter(User.telegram_id == telegram_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Строим запрос для получения тикетов пользователя
+        query = (
+            db.query(Ticket)
+            .filter(Ticket.user_id == user.id)
+            .order_by(Ticket.created_at.desc())
+        )
+
+        # Фильтруем по статусу если указан
+        if status:
+            try:
+                status_enum = TicketStatus[status]
+                query = query.filter(Ticket.status == status_enum)
+            except KeyError:
+                raise HTTPException(status_code=400, detail="Invalid status")
+
+        tickets = query.all()
+
+        # Формируем ответ в том же формате, что ожидает бот
+        result = []
+        for ticket in tickets:
+            result.append(
+                {
+                    "id": ticket.id,
+                    "description": ticket.description,
+                    "photo_id": ticket.photo_id,
+                    "response_photo_id": ticket.response_photo_id,
+                    "status": ticket.status.name,
+                    "comment": ticket.comment,
+                    "created_at": ticket.created_at.isoformat(),
+                    "updated_at": ticket.updated_at.isoformat(),
+                    "user_id": ticket.user_id,
+                }
+            )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении тикетов пользователя {telegram_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.delete("/tickets/{ticket_id}")
 async def delete_ticket(
     ticket_id: int,
@@ -3458,49 +3480,303 @@ async def delete_ticket(
     return {"message": "Ticket deleted successfully"}
 
 
-# ================== STARTUP EVENT ==================
+# ================== HEALTH AND MONITORING ENDPOINTS ==================
+
+
+@app.get("/health/database")
+async def database_health(_: str = Depends(verify_token)):
+    """Проверяет состояние базы данных."""
+    try:
+
+        def _test_connection(session):
+            # Тест простого запроса
+            result = session.execute(text("SELECT 1")).scalar()
+            return result == 1
+
+        start_time = time_module.time()
+        connection_ok = DatabaseManager.safe_execute(_test_connection)
+        connection_time = time_module.time() - start_time
+
+        # Проверяем статистику БД
+        def _get_db_stats(session):
+            stats = {}
+
+            # Размер базы данных
+            try:
+                result = session.execute(text("PRAGMA page_count")).scalar()
+                page_count = result or 0
+
+                result = session.execute(text("PRAGMA page_size")).scalar()
+                page_size = result or 4096
+
+                stats["database_size_mb"] = (page_count * page_size) / (1024 * 1024)
+            except:
+                stats["database_size_mb"] = 0
+
+            # WAL режим
+            try:
+                result = session.execute(text("PRAGMA journal_mode")).scalar()
+                stats["wal_enabled"] = result == "wal"
+            except:
+                stats["wal_enabled"] = False
+
+            # Количество записей
+            try:
+                stats["total_users"] = session.execute(
+                    text("SELECT COUNT(*) FROM users")
+                ).scalar()
+                stats["total_bookings"] = session.execute(
+                    text("SELECT COUNT(*) FROM bookings")
+                ).scalar()
+                stats["total_tickets"] = session.execute(
+                    text("SELECT COUNT(*) FROM tickets")
+                ).scalar()
+            except:
+                stats["total_users"] = 0
+                stats["total_bookings"] = 0
+                stats["total_tickets"] = 0
+
+            return stats
+
+        db_stats = DatabaseManager.safe_execute(_get_db_stats)
+
+        return {
+            "status": (
+                "healthy" if connection_ok and connection_time < 2.0 else "degraded"
+            ),
+            "connection_ok": connection_ok,
+            "connection_time": round(connection_time, 3),
+            "database_stats": db_stats,
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка проверки здоровья БД: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
+        }
+
+
+@app.post("/admin/database/optimize")
+async def optimize_database_endpoint(_: str = Depends(verify_token)):
+    """Оптимизирует базу данных."""
+    try:
+
+        def _optimize(session):
+            # Выполняем оптимизацию
+            session.execute(text("PRAGMA optimize"))
+            session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+            return True
+
+        success = DatabaseManager.safe_execute(_optimize)
+
+        # Дополнительная оптимизация через прямое подключение
+        try:
+            db_path = data_dir / "coworking.db"
+            conn = sqlite3.connect(str(db_path), timeout=30)
+            cursor = conn.cursor()
+            cursor.execute("VACUUM")
+            cursor.execute("ANALYZE")
+            conn.commit()
+            conn.close()
+            logger.info("Дополнительная оптимизация (VACUUM, ANALYZE) выполнена")
+        except Exception as e:
+            logger.warning(f"Не удалось выполнить дополнительную оптимизацию: {e}")
+
+        return {
+            "status": "success" if success else "failed",
+            "message": (
+                "Оптимизация базы данных завершена" if success else "Ошибка оптимизации"
+            ),
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка оптимизации БД: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
+        }
+
+
+@app.get("/admin/database/status")
+async def get_database_status(_: str = Depends(verify_token)):
+    """Получение подробного статуса базы данных."""
+
+    def _get_status(session):
+        status = {}
+
+        try:
+            # Основная статистика
+            status["tables"] = {}
+
+            # Количество записей в таблицах
+            tables = [
+                "users",
+                "bookings",
+                "tickets",
+                "tariffs",
+                "promocodes",
+                "notifications",
+            ]
+            for table in tables:
+                try:
+                    count = session.execute(
+                        text(f"SELECT COUNT(*) FROM {table}")
+                    ).scalar()
+                    status["tables"][table] = count
+                except Exception as e:
+                    status["tables"][table] = f"Error: {str(e)}"
+
+            # Настройки базы данных
+            pragmas = [
+                "journal_mode",
+                "synchronous",
+                "cache_size",
+                "page_size",
+                "page_count",
+            ]
+            status["settings"] = {}
+
+            for pragma in pragmas:
+                try:
+                    result = session.execute(text(f"PRAGMA {pragma}")).scalar()
+                    status["settings"][pragma] = result
+                except Exception as e:
+                    status["settings"][pragma] = f"Error: {str(e)}"
+
+            # Размер базы данных
+            if "page_count" in status["settings"] and "page_size" in status["settings"]:
+                try:
+                    page_count = int(status["settings"]["page_count"])
+                    page_size = int(status["settings"]["page_size"])
+                    size_mb = (page_count * page_size) / (1024 * 1024)
+                    status["database_size_mb"] = round(size_mb, 2)
+                except:
+                    status["database_size_mb"] = "Unknown"
+
+            # Последние записи для проверки активности
+            try:
+                last_user = session.execute(
+                    text(
+                        "SELECT first_join_time FROM users ORDER BY first_join_time DESC LIMIT 1"
+                    )
+                ).scalar()
+                status["last_user_created"] = last_user
+
+                last_booking = session.execute(
+                    text(
+                        "SELECT created_at FROM bookings ORDER BY created_at DESC LIMIT 1"
+                    )
+                ).scalar()
+                status["last_booking_created"] = last_booking
+
+            except Exception as e:
+                status["last_activity_error"] = str(e)
+
+            return status
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    try:
+        return DatabaseManager.safe_execute(_get_status)
+    except Exception as e:
+        logger.error(f"Ошибка получения статуса БД: {e}")
+        return {"error": str(e), "timestamp": datetime.now(MOSCOW_TZ).isoformat()}
+
+
+# ================== MIDDLEWARE ==================
+
+
+@app.middleware("http")
+async def database_maintenance_middleware(request, call_next):
+    """Middleware для автоматического обслуживания БД."""
+
+    # Выполняем обслуживание только для определенных запросов
+    maintenance_paths = ["/dashboard/stats", "/health/database"]
+
+    if request.url.path in maintenance_paths:
+        # Простая проверка и оптимизация при необходимости
+        try:
+
+            def _check_db_health(session):
+                # Проверяем размер WAL файла
+                result = session.execute(
+                    text("PRAGMA wal_checkpoint(PASSIVE)")
+                ).fetchall()
+                return result
+
+            # Выполняем легкую оптимизацию
+            DatabaseManager.safe_execute(_check_db_health, max_retries=1)
+        except Exception as e:
+            logger.debug(f"Не удалось выполнить обслуживание БД: {e}")
+
+    response = await call_next(request)
+    return response
+
+
+# ================== DATABASE MAINTENANCE FUNCTIONS ==================
 
 
 def optimize_database():
-    """Оптимизация базы данных SQLite."""
-    db_path = "data/coworking.db"
+    """Оптимизация базы данных SQLite с улучшенной обработкой ошибок."""
+    db_path = data_dir / "coworking.db"
 
-    if not os.path.exists(db_path):
+    if not db_path.exists():
         logger.warning(f"База данных не найдена: {db_path}")
         return
 
     try:
+        logger.info("Начинается плановая оптимизация базы данных...")
+
         # Создаем резервную копию
-        backup_path = f"{db_path}.backup.{int(tm.time())}"
+        backup_path = db_path.with_suffix(f".backup.{int(time_module.time())}")
         import shutil
 
         shutil.copy2(db_path, backup_path)
+        logger.info(f"Создана резервная копия: {backup_path}")
 
-        # Подключаемся напрямую к SQLite
-        conn = sqlite3.connect(db_path, timeout=30)
+        # Оптимизация через DatabaseManager
+        def _optimize(session):
+            session.execute(text("PRAGMA optimize"))
+            session.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+            return True
+
+        DatabaseManager.safe_execute(_optimize)
+
+        # Дополнительная оптимизация через прямое соединение
+        conn = sqlite3.connect(str(db_path), timeout=60)
         cursor = conn.cursor()
 
-        # Выполняем оптимизацию
-        cursor.execute("PRAGMA optimize")
+        # Проверяем целостность
+        cursor.execute("PRAGMA integrity_check")
+        integrity_result = cursor.fetchone()[0]
+        if integrity_result != "ok":
+            logger.warning(f"Проблема целостности БД: {integrity_result}")
+
+        # Оптимизируем
         cursor.execute("VACUUM")
         cursor.execute("REINDEX")
-        cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        cursor.execute("ANALYZE")
 
         conn.commit()
         conn.close()
 
-        logger.info("Оптимизация базы данных завершена успешно")
+        logger.info("Плановая оптимизация базы данных завершена успешно")
 
         # Удаляем старые бэкапы (оставляем только последние 3)
-        backup_dir = Path("data")
-        backup_files = sorted(backup_dir.glob("*.backup.*"))
+        backup_files = sorted(data_dir.glob("*.backup.*"))
         if len(backup_files) > 3:
             for old_backup in backup_files[:-3]:
                 old_backup.unlink()
                 logger.info(f"Удален старый бэкап: {old_backup}")
 
     except Exception as e:
-        logger.error(f"Ошибка оптимизации БД: {e}")
+        logger.error(f"Ошибка плановой оптимизации БД: {e}")
 
 
 def start_db_maintenance():
@@ -3513,9 +3789,9 @@ def start_db_maintenance():
     # Проверка состояния каждые 10 минут
     def check_db_health():
         try:
-            db_path = "data/coworking.db"
-            if os.path.exists(db_path):
-                conn = sqlite3.connect(db_path, timeout=5)
+            db_path = data_dir / "coworking.db"
+            if db_path.exists():
+                conn = sqlite3.connect(str(db_path), timeout=5)
                 conn.execute("SELECT 1")
                 conn.close()
         except Exception as e:
@@ -3526,81 +3802,97 @@ def start_db_maintenance():
     def run_maintenance():
         while True:
             schedule.run_pending()
-            tm.sleep(60)  # Проверяем каждую минуту
+            time_module.sleep(60)  # Проверяем каждую минуту
 
     maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
     maintenance_thread.start()
     logger.info("Планировщик обслуживания БД запущен")
 
 
+# ================== STARTUP EVENT ==================
+
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Запуск приложения...")
 
-    # Диагностика путей и прав
-    import os
-
-    current_dir = os.getcwd()
-    logger.info(f"Текущая рабочая директория: {current_dir}")
-
-    # Создаем директории с правильными правами
-    data_dir = Path("/app/data")
-    avatars_dir = Path("/app/avatars")
-    ticket_photos_dir = Path("/app/ticket_photos")
-
-    for directory in [data_dir, avatars_dir, ticket_photos_dir]:
+    # Проверяем и создаем директории
+    for directory in [data_dir, AVATARS_DIR, Path("/app/ticket_photos")]:
         try:
             directory.mkdir(exist_ok=True, parents=True)
             # Проверяем права на запись
             test_file = directory / "test_write"
             test_file.touch()
             test_file.unlink()
-            logger.info(f"Директория {directory} создана и доступна для записи")
+            logger.info(f"Директория {directory} готова")
         except Exception as e:
             logger.error(f"Ошибка с директорией {directory}: {e}")
 
-    # Проверяем путь к БД
+    # Инициализируем БД с проверкой
     db_path = data_dir / "coworking.db"
     logger.info(f"Путь к БД: {db_path}")
-    logger.info(f"БД существует: {db_path.exists()}")
 
-    if db_path.exists():
-        logger.info(f"Размер БД: {db_path.stat().st_size} байт")
-
-    # Инициализируем БД
     try:
+        # Проверяем существующую БД на целостность
+        if db_path.exists():
+            logger.info(f"БД существует, размер: {db_path.stat().st_size} байт")
+
+            # Быстрая проверка целостности
+            try:
+                conn = sqlite3.connect(str(db_path), timeout=10)
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA quick_check")
+                result = cursor.fetchone()[0]
+                conn.close()
+
+                if result != "ok":
+                    logger.warning(f"Проблема с БД: {result}")
+                else:
+                    logger.info("БД прошла проверку целостности")
+            except Exception as e:
+                logger.warning(f"Не удалось проверить целостность БД: {e}")
+
+        # Инициализируем БД
         logger.info("Инициализация БД...")
         init_db()
         logger.info("База данных инициализирована успешно")
 
-        # Проверяем что БД действительно создалась
-        if db_path.exists():
-            logger.info(f"БД создана, размер: {db_path.stat().st_size} байт")
-        else:
-            logger.error("БД не была создана!")
+        # Проверяем что всё работает
+        def _test_db(session):
+            return session.execute(text("SELECT COUNT(*) FROM users")).scalar()
+
+        user_count = DatabaseManager.safe_execute(_test_db)
+        logger.info(f"В БД найдено пользователей: {user_count}")
 
     except Exception as e:
-        logger.error(f"Ошибка инициализации БД: {e}")
-        # Пробуем создать БД принудительно
+        logger.error(f"Критическая ошибка инициализации БД: {e}")
+        # Попытка восстановления
         try:
-            db_path.touch()
-            logger.info("Файл БД создан принудительно")
-        except Exception as create_error:
-            logger.error(f"Не удалось создать файл БД: {create_error}")
+            if db_path.exists():
+                backup_path = db_path.with_suffix(
+                    f".corrupted.{int(time_module.time())}"
+                )
+                db_path.rename(backup_path)
+                logger.info(f"Поврежденная БД перемещена в {backup_path}")
+
+            # Создаем новую БД
+            init_db()
+            logger.info("Создана новая БД")
+        except Exception as recovery_error:
+            logger.error(f"Не удалось восстановить БД: {recovery_error}")
 
     # Создаем админа
     try:
         admin_login = os.getenv("ADMIN_LOGIN", "admin")
         admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
         create_admin(admin_login, admin_password)
-        logger.info("Админ создан успешно")
+        logger.info("Админ создан/обновлен успешно")
     except Exception as e:
         logger.error(f"Ошибка создания админа: {e}")
 
-    logger.info("Запуск завершен")
-
     # Запускаем планировщики
     start_db_maintenance()
+    logger.info("Приложение запущено успешно")
 
     # Создаем placeholder аватар
     placeholder_path = AVATARS_DIR / "placeholder_avatar.png"

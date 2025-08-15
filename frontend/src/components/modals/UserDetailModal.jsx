@@ -81,6 +81,9 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       // Обновляем данные пользователя
       await onUpdate();
 
+      // Закрываем модальное окно аватара, если оно открыто
+      setAvatarModalOpen(false);
+
       toast({
         title: 'Аватар загружен',
         description: 'Аватар успешно скачан из Telegram и сохранен',
@@ -92,9 +95,18 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     } catch (error) {
       console.error('Ошибка при скачивании аватара:', error);
 
+      let errorMessage = 'Произошла ошибка при скачивании аватара из Telegram';
+
+      // Более детальная обработка ошибок
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+
       toast({
         title: 'Не удалось загрузить аватар',
-        description: error.message || 'Произошла ошибка при скачивании аватара из Telegram',
+        description: errorMessage,
         status: 'error',
         duration: 6000,
         isClosable: true,

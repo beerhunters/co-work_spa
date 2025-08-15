@@ -51,19 +51,27 @@ def format_registration_notification(user, referrer_info=None):
     if referrer_info:
         referrer_text = f"""
 🔗 <b>Приглашен пользователем:</b>
-   • Username: @{referrer_info['username']}
-   • ID: {referrer_info['telegram_id']}
+   • Username: @{referrer_info.get('username', 'Не указан')}
+   • ID: {referrer_info.get('telegram_id', 'Не указан')}
 """
+
+    # Безопасное получение данных с fallback значениями
+    telegram_id = user.get("telegram_id", "Не указан")
+    username = user.get("username", "Не указан")
+    full_name = user.get("full_name", "Не указано")
+    phone = user.get("phone", "Не указан")
+    email = user.get("email", "Не указан")
+    language_code = user.get("language_code", "ru")
 
     message = f"""🎉 <b>НОВЫЙ ПОЛЬЗОВАТЕЛЬ ЗАРЕГИСТРИРОВАН!</b>
 
 👤 <b>Информация:</b>
-📱 <b>Telegram ID:</b> {user.get('telegram_id')}
-👤 <b>Username:</b> @{user.get('username', 'Не указан')}
-📝 <b>Имя:</b> {user.get('full_name', 'Не указано')}
-📞 <b>Телефон:</b> {user.get('phone', 'Не указан')}
-📧 <b>Email:</b> {user.get('email', 'Не указан')}
-🌍 <b>Язык:</b> {user.get('language_code', 'ru')}
+📱 <b>Telegram ID:</b> {telegram_id}
+👤 <b>Username:</b> @{username}
+📝 <b>Имя:</b> {full_name}
+📞 <b>Телефон:</b> {phone}
+📧 <b>Email:</b> {email}
+🌍 <b>Язык:</b> {language_code}
 {referrer_text}
 📅 <b>Дата регистрации:</b> {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}
 
@@ -364,7 +372,19 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             if avatar_filename:
                 update_data["avatar"] = avatar_filename
 
-            updated_user = await api_client.update_user(user.get("id"), update_data)
+            # Обновляем пользователя
+            await api_client.update_user(user.get("id"), update_data)
+
+            # ВАЖНО: Получаем обновленные данные пользователя после сохранения
+            updated_user = await api_client.get_user_by_telegram_id(
+                message.from_user.id
+            )
+
+            # Дополняем данные пользователя информацией из Telegram
+            if not updated_user.get("telegram_id"):
+                updated_user["telegram_id"] = message.from_user.id
+            if not updated_user.get("username"):
+                updated_user["username"] = message.from_user.username or "Не указан"
 
             # Создаем уведомление для админки через API
             notification_data = {
@@ -384,14 +404,14 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
 
             # Подготавливаем информацию о реферере
             referrer_info = None
-            if user.get("referrer_id"):
+            if updated_user.get("referrer_id"):
                 referrer = await api_client.get_user_by_telegram_id(
-                    user.get("referrer_id")
+                    updated_user.get("referrer_id")
                 )
                 if referrer:
                     referrer_info = {
-                        "username": referrer.get("username"),
-                        "telegram_id": referrer.get("telegram_id"),
+                        "username": referrer.get("username", "Не указан"),
+                        "telegram_id": referrer.get("telegram_id", "Не указан"),
                     }
 
             # Создаем ссылку на группу
@@ -426,6 +446,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
 
             # Отправляем уведомление админу в Telegram
             if ADMIN_TELEGRAM_ID:
+                # Используем обновленные данные пользователя для уведомления
                 notification = format_registration_notification(
                     updated_user, referrer_info
                 )

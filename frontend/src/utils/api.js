@@ -183,6 +183,25 @@ export const userApi = {
     return res.data;
   },
 
+  delete: async (userId) => {
+    try {
+      console.log(`Удаление пользователя ${userId}`);
+
+      const res = await apiClient.delete(`/users/${userId}`);
+
+      console.log('Пользователь успешно удален:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка удаления пользователя:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Пользователь не найден');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось удалить пользователя');
+    }
+  },
+
   deleteAvatar: async (userId) => {
     const res = await apiClient.delete(`/users/${userId}/avatar`);
     return res.data;

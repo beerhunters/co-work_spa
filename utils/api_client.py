@@ -231,17 +231,44 @@ class BotAPIClient:
         self, telegram_id: int, status: Optional[str] = None
     ) -> List[Dict]:
         """Получить тикеты пользователя по Telegram ID"""
-        params = {}
-        if status:
-            params["status"] = status
+        try:
+            params = {}
+            if status:
+                params["status"] = status
 
-        result = await self._make_request(
-            "GET", f"/users/telegram/{telegram_id}/tickets", params=params
-        )
+            result = await self._make_request(
+                "GET", f"/users/telegram/{telegram_id}/tickets", params=params
+            )
 
-        if isinstance(result, list):
-            return result
-        return []
+            # Проверяем результат
+            if "error" in result:
+                if result.get("status") == 404:
+                    logger.warning(
+                        f"Пользователь с telegram_id {telegram_id} не найден"
+                    )
+                    return []
+                else:
+                    logger.error(
+                        f"Ошибка при получении тикетов пользователя {telegram_id}: {result}"
+                    )
+                    return []
+
+            if isinstance(result, list):
+                logger.info(
+                    f"Получено {len(result)} тикетов для пользователя {telegram_id}"
+                )
+                return result
+            else:
+                logger.warning(
+                    f"Неожиданный формат ответа для тикетов пользователя {telegram_id}: {result}"
+                )
+                return []
+
+        except Exception as e:
+            logger.error(
+                f"Исключение при получении тикетов пользователя {telegram_id}: {e}"
+            )
+            return []
 
     async def update_ticket_status(
         self, ticket_id: int, status: str, comment: Optional[str] = None

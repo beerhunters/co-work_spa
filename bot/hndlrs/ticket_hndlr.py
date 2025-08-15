@@ -308,20 +308,36 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
     """Показ списка обращений пользователя"""
     try:
         api_client = await get_api_client()
+        telegram_id = callback_query.from_user.id
+
+        logger.info(f"Запрос тикетов для пользователя {telegram_id}")
 
         # Получаем пользователя
-        user = await api_client.get_user_by_telegram_id(callback_query.from_user.id)
+        user = await api_client.get_user_by_telegram_id(telegram_id)
 
         if not user:
+            logger.error(f"Пользователь с telegram_id {telegram_id} не найден в БД")
             await callback_query.message.edit_text(
-                "❌ Ошибка: пользователь не найден.",
-                reply_markup=create_back_keyboard(),
+                "❌ Ошибка: пользователь не найден. Пожалуйста, перерегистрируйтесь через главное меню.",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🏠 Главное меню", callback_data="main_menu"
+                            )
+                        ]
+                    ]
+                ),
             )
             await callback_query.answer()
             return
 
+        logger.info(f"Пользователь найден: {user.get('full_name', 'Не указано')}")
+
         # Получаем тикеты пользователя через API
-        tickets = await api_client.get_user_tickets(callback_query.from_user.id)
+        tickets = await api_client.get_user_tickets(telegram_id)
+
+        logger.info(f"Получено тикетов для пользователя {telegram_id}: {len(tickets)}")
 
         tickets_text = "📋 <b>Ваши обращения:</b>\n\n"
 
@@ -342,16 +358,47 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
                 if created_at:
                     # Парсим дату
                     try:
-                        dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                        date_str = dt.strftime("%d.%m.%Y %H:%M")
-                    except:
+                        # Убираем Z и добавляем +00:00 для правильного парсинга
+                        if created_at.endswith("Z"):
+                            created_at = created_at[:-1] + "+00:00"
+                        elif (
+                            not created_at.endswith(("+00:00", "Z"))
+                            and "+" not in created_at[-6:]
+                        ):
+                            # Если нет указания временной зоны, добавляем UTC
+                            created_at = created_at + "+00:00"
+
+                        dt = datetime.fromisoformat(created_at)
+                        # Конвертируем в московское время для отображения
+                        moscow_dt = dt.astimezone(MOSCOW_TZ)
+                        date_str = moscow_dt.strftime("%d.%m.%Y %H:%M")
+                    except Exception as date_error:
+                        logger.error(f"Ошибка парсинга даты {created_at}: {date_error}")
                         date_str = "Неизвестно"
                 else:
                     date_str = "Неизвестно"
 
-                tickets_text += f"{status_emoji} <b>#{ticket_id}</b> - {status}\n"
+                # Добавляем русские названия статусов
+                status_names = {
+                    "OPEN": "Открыто",
+                    "IN_PROGRESS": "В работе",
+                    "CLOSED": "Закрыто",
+                }
+                status_name = status_names.get(status, status)
+
+                tickets_text += f"{status_emoji} <b>#{ticket_id}</b> - {status_name}\n"
                 tickets_text += f"   📝 {description}\n"
-                tickets_text += f"   📅 {date_str}\n\n"
+                tickets_text += f"   📅 {date_str}\n"
+
+                # Показываем комментарий администратора если есть
+                comment = ticket.get("comment")
+                if comment:
+                    comment_short = (
+                        comment[:30] + "..." if len(comment) > 30 else comment
+                    )
+                    tickets_text += f"   💬 {comment_short}\n"
+
+                tickets_text += "\n"
 
             if len(tickets) > 10:
                 tickets_text += (
@@ -359,6 +406,7 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
                 )
         else:
             tickets_text += "У вас пока нет обращений.\n"
+            tickets_text += "Создайте первое обращение, нажав кнопку ниже.\n"
 
         tickets_text += "\n💡 <i>Для получения подробной информации об обращении обратитесь в поддержку</i>"
 
@@ -379,9 +427,12 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
         await callback_query.answer()
 
     except Exception as e:
-        logger.error(f"Ошибка при получении списка тикетов: {e}")
+        logger.error(
+            f"Критическая ошибка при получении списка тикетов для пользователя {callback_query.from_user.id}: {e}"
+        )
         await callback_query.message.edit_text(
-            "❌ Ошибка при загрузке списка обращений. Попробуйте позже.",
+            "❌ Произошла ошибка при загрузке списка обращений.\n"
+            "Попробуйте позже или создайте новое обращение.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[

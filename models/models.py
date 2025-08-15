@@ -2,6 +2,8 @@ import enum
 from datetime import datetime
 from sqlite3 import IntegrityError
 from typing import Optional
+import threading
+import time
 
 import pytz
 from sqlalchemy import (
@@ -19,9 +21,12 @@ from sqlalchemy import (
     Time,
     select,
     Enum,
+    event,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, scoped_session
+from sqlalchemy.engine import Engine
+from sqlalchemy.pool import StaticPool
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from pathlib import Path
@@ -37,15 +42,111 @@ MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 DB_DIR = Path("/app/data")
 DB_DIR.mkdir(exist_ok=True)
 
+# Улучшенная конфигурация SQLite для многопользовательского доступа
 engine = create_engine(
-    f"sqlite:///{DB_DIR}/coworking.db",  # Используем абсолютный путь
+    f"sqlite:///{DB_DIR}/coworking.db",
     connect_args={
         "check_same_thread": False,
-        "timeout": 30,
+        "timeout": 60,  # Увеличили таймаут до 60 секунд
+        "isolation_level": None,  # Автокоммит для лучшей работы с WAL
     },
-    echo=False,  # Для отладки можно поставить True
+    echo=False,
+    # Настройки пула соединений для SQLite
+    poolclass=StaticPool,
+    pool_pre_ping=True,
+    pool_recycle=3600,  # Переиспользование соединений каждый час
 )
-Session = sessionmaker(bind=engine)
+
+# Используем scoped_session для thread-safe работы
+Session = scoped_session(sessionmaker(bind=engine))
+
+
+# Настройка PRAGMA для каждого нового соединения
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    """Настраивает PRAGMA для каждого нового соединения SQLite."""
+    cursor = dbapi_connection.cursor()
+
+    # Основные настройки для производительности и надежности
+    cursor.execute("PRAGMA journal_mode=WAL")  # Write-Ahead Logging
+    cursor.execute("PRAGMA synchronous=NORMAL")  # Баланс между скоростью и надежностью
+    cursor.execute("PRAGMA cache_size=10000")  # Увеличиваем кеш
+    cursor.execute("PRAGMA temp_store=MEMORY")  # Временные данные в памяти
+    cursor.execute("PRAGMA mmap_size=268435456")  # 256MB memory-mapped I/O
+
+    # Настройки для многопользовательского доступа
+    cursor.execute("PRAGMA busy_timeout=60000")  # 60 секунд ожидания блокировок
+    cursor.execute("PRAGMA wal_autocheckpoint=1000")  # Автоматический checkpoint
+
+    # Настройки для целостности данных
+    cursor.execute("PRAGMA foreign_keys=ON")  # Включаем внешние ключи
+    cursor.execute("PRAGMA optimize")  # Оптимизация базы
+
+    cursor.close()
+    logger.info("SQLite PRAGMA настройки применены для нового соединения")
+
+
+# Класс для безопасной работы с сессиями
+class DatabaseManager:
+    """Менеджер для безопасной работы с базой данных."""
+
+    _lock = threading.Lock()
+
+    @classmethod
+    def get_session(cls):
+        """Получает новую сессию базы данных."""
+        return Session()
+
+    @classmethod
+    def safe_execute(cls, func, max_retries=3, retry_delay=0.1):
+        """
+        Безопасное выполнение операций с базой данных с повторными попытками.
+
+        Args:
+            func: Функция для выполнения (должна принимать session как аргумент)
+            max_retries: Максимальное количество повторных попыток
+            retry_delay: Задержка между попытками в секундах
+        """
+        session = cls.get_session()
+
+        for attempt in range(max_retries + 1):
+            try:
+                result = func(session)
+                session.commit()
+                return result
+
+            except Exception as e:
+                session.rollback()
+                error_msg = str(e).lower()
+
+                # Проверяем, стоит ли повторять попытку
+                if attempt < max_retries and any(
+                    keyword in error_msg
+                    for keyword in [
+                        "database is locked",
+                        "disk i/o error",
+                        "busy",
+                        "timeout",
+                        "operational error",
+                        "database error",
+                    ]
+                ):
+                    logger.warning(
+                        f"Ошибка БД (попытка {attempt + 1}/{max_retries + 1}): {e}. "
+                        f"Повтор через {retry_delay} сек."
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Экспоненциальная задержка
+                    continue
+                else:
+                    logger.error(f"Ошибка сессии БД: {e}")
+                    raise
+            finally:
+                session.close()
+
+        raise Exception(
+            "Превышено максимальное количество попыток выполнения операции с БД"
+        )
 
 
 class Admin(Base):
@@ -255,18 +356,27 @@ class Notification(Base):
 
 
 def init_db() -> None:
-    """Инициализация базы данных с WAL-режимом."""
-    with engine.connect() as connection:
-        connection.execute(text("PRAGMA journal_mode=WAL"))
-        logger.info("WAL-режим успешно включён")
+    """Инициализация базы данных с улучшенными настройками."""
+    try:
+        # Создаем таблицы
         Base.metadata.create_all(engine)
         logger.info("Таблицы базы данных созданы")
+
+        # Выполняем оптимизацию базы
+        with engine.connect() as connection:
+            connection.execute(text("PRAGMA optimize"))
+            connection.execute(text("VACUUM"))
+            logger.info("База данных оптимизирована")
+
+    except Exception as e:
+        logger.error(f"Ошибка при инициализации базы данных: {e}")
+        raise
 
 
 def create_admin(admin_login: str, admin_password: str) -> None:
     """Создает или обновляет администратора в базе данных."""
-    session = Session()
-    try:
+
+    def _create_admin_operation(session):
         admin = session.query(Admin).filter_by(login=admin_login).first()
         if not admin:
             hashed_password = generate_password_hash(
@@ -274,14 +384,12 @@ def create_admin(admin_login: str, admin_password: str) -> None:
             )
             admin = Admin(login=admin_login, password=hashed_password)
             session.add(admin)
-            session.commit()
             logger.info(f"Создан администратор с логином: {admin_login}")
         else:
             if not check_password_hash(admin.password, admin_password):
                 admin.password = generate_password_hash(
                     admin_password, method="pbkdf2:sha256"
                 )
-                session.commit()
                 logger.info(
                     f"Обновлен пароль для администратора с логином: {admin_login}"
                 )
@@ -289,13 +397,13 @@ def create_admin(admin_login: str, admin_password: str) -> None:
                 logger.info(
                     f"Администратор с логином {admin_login} уже существует с корректным паролем"
                 )
+        return admin
+
+    try:
+        DatabaseManager.safe_execute(_create_admin_operation)
     except IntegrityError as e:
-        session.rollback()
         logger.error(f"Ошибка уникальности при создании администратора: {e}")
         logger.info("Администратор уже существует, пропускаем создание")
     except Exception as e:
-        session.rollback()
         logger.error(f"Ошибка при создании/обновлении администратора: {e}")
         raise
-    finally:
-        session.close()
