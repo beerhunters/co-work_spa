@@ -1,4 +1,3 @@
-// components/Sidebar.jsx
 import React from 'react';
 import { Box, VStack, Flex, Heading, Button, Icon, Spacer } from '@chakra-ui/react';
 import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut } from 'react-icons/fi';
@@ -21,9 +20,26 @@ const Sidebar = ({ section, setSection, handleLogout }) => {
       w={sizes.sidebar.width}
       bg={colors.sidebar.bg}
       color={colors.sidebar.text}
-      minH="100vh"
+      h="100vh"
       display="flex"
       flexDirection="column"
+      overflowY="auto"
+      overflowX="hidden"
+      css={{
+        '&::-webkit-scrollbar': {
+          width: '6px',
+        },
+        '&::-webkit-scrollbar-track': {
+          background: 'rgba(0, 0, 0, 0.1)',
+        },
+        '&::-webkit-scrollbar-thumb': {
+          background: 'rgba(0, 0, 0, 0.3)',
+          borderRadius: '3px',
+        },
+        '&::-webkit-scrollbar-thumb:hover': {
+          background: 'rgba(0, 0, 0, 0.5)',
+        },
+      }}
     >
       <Box p={sizes.sidebar.padding}>
         <VStack align="stretch" spacing={1}>
