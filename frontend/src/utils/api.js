@@ -165,7 +165,7 @@ export const notificationApi = {
   }
 };
 
-// -------------------- API: Пользователи --------------------
+// -------------------- API: Пользователи (обновленный) --------------------
 export const userApi = {
   getAll: async () => {
     // Убираем параметры пагинации - получаем всех пользователей
@@ -182,6 +182,7 @@ export const userApi = {
     const res = await apiClient.put(`/users/${userId}`, userData);
     return res.data;
   },
+
   deleteAvatar: async (userId) => {
     const res = await apiClient.delete(`/users/${userId}/avatar`);
     return res.data;
@@ -198,6 +199,34 @@ export const userApi = {
     return res.data;
   },
 
+  // НОВЫЙ: Скачивание аватара из Telegram
+  downloadTelegramAvatar: async (userId) => {
+    try {
+      console.log(`Запрос скачивания аватара из Telegram для пользователя ${userId}`);
+
+      const res = await apiClient.post(`/users/${userId}/download-telegram-avatar`);
+
+      console.log('Аватар успешно скачан:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка скачивания аватара из Telegram:', error);
+
+      // Детальная обработка ошибок
+      if (error.response?.status === 404) {
+        if (error.response.data?.detail?.includes('no profile photo')) {
+          throw new Error('У пользователя нет фото профиля в Telegram или оно недоступно');
+        } else if (error.response.data?.detail?.includes('User not found')) {
+          throw new Error('Пользователь не найден');
+        }
+      } else if (error.response?.status === 400) {
+        throw new Error('У пользователя нет Telegram ID');
+      } else if (error.response?.status === 503) {
+        throw new Error('Бот Telegram недоступен');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось скачать аватар из Telegram');
+    }
+  },
 };
 
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------

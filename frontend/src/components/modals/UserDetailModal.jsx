@@ -32,6 +32,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [formData, setFormData] = useState({});
   const [avatarFile, setAvatarFile] = useState(null);
   const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
+  const [isDownloadingAvatar, setIsDownloadingAvatar] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -44,6 +45,9 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       });
     }
   }, [user]);
+
+  // Проверка, является ли текущий аватар плейсхолдером
+  const isPlaceholderAvatar = !user?.avatar || user.avatar === 'placeholder_avatar.png';
 
   // Логика аватара - исправленная с отладкой
   const avatarUrl = avatarFile
@@ -63,6 +67,41 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const getMailtoUrl = (email) => {
     if (!email) return null;
     return `mailto:${email}`;
+  };
+
+  const handleDownloadTelegramAvatar = async () => {
+    setIsDownloadingAvatar(true);
+    try {
+      console.log('Начинаем скачивание аватара из Telegram для пользователя:', user.id);
+
+      const result = await userApi.downloadTelegramAvatar(user.id);
+
+      console.log('Аватар успешно скачан:', result);
+
+      // Обновляем данные пользователя
+      await onUpdate();
+
+      toast({
+        title: 'Аватар загружен',
+        description: 'Аватар успешно скачан из Telegram и сохранен',
+        status: 'success',
+        duration: 4000,
+        isClosable: true,
+      });
+
+    } catch (error) {
+      console.error('Ошибка при скачивании аватара:', error);
+
+      toast({
+        title: 'Не удалось загрузить аватар',
+        description: error.message || 'Произошла ошибка при скачивании аватара из Telegram',
+        status: 'error',
+        duration: 6000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDownloadingAvatar(false);
+    }
   };
 
   const handleSave = async () => {
@@ -152,6 +191,22 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                   onClick={() => setAvatarModalOpen(true)}
                   _hover={{ boxShadow: 'md', transform: 'scale(1.05)', transition: '0.2s' }}
                 />
+
+                {/* Кнопка загрузки аватара из Telegram - показывается только если нет аватара */}
+                {isPlaceholderAvatar && (
+                  <Button
+                    leftIcon={<FiUpload />}
+                    colorScheme="blue"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadTelegramAvatar}
+                    isLoading={isDownloadingAvatar}
+                    loadingText="Загружаем..."
+                    mt={2}
+                  >
+                    Загрузить из Telegram
+                  </Button>
+                )}
 
                 <VStack spacing={2}>
                   <Text fontSize="lg" fontWeight="bold">
@@ -362,7 +417,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
               />
 
               <HStack spacing={3}>
-                {user.avatar && (
+                {user.avatar && !isPlaceholderAvatar && (
                   <Button
                     leftIcon={<FiTrash2 />}
                     colorScheme="red"
@@ -370,6 +425,20 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     onClick={handleAvatarDelete}
                   >
                     Удалить
+                  </Button>
+                )}
+
+                {/* Кнопка загрузки из Telegram в модальном окне аватара */}
+                {isPlaceholderAvatar && (
+                  <Button
+                    leftIcon={<FiUpload />}
+                    colorScheme="blue"
+                    variant="outline"
+                    onClick={handleDownloadTelegramAvatar}
+                    isLoading={isDownloadingAvatar}
+                    loadingText="Загружаем..."
+                  >
+                    Загрузить из Telegram
                   </Button>
                 )}
               </HStack>

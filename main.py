@@ -33,7 +33,6 @@ from pathlib import Path
 from fastapi import File, UploadFile
 from fastapi.responses import FileResponse
 
-
 # Импорты моделей и утилит
 from models.models import *
 from models.models import engine, Session, init_db, create_admin
@@ -809,6 +808,120 @@ async def get_avatar(filename: str):
         raise HTTPException(status_code=404, detail="Avatar not found")
 
     return FileResponse(file_path)
+
+
+@app.post("/users/{user_id}/download-telegram-avatar")
+async def download_telegram_avatar(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Скачивание аватара пользователя из Telegram."""
+    try:
+        # Находим пользователя
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if not user.telegram_id:
+            raise HTTPException(status_code=400, detail="User has no Telegram ID")
+
+        if not bot:
+            raise HTTPException(status_code=503, detail="Bot not available")
+
+        logger.info(f"Попытка скачать аватар для пользователя {user.telegram_id}")
+
+        # Используем функцию сохранения аватара
+        avatar_path = await save_user_avatar(bot, user.telegram_id)
+
+        if not avatar_path:
+            raise HTTPException(
+                status_code=404,
+                detail="User has no profile photo or photo is not accessible",
+            )
+
+        # Извлекаем только имя файла из пути
+        avatar_filename = os.path.basename(avatar_path)
+
+        # Обновляем пользователя в БД
+        user.avatar = avatar_filename
+        db.commit()
+        db.refresh(user)
+
+        logger.info(
+            f"Аватар пользователя {user.telegram_id} успешно загружен: {avatar_filename}"
+        )
+
+        return {
+            "message": "Avatar downloaded successfully",
+            "avatar_filename": avatar_filename,
+            "user_id": user.id,
+            "telegram_id": user.telegram_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при скачивании аватара пользователя {user_id}: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error downloading avatar: {str(e)}"
+        )
+
+
+# Функция сохранения аватара (добавить если её нет в main.py)
+async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
+    """
+    Сохранение аватара пользователя.
+
+    Args:
+        bot: Экземпляр бота
+        user_id: ID пользователя в Telegram
+
+    Returns:
+        Путь к сохраненному файлу или None
+    """
+    try:
+        # Получаем фото профиля
+        profile_photos = await bot.get_user_profile_photos(user_id=user_id, limit=1)
+
+        if not profile_photos.photos:
+            logger.info(f"У пользователя {user_id} нет фото профиля")
+            return None
+
+        # Берем самое большое фото (последнее в списке)
+        photo = profile_photos.photos[0][-1]
+        file = await bot.get_file(photo.file_id)
+
+        # Создаем директорию для аватаров если её нет
+        AVATARS_DIR.mkdir(exist_ok=True)
+
+        # Формируем путь к файлу
+        avatar_filename = f"{user_id}.jpg"
+        file_path = AVATARS_DIR / avatar_filename
+
+        # Скачиваем файл
+        file_content = await bot.download_file(file.file_path)
+
+        # Преобразуем в байты если нужно
+        if hasattr(file_content, "read"):
+            content_bytes = file_content.read()
+        else:
+            content_bytes = (
+                file_content.getvalue()
+                if hasattr(file_content, "getvalue")
+                else bytes(file_content)
+            )
+
+        # Сохраняем файл
+        with open(file_path, "wb") as f:
+            f.write(content_bytes)
+
+        logger.info(f"Аватар пользователя {user_id} сохранен: {file_path}")
+        return str(file_path)
+
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении аватара пользователя {user_id}: {e}")
+        return None
 
 
 # ================== BOOKING ENDPOINTS ==================
