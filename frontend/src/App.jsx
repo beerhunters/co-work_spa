@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChakraProvider, useToast, useDisclosure } from '@chakra-ui/react';
 
 // Компоненты
@@ -62,6 +62,13 @@ function App() {
     open_tickets: 0
   });
 
+  // НОВОЕ: Состояние для фильтров бронирований
+  const [bookingFilters, setBookingFilters] = useState({
+    page: 1,
+    per_page: 20
+  });
+  const [isBookingsLoading, setIsBookingsLoading] = useState(false);
+
   // UI состояния
   const [hasNewNotifications, setHasNewNotifications] = useState(false);
   const [lastNotificationId, setLastNotificationId] = useState(0);
@@ -96,92 +103,127 @@ function App() {
     dashboardStats: setDashboardStats
   };
 
-  // Улучшенная функция для загрузки данных секции бронирований
+  // НОВОЕ: Функция для загрузки бронирований с фильтрами
+  const loadBookingsWithFilters = useCallback(async (filters = bookingFilters) => {
+    setIsBookingsLoading(true);
+    try {
+      console.log('Загружаем бронирования с фильтрами:', filters);
+
+      const response = await bookingApi.getAllDetailed(filters);
+
+      console.log('Получен ответ:', {
+        bookingsCount: response.bookings?.length || 0,
+        totalCount: response.total_count,
+        page: response.page,
+        totalPages: response.total_pages
+      });
+
+      setBookings(response.bookings || []);
+      setBookingsMeta({
+        total_count: response.total_count || 0,
+        page: response.page || 1,
+        per_page: response.per_page || 20,
+        total_pages: response.total_pages || 1
+      });
+
+    } catch (error) {
+      console.error('Ошибка загрузки бронирований:', error);
+
+      // Детальная обработка ошибок
+      if (error.message?.includes('422')) {
+        console.error('422 ошибка валидации при загрузке бронирований');
+        toast({
+          title: 'Ошибка валидации',
+          description: 'Проблема с параметрами запроса бронирований',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+
+      // Fallback
+      try {
+        console.log('Пробуем резервный способ загрузки...');
+        const fallbackData = await bookingApi.getAll(filters);
+        console.log('Резервная загрузка успешна:', fallbackData.length, 'записей');
+
+        setBookings(Array.isArray(fallbackData) ? fallbackData : []);
+        setBookingsMeta({
+          total_count: fallbackData.length,
+          page: filters.page || 1,
+          per_page: filters.per_page || 20,
+          total_pages: Math.ceil(fallbackData.length / (filters.per_page || 20))
+        });
+
+        toast({
+          title: 'Частичная загрузка',
+          description: 'Данные загружены в упрощенном режиме',
+          status: 'warning',
+          duration: 3000,
+        });
+      } catch (fallbackError) {
+        console.error('Fallback ошибка:', fallbackError);
+
+        setBookings([]);
+        setBookingsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
+
+        toast({
+          title: 'Ошибка загрузки',
+          description: 'Не удалось загрузить бронирования. Попробуйте обновить страницу.',
+          status: 'error',
+          duration: 7000,
+          isClosable: true,
+        });
+      }
+    } finally {
+      setIsBookingsLoading(false);
+    }
+  }, [bookingFilters, toast]);
+
+  // НОВОЕ: Обработчик изменения фильтров от компонента Bookings
+  const handleBookingFiltersChange = useCallback((newFilters) => {
+    console.log('Получены новые фильтры бронирований:', newFilters);
+
+    // Проверяем, является ли это сбросом к дефолтным значениям
+    const isDefaultFilters = (
+      newFilters.page === 1 &&
+      newFilters.per_page === 20 &&
+      !newFilters.status_filter &&
+      !newFilters.user_query
+    );
+
+    if (isDefaultFilters) {
+      console.log('Обнаружен сброс к дефолтным фильтрам');
+      setBookingFilters({ page: 1, per_page: 20 });
+    } else {
+      setBookingFilters(prevFilters => {
+        const updatedFilters = { ...prevFilters, ...newFilters };
+        console.log('Обновленные фильтры бронирований:', updatedFilters);
+        return updatedFilters;
+      });
+    }
+  }, []);
+
+  // НОВОЕ: Загружаем бронирования при изменении фильтров
+  useEffect(() => {
+    if (isAuthenticated && section === 'bookings') {
+      console.log('Фильтры бронирований изменились, загружаем данные:', bookingFilters);
+      loadBookingsWithFilters(bookingFilters);
+    }
+  }, [bookingFilters, isAuthenticated, section, loadBookingsWithFilters]);
+
+  // Улучшенная функция для загрузки данных секций
   const fetchSectionDataEnhanced = async (sectionName, params = {}) => {
     try {
       switch (sectionName) {
         case 'bookings':
-          try {
-            console.log('Загрузка бронирований с параметрами:', params);
-
-            // Используем упрощенный API для списка с улучшенной обработкой ошибок
-            const data = await bookingApi.getAllDetailed(params);
-
-            if (data && data.bookings) {
-              console.log(`Загружено ${data.bookings.length} бронирований из ${data.total_count}`);
-
-              setBookings(data.bookings);
-              setBookingsMeta({
-                total_count: data.total_count || 0,
-                page: data.page || 1,
-                per_page: data.per_page || 20,
-                total_pages: data.total_pages || 0
-              });
-            } else {
-              console.warn('Получен неожиданный формат данных:', data);
-
-              // Fallback для старого формата
-              const simpleData = await bookingApi.getAll(params);
-              console.log('Используем fallback, получено:', simpleData.length, 'записей');
-
-              setBookings(Array.isArray(simpleData) ? simpleData : []);
-              setBookingsMeta({
-                total_count: simpleData.length,
-                page: 1,
-                per_page: 20,
-                total_pages: Math.ceil(simpleData.length / 20)
-              });
-            }
-          } catch (error) {
-            console.error('Ошибка загрузки бронирований:', error);
-
-            // Детальная обработка различных типов ошибок
-            if (error.message?.includes('422')) {
-              console.error('422 ошибка валидации при загрузке бронирований');
-              toast({
-                title: 'Ошибка валидации',
-                description: 'Проблема с параметрами запроса бронирований',
-                status: 'error',
-                duration: 5000,
-                isClosable: true,
-              });
-            }
-
-            // Дополнительный fallback
-            try {
-              console.log('Пробуем резервный способ загрузки...');
-              const fallbackData = await bookingApi.getAll(params);
-              console.log('Резервная загрузка успешна:', fallbackData.length, 'записей');
-
-              setBookings(Array.isArray(fallbackData) ? fallbackData : []);
-              setBookingsMeta({
-                total_count: fallbackData.length,
-                page: 1,
-                per_page: 20,
-                total_pages: Math.ceil(fallbackData.length / 20)
-              });
-
-              toast({
-                title: 'Частичная загрузка',
-                description: 'Данные загружены в упрощенном режиме',
-                status: 'warning',
-                duration: 3000,
-              });
-            } catch (fallbackError) {
-              console.error('Fallback ошибка:', fallbackError);
-
-              // Устанавливаем пустые данные
-              setBookings([]);
-              setBookingsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
-
-              toast({
-                title: 'Ошибка загрузки',
-                description: 'Не удалось загрузить бронирования. Попробуйте обновить страницу.',
-                status: 'error',
-                duration: 7000,
-                isClosable: true,
-              });
-            }
+          // Для бронирований используем новую функцию с фильтрами
+          if (Object.keys(params).length > 0) {
+            // Если переданы конкретные параметры, используем их
+            await loadBookingsWithFilters(params);
+          } else {
+            // Иначе используем текущие фильтры
+            await loadBookingsWithFilters(bookingFilters);
           }
           break;
 
@@ -213,7 +255,6 @@ function App() {
         const status = notificationManager.getStatus();
         setNotificationStatus(status);
 
-        // Проверяем, нужно ли показать запрос разрешений
         const hasAsked = localStorage.getItem('notificationPermissionAsked');
         const isEnabled = localStorage.getItem('notificationsEnabled');
 
@@ -221,12 +262,11 @@ function App() {
           setTimeout(() => {
             setNotificationPermissionOpen(true);
             localStorage.setItem('notificationPermissionAsked', 'true');
-          }, 3000); // Показываем через 3 секунды после входа
+          }, 3000);
         } else if (isEnabled === 'true' && status.permission === 'granted') {
           notificationManager.enable();
         }
 
-        // Загружаем настройку звука
         const savedSoundSetting = localStorage.getItem('notificationSoundEnabled');
         setSoundEnabled(savedSoundSetting !== 'false');
       } catch (error) {
@@ -241,24 +281,18 @@ function App() {
   useEffect(() => {
     if (!isAuthenticated || !notificationStatus?.isEnabled || !notifications.length || !soundEnabled) return;
 
-    // Получаем новые непрочитанные уведомления
     const unreadNotifications = notifications.filter(n => !n.is_read);
 
     if (unreadNotifications.length > 0) {
-      // Проверяем, не показывали ли мы уже эти уведомления
       const shownNotifications = JSON.parse(localStorage.getItem('shownNotifications') || '[]');
 
       unreadNotifications.forEach(notification => {
         if (!shownNotifications.includes(notification.id)) {
-          // Показываем браузерное уведомление
           notificationManager.handleNotification(notification);
-
-          // Сохраняем ID показанного уведомления
           shownNotifications.push(notification.id);
         }
       });
 
-      // Сохраняем обновленный список (храним последние 50)
       localStorage.setItem('shownNotifications', JSON.stringify(shownNotifications.slice(-50)));
     }
   }, [notifications, notificationStatus, soundEnabled, isAuthenticated]);
@@ -283,9 +317,9 @@ function App() {
     checkAuth();
   }, []);
 
-  // При смене вкладки загружаем данные
+  // При смене вкладки загружаем данные (исключая bookings - они загружаются через фильтры)
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && section !== 'bookings') {
       fetchSectionDataEnhanced(section);
     }
   }, [section, isAuthenticated]);
@@ -321,7 +355,6 @@ function App() {
             setLastNotificationId(Math.max(...res.recent_notifications.map(n => n.id), lastNotificationId));
             setHasNewNotifications(true);
 
-            // Показываем toast уведомления
             newNotifications.forEach(n => {
               toast({
                 title: 'Новое уведомление',
@@ -415,6 +448,9 @@ function App() {
       setLogin('');
       setPassword('');
 
+      // Сбрасываем фильтры бронирований
+      setBookingFilters({ page: 1, per_page: 20 });
+
       if (chartInstanceRef.current) {
         chartInstanceRef.current.destroy();
         chartInstanceRef.current = null;
@@ -501,10 +537,8 @@ function App() {
     try {
       console.log('Открытие модального окна:', type, item.id);
 
-      // Для бронирований выполняем дополнительные проверки
       if (type === 'booking') {
         try {
-          // Проверяем валидность ID перед загрузкой
           const validation = await bookingApi.validateId(item.id);
           if (!validation.exists) {
             toast({
@@ -531,7 +565,6 @@ function App() {
             return;
           }
 
-          // Fallback - открываем с базовыми данными
           console.log('Используем fallback для открытия модального окна');
           setSelectedItem({ ...item, type });
         }
@@ -551,6 +584,7 @@ function App() {
       });
     }
   };
+
   // Улучшенная функция handleUpdate с дополнительной валидацией
   const handleUpdate = async (updatedData = null) => {
     try {
@@ -562,7 +596,6 @@ function App() {
           ticket.id === updatedData.id ? updatedData : ticket
         ));
       } else if (selectedItem?.type === 'promocode') {
-        // Для промокодов всегда перезагружаем список
         await fetchSectionDataEnhanced('promocodes');
         if (selectedItem?.id) {
           try {
@@ -570,11 +603,10 @@ function App() {
             setSelectedItem(prev => ({ ...updatedPromocode, type: prev.type }));
           } catch (error) {
             console.log('Промокод не найден, возможно был удален');
-            onClose(); // Закрываем модальное окно если объект удален
+            onClose();
           }
         }
       } else if (selectedItem?.type === 'tariff') {
-        // Для тарифов всегда перезагружаем список
         await fetchSectionDataEnhanced('tariffs');
         if (selectedItem?.id) {
           try {
@@ -597,9 +629,9 @@ function App() {
           }
         }
       } else if (selectedItem?.type === 'booking') {
-        // Обновляем список бронирований
+        // Обновляем список бронирований с текущими фильтрами
         console.log('Обновление списка бронирований...');
-        await fetchSectionDataEnhanced('bookings');
+        await loadBookingsWithFilters(bookingFilters);
 
         if (selectedItem?.id) {
           try {
@@ -624,7 +656,6 @@ function App() {
           }
         }
       } else {
-        // Общий fallback
         await fetchSectionDataEnhanced(section);
       }
 
@@ -641,6 +672,7 @@ function App() {
       });
     }
   };
+
   // Рендер секций
   const renderSection = () => {
     const sectionProps = {
@@ -671,7 +703,9 @@ function App() {
             bookings={bookings}
             bookingsMeta={bookingsMeta}
             {...sectionProps}
-            onRefresh={() => fetchSectionDataEnhanced('bookings')}
+            onRefresh={() => loadBookingsWithFilters(bookingFilters)}
+            onFiltersChange={handleBookingFiltersChange}
+            isLoading={isBookingsLoading}
           />
         );
       case 'tariffs':

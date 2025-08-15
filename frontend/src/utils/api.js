@@ -200,11 +200,11 @@ export const userApi = {
 
 };
 
-// -------------------- API: Бронирования (обновленный) --------------------
-// Улучшенный API для бронирований с обработкой ошибок
+// -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {
   getAll: async (params = {}) => {
     try {
+      console.log('bookingApi.getAll вызван с параметрами:', params);
       const res = await apiClient.get('/bookings', { params });
       return res.data;
     } catch (error) {
@@ -213,13 +213,43 @@ export const bookingApi = {
     }
   },
 
-  // Новый метод для получения детальных бронирований с улучшенной обработкой ошибок
+  // ОСНОВНОЙ метод для получения детальных бронирований с фильтрацией
   getAllDetailed: async (params = {}) => {
     try {
       // Логируем параметры запроса
       console.log('Запрос детальных бронирований с параметрами:', params);
 
-      const res = await apiClient.get('/bookings/detailed', { params });
+      // Подготавливаем параметры для запроса
+      const queryParams = {};
+
+      // Пагинация
+      if (params.page) queryParams.page = params.page;
+      if (params.per_page) queryParams.per_page = params.per_page;
+
+      // Фильтрация
+      if (params.status_filter && params.status_filter !== 'all') {
+        queryParams.status_filter = params.status_filter;
+      }
+
+      if (params.user_query && params.user_query.trim()) {
+        queryParams.user_query = params.user_query.trim();
+      }
+
+      if (params.date_query && params.date_query.trim()) {
+        queryParams.date_query = params.date_query.trim();
+      }
+
+      console.log('Финальные параметры запроса:', queryParams);
+
+      const res = await apiClient.get('/bookings/detailed', { params: queryParams });
+
+      console.log('Ответ сервера:', {
+        bookingsCount: res.data.bookings?.length || 0,
+        totalCount: res.data.total_count,
+        page: res.data.page,
+        totalPages: res.data.total_pages
+      });
+
       return res.data;
     } catch (error) {
       console.error('Ошибка получения детальных бронирований:', error);
@@ -248,7 +278,6 @@ export const bookingApi = {
 
   getById: async (bookingId) => {
     try {
-      // Убеждаемся, что ID передается как строка
       const id = String(bookingId);
       const res = await apiClient.get(`/bookings/${id}`);
       return res.data;
@@ -258,10 +287,8 @@ export const bookingApi = {
     }
   },
 
-  // Новый метод для получения детального бронирования с улучшенной обработкой
   getByIdDetailed: async (bookingId) => {
     try {
-      // Убеждаемся, что ID передается как строка и валидный
       const id = String(bookingId);
 
       if (!id || id === 'undefined' || id === 'null') {
@@ -275,19 +302,14 @@ export const bookingApi = {
     } catch (error) {
       console.error(`Ошибка получения детального бронирования ${bookingId}:`, error);
 
-      // Детальная обработка ошибок 422
       if (error.response?.status === 422) {
         console.error('422 Ошибка при получении детального бронирования:', error.response.data);
-
-        // Проверяем, является ли проблема в format ID
         if (error.response.data?.detail?.includes('booking ID')) {
           throw new Error(`Неверный формат ID бронирования: ${bookingId}`);
         }
-
         throw new Error('Ошибка валидации: ' + JSON.stringify(error.response.data));
       }
 
-      // Fallback на обычный метод если детальный недоступен
       if (error.response?.status === 404) {
         console.warn('Детальный endpoint недоступен, используем fallback');
         return await bookingApi.getById(bookingId);
@@ -297,7 +319,6 @@ export const bookingApi = {
     }
   },
 
-  // Новый метод для валидации ID перед запросом
   validateId: async (bookingId) => {
     try {
       const id = String(bookingId);
@@ -311,7 +332,6 @@ export const bookingApi = {
 
   create: async (bookingData) => {
     try {
-      // Валидируем данные перед отправкой
       const validatedData = {
         ...bookingData,
         user_id: Number(bookingData.user_id),
@@ -335,14 +355,12 @@ export const bookingApi = {
     }
   },
 
-  // Обновленный основной метод для изменения статуса бронирования
   updateBooking: async (bookingId, updateData) => {
     try {
       const id = String(bookingId);
 
       console.log(`Обновление бронирования ${id} с данными:`, updateData);
 
-      // Валидируем данные перед отправкой
       const validatedData = {};
 
       if ('confirmed' in updateData) {
@@ -353,7 +371,6 @@ export const bookingApi = {
         validatedData.paid = Boolean(updateData.paid);
       }
 
-      // Можно добавить другие поля при необходимости
       if ('amount' in updateData) {
         validatedData.amount = Number(updateData.amount);
       }
@@ -363,7 +380,6 @@ export const bookingApi = {
     } catch (error) {
       console.error(`Ошибка обновления бронирования ${bookingId}:`, error);
 
-      // Детальная обработка ошибок
       if (error.response?.status === 404) {
         throw new Error('Бронирование не найдено');
       }
@@ -404,7 +420,6 @@ export const bookingApi = {
     return await bookingApi.updateBooking(bookingId, { confirmed: false });
   },
 
-  // Комбинированные методы
   confirmAndMarkPaid: async (bookingId) => {
     return await bookingApi.updateBooking(bookingId, {
       confirmed: true,
@@ -432,7 +447,6 @@ export const bookingApi = {
     }
   },
 
-  // Новый метод для получения статистики с улучшенной обработкой ошибок
   getStats: async () => {
     try {
       const res = await apiClient.get('/bookings/stats');
@@ -440,7 +454,6 @@ export const bookingApi = {
     } catch (error) {
       console.warn('Статистика бронирований недоступна:', error);
 
-      // Возвращаем дефолтные значения если статистика недоступна
       return {
         total_bookings: 0,
         paid_bookings: 0,
@@ -453,67 +466,7 @@ export const bookingApi = {
     }
   },
 
-  // Вспомогательный метод для отладки
-  debug: async (bookingId) => {
-    try {
-      const id = String(bookingId);
-      console.group(`🔍 Отладка бронирования ID: ${id}`);
-
-      // Проверяем валидность ID
-      console.log('Шаг 1: Валидация ID...');
-      const validation = await bookingApi.validateId(id);
-      console.log('Результат валидации:', validation);
-
-      if (validation.exists) {
-        // Пробуем получить базовую информацию
-        console.log('Шаг 2: Получение базовой информации...');
-        try {
-          const basic = await bookingApi.getById(id);
-          console.log('✅ Базовая информация получена:', basic);
-        } catch (basicError) {
-          console.error('❌ Ошибка получения базовой информации:', basicError);
-        }
-
-        // Пробуем получить детальную информацию
-        console.log('Шаг 3: Получение детальной информации...');
-        try {
-          const detailed = await bookingApi.getByIdDetailed(id);
-          console.log('✅ Детальная информация получена:', detailed);
-        } catch (detailedError) {
-          console.error('❌ Ошибка получения детальной информации:', detailedError);
-        }
-
-        // Проверяем доступные действия
-        console.log('Шаг 4: Проверка доступных действий...');
-        const actions = {
-          canConfirm: !validation.confirmed,
-          canMarkPaid: !validation.paid,
-          canUnconfirm: validation.confirmed,
-          canMarkUnpaid: validation.paid
-        };
-        console.log('Доступные действия:', actions);
-      } else {
-        console.log('❌ Бронирование не существует или недоступно');
-      }
-
-      console.groupEnd();
-      return {
-        ...validation,
-        debugCompleted: true,
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error('❌ Критическая ошибка отладки:', error);
-      console.groupEnd();
-      return {
-        error: error.message,
-        debugCompleted: false,
-        timestamp: new Date().toISOString()
-      };
-    }
-  },
-
-  // Метод для массовых операций (опциональный)
+  // Метод для массовых операций
   bulkUpdate: async (bookingIds, updateData) => {
     try {
       console.log(`Массовое обновление ${bookingIds.length} бронирований:`, updateData);
