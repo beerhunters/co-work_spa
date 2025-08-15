@@ -1,7 +1,3 @@
-"""
-Конфигурация и вспомогательные функции для бота
-"""
-
 import os
 import pytz
 from pathlib import Path
