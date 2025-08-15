@@ -571,70 +571,150 @@ export const promocodeApi = {
   }
 };
 
-// -------------------- API: Заявки (обновленный) --------------------
+// -------------------- API: Заявки (обновленный с фильтрацией) --------------------
 export const ticketApi = {
+  // ОСНОВНОЙ метод для получения тикетов с фильтрацией
+  getAllDetailed: async (params = {}) => {
+    try {
+      console.log('Запрос тикетов с параметрами:', params);
+
+      // Подготавливаем параметры для запроса
+      const queryParams = {};
+
+      // Пагинация
+      if (params.page) queryParams.page = params.page;
+      if (params.per_page) queryParams.per_page = params.per_page;
+
+      // Фильтрация
+      if (params.status && params.status !== 'all') {
+        queryParams.status = params.status;
+      }
+
+      if (params.user_query && params.user_query.trim()) {
+        queryParams.user_query = params.user_query.trim();
+      }
+
+      console.log('Финальные параметры запроса тикетов:', queryParams);
+
+      const res = await apiClient.get('/tickets/detailed', { params: queryParams });
+
+      console.log('Ответ сервера для тикетов:', {
+        ticketsCount: res.data.tickets?.length || 0,
+        totalCount: res.data.total_count,
+        page: res.data.page,
+        totalPages: res.data.total_pages
+      });
+
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения детальных тикетов:', error);
+
+      // Fallback на обычный эндпоинт
+      if (error.response?.status === 404) {
+        console.warn('Эндпоинт /tickets/detailed не найден, используем fallback');
+        const res = await apiClient.get('/tickets', { params });
+        return {
+          tickets: res.data,
+          total_count: res.data.length,
+          page: params.page || 1,
+          per_page: params.per_page || 20,
+          total_pages: Math.ceil(res.data.length / (params.per_page || 20))
+        };
+      }
+
+      throw error;
+    }
+  },
+
   getAll: async (params = {}) => {
-    const res = await apiClient.get('/tickets', { params });
-    return res.data;
+    try {
+      console.log('ticketApi.getAll вызван с параметрами:', params);
+      const res = await apiClient.get('/tickets', { params });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения тикетов:', error);
+      throw error;
+    }
   },
+
   getById: async (ticketId) => {
-    const res = await apiClient.get(`/tickets/${ticketId}`);
-    return res.data;
+    try {
+      const res = await apiClient.get(`/tickets/${ticketId}`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка получения тикета ${ticketId}:`, error);
+      throw error;
+    }
   },
+
   create: async (ticketData) => {
-    const res = await apiClient.post('/tickets', ticketData);
-    return res.data;
+    try {
+      const res = await apiClient.post('/tickets', ticketData);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка создания тикета:', error);
+      throw error;
+    }
   },
+
   update: async (ticketId, status, comment, responsePhoto = null) => {
-    // Если есть фото, отправляем его пользователю с комментарием и статусом
-    if (responsePhoto) {
-      try {
+    try {
+      // Если есть фото, отправляем его пользователю с комментарием и статусом
+      if (responsePhoto) {
         const photoResult = await ticketApi.sendPhotoToUser(ticketId, responsePhoto, comment, status);
         console.log('Фото с комментарием отправлено пользователю:', photoResult);
 
         // Возвращаем обновленный тикет из ответа
         return photoResult.updated_ticket;
-      } catch (error) {
-        console.error('Ошибка отправки фото пользователю:', error);
-        throw new Error('Не удалось отправить фото пользователю');
+      } else {
+        // Обычное обновление без фото
+        const updateData = { status, comment };
+        const res = await apiClient.put(`/tickets/${ticketId}`, updateData);
+        return res.data;
       }
-    } else {
-      // Обычное обновление без фото
-      const updateData = { status, comment };
-      const res = await apiClient.put(`/tickets/${ticketId}`, updateData);
-      return res.data;
+    } catch (error) {
+      console.error('Ошибка обновления тикета:', error);
+      throw error;
     }
   },
+
   delete: async (ticketId) => {
-    const res = await apiClient.delete(`/tickets/${ticketId}`);
-    return res.data;
+    try {
+      const res = await apiClient.delete(`/tickets/${ticketId}`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка удаления тикета ${ticketId}:`, error);
+      throw error;
+    }
   },
+
   // Отправка фото пользователю с комментарием и статусом
   sendPhotoToUser: async (ticketId, file, comment = null, status = null) => {
-    const formData = new FormData();
-    formData.append('file', file);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
 
-    if (comment && comment.trim()) {
-      formData.append('comment', comment.trim());
+      if (comment && comment.trim()) {
+        formData.append('comment', comment.trim());
+      }
+
+      if (status) {
+        formData.append('status', status);
+      }
+
+      const res = await apiClient.post(`/tickets/${ticketId}/photo`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка отправки фото пользователю:', error);
+      throw error;
     }
-
-    if (status) {
-      formData.append('status', status);
-    }
-
-    const res = await apiClient.post(`/tickets/${ticketId}/photo`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return res.data;
   },
-  // ВАРИАНТ 1: Получение фото с токеном в URL
-  getPhotoUrl: (ticketId) => {
-    const token = localStorage.getItem('token');
-    return `${apiClient.defaults.baseURL}/tickets/${ticketId}/photo?token=${encodeURIComponent(token)}`;
-  },
-  // ВАРИАНТ 2: Получение фото в base64 (рекомендуемый)
+
+  // Получение фото в base64 (рекомендуемый)
   getPhotoBase64: async (ticketId) => {
     try {
       const res = await apiClient.get(`/tickets/${ticketId}/photo-base64`);
@@ -644,16 +724,41 @@ export const ticketApi = {
       return null;
     }
   },
+
+  // Получение статистики тикетов
+  getStats: async () => {
+    try {
+      const res = await apiClient.get('/tickets/stats');
+      return res.data;
+    } catch (error) {
+      console.warn('Статистика тикетов недоступна:', error);
+      return {
+        total_tickets: 0,
+        open_tickets: 0,
+        in_progress_tickets: 0,
+        closed_tickets: 0,
+        avg_response_time: 0
+      };
+    }
+  },
+
   // Устаревшие методы для совместимости
+  getPhotoUrl: (ticketId) => {
+    const token = localStorage.getItem('token');
+    return `${apiClient.defaults.baseURL}/tickets/${ticketId}/photo?token=${encodeURIComponent(token)}`;
+  },
+
   uploadResponsePhoto: async (ticketId, file) => {
     console.warn('uploadResponsePhoto deprecated, используйте sendPhotoToUser');
     return await ticketApi.sendPhotoToUser(ticketId, file);
   },
+
   getPhoto: async (ticketId) => {
     console.warn('getPhoto deprecated, используйте getPhotoBase64');
     return await ticketApi.getPhotoBase64(ticketId);
   }
 };
+
 // -------------------- API: Рассылки --------------------
 
 export const newsletterApi = {

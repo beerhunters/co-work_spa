@@ -2737,6 +2737,218 @@ async def get_dashboard_stats(
 # ================== TICKET ENDPOINTS ==================
 
 
+@app.get("/tickets/detailed")
+async def get_tickets_detailed(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    status: Optional[str] = None,
+    user_query: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение тикетов с данными пользователей и фильтрацией."""
+    try:
+        logger.info(
+            f"Запрос тикетов: page={page}, per_page={per_page}, status='{status}', user_query='{user_query}'"
+        )
+
+        # Базовый запрос с eager loading пользователя
+        query = db.query(Ticket).options(joinedload(Ticket.user))
+
+        # Фильтрация по пользователю (поиск по ФИО)
+        if user_query and user_query.strip():
+            search_term = f"%{user_query.strip()}%"
+            logger.info(f"Применяем фильтр по пользователю: '{search_term}'")
+            query = query.join(User).filter(User.full_name.ilike(search_term))
+
+        # Фильтрация по статусу
+        if status and status.strip():
+            logger.info(f"Применяем фильтр по статусу: '{status}'")
+            try:
+                status_enum = TicketStatus[status]
+                query = query.filter(Ticket.status == status_enum)
+            except KeyError:
+                logger.error(f"Неверный статус: {status}")
+                raise HTTPException(status_code=400, detail="Invalid status")
+
+        # Получаем общее количество ДО применения пагинации
+        total_count = query.count()
+        logger.info(f"Найдено тикетов после фильтрации: {total_count}")
+
+        # Применяем пагинацию и сортировку
+        tickets = (
+            query.order_by(Ticket.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+
+        logger.info(f"Загружено тикетов на странице {page}: {len(tickets)}")
+
+        # Формируем ответ с использованием relationships
+        enriched_tickets = []
+        for ticket in tickets:
+            # Безопасное получение данных пользователя
+            user_data = None
+            if ticket.user:
+                user_data = {
+                    "id": ticket.user.id,
+                    "telegram_id": ticket.user.telegram_id,
+                    "full_name": ticket.user.full_name or "Имя не указано",
+                    "username": ticket.user.username,
+                    "phone": ticket.user.phone,
+                    "email": ticket.user.email,
+                }
+            else:
+                # Fallback если пользователь не найден
+                user_data = {
+                    "id": ticket.user_id,
+                    "telegram_id": None,
+                    "full_name": "Пользователь не найден",
+                    "username": None,
+                    "phone": None,
+                    "email": None,
+                }
+
+            ticket_item = {
+                "id": int(ticket.id),
+                "user_id": int(ticket.user_id),
+                "description": ticket.description,
+                "photo_id": ticket.photo_id,
+                "response_photo_id": ticket.response_photo_id,
+                "status": ticket.status.name,
+                "comment": ticket.comment,
+                "created_at": ticket.created_at.isoformat(),
+                "updated_at": ticket.updated_at.isoformat(),
+                "user": user_data,
+            }
+            enriched_tickets.append(ticket_item)
+
+        total_pages = (total_count + per_page - 1) // per_page
+
+        result = {
+            "tickets": enriched_tickets,
+            "total_count": int(total_count),
+            "page": int(page),
+            "per_page": int(per_page),
+            "total_pages": int(total_pages),
+        }
+
+        logger.info(
+            f"Возвращаем результат: {len(enriched_tickets)} тикетов, страница {page} из {total_pages}"
+        )
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении тикетов: {e}")
+        import traceback
+
+        logger.error(f"Полный traceback: {traceback.format_exc()}")
+
+        # Fallback на простую версию
+        try:
+            logger.info("Пытаемся fallback на простую версию...")
+            query = db.query(Ticket)
+
+            # Применяем те же фильтры для fallback
+            if user_query and user_query.strip():
+                search_term = f"%{user_query.strip()}%"
+                query = query.join(User).filter(User.full_name.ilike(search_term))
+
+            if status and status.strip():
+                try:
+                    status_enum = TicketStatus[status]
+                    query = query.filter(Ticket.status == status_enum)
+                except KeyError:
+                    pass  # Игнорируем ошибки статуса в fallback
+
+            total_count = query.count()
+            tickets = (
+                query.order_by(Ticket.created_at.desc())
+                .offset((page - 1) * per_page)
+                .limit(per_page)
+                .all()
+            )
+
+            simple_tickets = []
+            for ticket in tickets:
+                ticket_item = {
+                    "id": int(ticket.id),
+                    "user_id": int(ticket.user_id),
+                    "description": ticket.description,
+                    "photo_id": ticket.photo_id,
+                    "response_photo_id": ticket.response_photo_id,
+                    "status": ticket.status.name,
+                    "comment": ticket.comment,
+                    "created_at": ticket.created_at.isoformat(),
+                    "updated_at": ticket.updated_at.isoformat(),
+                    # Fallback данные
+                    "user": {
+                        "id": ticket.user_id,
+                        "telegram_id": None,
+                        "full_name": "Данные недоступны",
+                        "username": None,
+                        "phone": None,
+                        "email": None,
+                    },
+                }
+                simple_tickets.append(ticket_item)
+
+            total_pages = (total_count + per_page - 1) // per_page
+
+            logger.info(f"Fallback успешен: {len(simple_tickets)} тикетов")
+            return {
+                "tickets": simple_tickets,
+                "total_count": int(total_count),
+                "page": int(page),
+                "per_page": int(per_page),
+                "total_pages": int(total_pages),
+            }
+
+        except Exception as fallback_error:
+            logger.error(f"Fallback также не удался: {fallback_error}")
+            raise HTTPException(
+                status_code=500, detail=f"Critical server error: {str(e)}"
+            )
+
+
+# Также добавим эндпоинт для статистики тикетов
+@app.get("/tickets/stats")
+async def get_tickets_stats(
+    db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение статистики по тикетам."""
+    try:
+        total_tickets = db.query(Ticket).count()
+        open_tickets = (
+            db.query(Ticket).filter(Ticket.status == TicketStatus.OPEN).count()
+        )
+        in_progress_tickets = (
+            db.query(Ticket).filter(Ticket.status == TicketStatus.IN_PROGRESS).count()
+        )
+        closed_tickets = (
+            db.query(Ticket).filter(Ticket.status == TicketStatus.CLOSED).count()
+        )
+
+        # Средний ответ можно вычислить как разница между created_at и updated_at для закрытых тикетов
+        # Но это упрощенная версия для примера
+        avg_response_time = 0  # В часах, можно добавить реальную логику позже
+
+        return {
+            "total_tickets": total_tickets,
+            "open_tickets": open_tickets,
+            "in_progress_tickets": in_progress_tickets,
+            "closed_tickets": closed_tickets,
+            "avg_response_time": avg_response_time,
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка при получении статистики тикетов: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/tickets", response_model=List[dict])
 async def get_tickets(
     page: int = Query(1, ge=1),

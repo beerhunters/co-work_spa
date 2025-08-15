@@ -33,7 +33,7 @@ import {
   userApi,
   promocodeApi,
   tariffApi,
-  bookingApi
+  bookingApi, ticketApi,
 } from './utils/api.js';
 import notificationManager from './utils/notifications';
 
@@ -53,6 +53,7 @@ function App() {
   const [tariffs, setTariffs] = useState([]);
   const [promocodes, setPromocodes] = useState([]);
   const [tickets, setTickets] = useState([]);
+  const [ticketsMeta, setTicketsMeta] = useState({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
   const [notifications, setNotifications] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -68,6 +69,13 @@ function App() {
     per_page: 20
   });
   const [isBookingsLoading, setIsBookingsLoading] = useState(false);
+
+  // НОВОЕ: Состояние для фильтров тикетов
+  const [ticketFilters, setTicketFilters] = useState({
+    page: 1,
+    per_page: 20
+  });
+  const [isTicketsLoading, setIsTicketsLoading] = useState(false);
 
   // UI состояния
   const [hasNewNotifications, setHasNewNotifications] = useState(false);
@@ -93,6 +101,7 @@ function App() {
     tariffs: setTariffs,
     promocodes: setPromocodes,
     tickets: setTickets,
+    ticketsMeta: setTicketsMeta,
     notifications: (data) => {
       setNotifications(data);
       if (Array.isArray(data) && data.length > 0) {
@@ -103,7 +112,94 @@ function App() {
     dashboardStats: setDashboardStats
   };
 
-  // НОВОЕ: Функция для загрузки бронирований с фильтрами
+  // НОВОЕ: Функция для загрузки тикетов с фильтрами
+  const loadTicketsWithFilters = useCallback(async (filters = ticketFilters) => {
+    setIsTicketsLoading(true);
+    try {
+      console.log('Загружаем тикеты с фильтрами:', filters);
+
+      const response = await ticketApi.getAllDetailed(filters);
+
+      console.log('Получен ответ тикетов:', {
+        ticketsCount: response.tickets?.length || 0,
+        totalCount: response.total_count,
+        page: response.page,
+        totalPages: response.total_pages
+      });
+
+      setTickets(response.tickets || []);
+      setTicketsMeta({
+        total_count: response.total_count || 0,
+        page: response.page || 1,
+        per_page: response.per_page || 20,
+        total_pages: response.total_pages || 1
+      });
+
+    } catch (error) {
+      console.error('Ошибка загрузки тикетов:', error);
+
+      // Fallback
+      try {
+        console.log('Пробуем резервный способ загрузки тикетов...');
+        const fallbackData = await ticketApi.getAll(filters);
+        console.log('Резервная загрузка тикетов успешна:', fallbackData.length, 'записей');
+
+        setTickets(Array.isArray(fallbackData) ? fallbackData : []);
+        setTicketsMeta({
+          total_count: fallbackData.length,
+          page: filters.page || 1,
+          per_page: filters.per_page || 20,
+          total_pages: Math.ceil(fallbackData.length / (filters.per_page || 20))
+        });
+
+        toast({
+          title: 'Частичная загрузка',
+          description: 'Тикеты загружены в упрощенном режиме',
+          status: 'warning',
+          duration: 3000,
+        });
+      } catch (fallbackError) {
+        console.error('Fallback ошибка тикетов:', fallbackError);
+
+        setTickets([]);
+        setTicketsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
+
+        toast({
+          title: 'Ошибка загрузки',
+          description: 'Не удалось загрузить тикеты. Попробуйте обновить страницу.',
+          status: 'error',
+          duration: 7000,
+          isClosable: true,
+        });
+      }
+    } finally {
+      setIsTicketsLoading(false);
+    }
+  }, [ticketFilters, toast]);
+
+  // НОВОЕ: Обработчик изменения фильтров тикетов
+  const handleTicketFiltersChange = useCallback((newFilters) => {
+    console.log('Получены новые фильтры тикетов:', newFilters);
+
+    // Проверяем, является ли это сбросом к дефолтным значениям
+    const isDefaultFilters = (
+      newFilters.page === 1 &&
+      newFilters.per_page === 20 &&
+      !newFilters.status &&
+      !newFilters.user_query
+    );
+
+    if (isDefaultFilters) {
+      console.log('Обнаружен сброс к дефолтным фильтрам тикетов');
+      setTicketFilters({ page: 1, per_page: 20 });
+    } else {
+      setTicketFilters(prevFilters => {
+        const updatedFilters = { ...prevFilters, ...newFilters };
+        console.log('Обновленные фильтры тикетов:', updatedFilters);
+        return updatedFilters;
+      });
+    }
+  }, []);
   const loadBookingsWithFilters = useCallback(async (filters = bookingFilters) => {
     setIsBookingsLoading(true);
     try {
@@ -204,7 +300,13 @@ function App() {
     }
   }, []);
 
-  // НОВОЕ: Загружаем бронирования при изменении фильтров
+  // НОВОЕ: Загружаем тикеты при изменении фильтров
+  useEffect(() => {
+    if (isAuthenticated && section === 'tickets') {
+      console.log('Фильтры тикетов изменились, загружаем данные:', ticketFilters);
+      loadTicketsWithFilters(ticketFilters);
+    }
+  }, [ticketFilters, isAuthenticated, section, loadTicketsWithFilters]);
   useEffect(() => {
     if (isAuthenticated && section === 'bookings') {
       console.log('Фильтры бронирований изменились, загружаем данные:', bookingFilters);
@@ -224,6 +326,17 @@ function App() {
           } else {
             // Иначе используем текущие фильтры
             await loadBookingsWithFilters(bookingFilters);
+          }
+          break;
+
+        case 'tickets':
+          // Для тикетов используем новую функцию с фильтрами
+          if (Object.keys(params).length > 0) {
+            // Если переданы конкретные параметры, используем их
+            await loadTicketsWithFilters(params);
+          } else {
+            // Иначе используем текущие фильтры
+            await loadTicketsWithFilters(ticketFilters);
           }
           break;
 
@@ -317,9 +430,9 @@ function App() {
     checkAuth();
   }, []);
 
-  // При смене вкладки загружаем данные (исключая bookings - они загружаются через фильтры)
+  // При смене вкладки загружаем данные (исключая bookings и tickets - они загружаются через фильтры)
   useEffect(() => {
-    if (isAuthenticated && section !== 'bookings') {
+    if (isAuthenticated && section !== 'bookings' && section !== 'tickets') {
       fetchSectionDataEnhanced(section);
     }
   }, [section, isAuthenticated]);
@@ -448,8 +561,9 @@ function App() {
       setLogin('');
       setPassword('');
 
-      // Сбрасываем фильтры бронирований
+      // Сбрасываем фильтры бронирований и тикетов
       setBookingFilters({ page: 1, per_page: 20 });
+      setTicketFilters({ page: 1, per_page: 20 });
 
       if (chartInstanceRef.current) {
         chartInstanceRef.current.destroy();
@@ -725,7 +839,16 @@ function App() {
           />
         );
       case 'tickets':
-        return <Tickets tickets={tickets} {...sectionProps} />;
+        return (
+          <Tickets
+            tickets={tickets}
+            ticketsMeta={ticketsMeta}
+            {...sectionProps}
+            onRefresh={() => loadTicketsWithFilters(ticketFilters)}
+            onFiltersChange={handleTicketFiltersChange}
+            isLoading={isTicketsLoading}
+          />
+        );
       case 'notifications':
         return (
           <Notifications
