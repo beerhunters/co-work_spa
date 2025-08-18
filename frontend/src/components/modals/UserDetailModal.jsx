@@ -29,7 +29,8 @@ const API_BASE_URL = 'http://localhost/api';
 
 // Утилита для получения URL аватара с защитой от кэширования
 const getAvatarUrl = (avatar, forceRefresh = false) => {
-  if (!avatar || avatar === 'placeholder_avatar.png') {
+  // ИСПРАВЛЕНИЕ: Если аватар отсутствует или null, всегда возвращаем placeholder
+  if (!avatar || avatar === 'placeholder_avatar.png' || avatar === null) {
     return `${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`;
   }
 
@@ -45,10 +46,12 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
   const [isDownloadingAvatar, setIsDownloadingAvatar] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState(Date.now()); // Для форсированного обновления
+  const [currentUser, setCurrentUser] = useState(user); // Локальное состояние пользователя
   const toast = useToast();
 
   useEffect(() => {
     if (user) {
+      setCurrentUser(user); // Обновляем локальное состояние
       setFormData({
         full_name: user.full_name || '',
         phone: user.phone || '',
@@ -60,13 +63,13 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   }, [user]);
 
-  // Проверка, является ли текущий аватар плейсхолдером
-  const isPlaceholderAvatar = !user?.avatar || user.avatar === 'placeholder_avatar.png';
+  // ИСПРАВЛЕНИЕ: Проверяем локальное состояние пользователя
+  const isPlaceholderAvatar = !currentUser?.avatar || currentUser.avatar === 'placeholder_avatar.png' || currentUser.avatar === null;
 
-  // URL аватара с версионированием
+  // URL аватара с версионированием - используем локальное состояние
   const avatarUrl = avatarFile
     ? URL.createObjectURL(avatarFile)
-    : getAvatarUrl(user?.avatar, true);
+    : getAvatarUrl(currentUser?.avatar, true);
 
   // Формирование ссылок
   const getTelegramUrl = (username) => {
@@ -83,10 +86,16 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const handleDownloadTelegramAvatar = async () => {
     setIsDownloadingAvatar(true);
     try {
-      console.log('Начинаем скачивание аватара из Telegram для пользователя:', user.id);
+      console.log('Начинаем скачивание аватара из Telegram для пользователя:', currentUser.id);
 
-      const result = await userApi.downloadTelegramAvatar(user.id);
+      const result = await userApi.downloadTelegramAvatar(currentUser.id);
       console.log('Аватар успешно скачан:', result);
+
+      // ИСПРАВЛЕНИЕ: Обновляем локальное состояние пользователя
+      setCurrentUser(prev => ({
+        ...prev,
+        avatar: result.avatar_filename
+      }));
 
       // Форсируем обновление версии для перезагрузки изображения
       setAvatarVersion(Date.now());
@@ -96,16 +105,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
       // Закрываем модальное окно аватара
       setAvatarModalOpen(false);
-
-      // Предзагружаем новое изображение безопасным способом
-      if (result.avatar_url) {
-        try {
-          const img = document.createElement('img');
-          img.src = API_BASE_URL + result.avatar_url;
-        } catch (e) {
-          console.log('Не удалось предзагрузить изображение:', e);
-        }
-      }
 
       toast({
         title: 'Аватар загружен',
@@ -137,24 +136,20 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   const handleSave = async () => {
     try {
-      await userApi.update(user.id, formData);
+      await userApi.update(currentUser.id, formData);
 
       if (avatarFile) {
-        const uploadResult = await userApi.uploadAvatar(user.id, avatarFile);
+        const uploadResult = await userApi.uploadAvatar(currentUser.id, avatarFile);
         setAvatarFile(null);
+
+        // ИСПРАВЛЕНИЕ: Обновляем локальное состояние пользователя
+        setCurrentUser(prev => ({
+          ...prev,
+          avatar: uploadResult.filename
+        }));
 
         // Форсируем обновление версии
         setAvatarVersion(Date.now());
-
-        // Предзагружаем новое изображение безопасным способом
-        if (uploadResult.avatar_url) {
-          try {
-            const img = document.createElement('img');
-            img.src = API_BASE_URL + uploadResult.avatar_url;
-          } catch (e) {
-            console.log('Не удалось предзагрузить изображение:', e);
-          }
-        }
       }
 
       await onUpdate();
@@ -181,16 +176,28 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   const handleAvatarDelete = async () => {
     try {
-      await userApi.deleteAvatar(user.id);
+      console.log('Удаляем аватар для пользователя:', currentUser.id);
+
+      const result = await userApi.deleteAvatar(currentUser.id);
+      console.log('Результат удаления аватара:', result);
+
       setAvatarFile(null);
+
+      // ИСПРАВЛЕНИЕ: Сразу обновляем локальное состояние пользователя
+      setCurrentUser(prev => ({
+        ...prev,
+        avatar: null
+      }));
 
       // Форсируем обновление версии
       setAvatarVersion(Date.now());
 
+      // Обновляем общие данные
       await onUpdate();
 
       toast({
         title: 'Аватар удалён',
+        description: 'Аватар пользователя успешно удален',
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -210,29 +217,33 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   };
 
   // Функция для форсированной перезагрузки изображения
-  const handleImageError = () => {
-    console.log('Ошибка загрузки изображения, пробуем перезагрузить');
-    setAvatarVersion(Date.now());
+  const handleImageError = (e) => {
+    console.log('Ошибка загрузки изображения, переключаемся на placeholder');
+
+    // Если это не placeholder, устанавливаем placeholder
+    if (!e.target.src.includes('placeholder_avatar.png')) {
+      e.target.src = `${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`;
+    }
   };
 
-  if (!user) return null;
+  if (!currentUser) return null;
 
-  const telegramUrl = getTelegramUrl(user.username);
-  const mailtoUrl = getMailtoUrl(user.email);
+  const telegramUrl = getTelegramUrl(currentUser.username);
+  const mailtoUrl = getMailtoUrl(currentUser.email);
 
   return (
     <>
       <Modal isOpen={isOpen} onClose={onClose} size="xl">
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Пользователь #{user.id}</ModalHeader>
+          <ModalHeader>Пользователь #{currentUser.id}</ModalHeader>
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4} align="stretch">
               {/* Аватар с версионированием */}
               <Box textAlign="center">
                 <Image
-                  key={`avatar-${user.id}-${avatarVersion}`} // Ключ для форсированного обновления
+                  key={`avatar-${currentUser.id}-${avatarVersion}`} // Ключ для форсированного обновления
                   src={`${avatarUrl}&t=${avatarVersion}`} // Дополнительный параметр времени
                   alt="Аватар пользователя"
                   boxSize="120px"
@@ -266,10 +277,10 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
                 <VStack spacing={2}>
                   <Text fontSize="lg" fontWeight="bold">
-                    {user.full_name || 'Не указано'}
+                    {currentUser.full_name || 'Не указано'}
                   </Text>
 
-                  {user.username ? (
+                  {currentUser.username ? (
                     <Link
                       href={telegramUrl}
                       isExternal
@@ -283,7 +294,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                       alignItems="center"
                       gap={1}
                     >
-                      @{user.username}
+                      @{currentUser.username}
                       <FiExternalLink size={12} />
                     </Link>
                   ) : (
@@ -293,7 +304,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                   )}
 
                   <Badge colorScheme="blue">
-                    ID: {user.telegram_id}
+                    ID: {currentUser.telegram_id}
                   </Badge>
                 </VStack>
               </Box>
@@ -351,12 +362,12 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 <VStack spacing={3} align="stretch">
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Телефон:</Text>
-                    <Text>{user.phone || 'Не указано'}</Text>
+                    <Text>{currentUser.phone || 'Не указано'}</Text>
                   </HStack>
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Email:</Text>
-                    {user.email && mailtoUrl ? (
+                    {currentUser.email && mailtoUrl ? (
                       <Link
                         href={mailtoUrl}
                         color="blue.500"
@@ -368,7 +379,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                         alignItems="center"
                         gap={1}
                       >
-                        {user.email}
+                        {currentUser.email}
                         <FiExternalLink size={12} />
                       </Link>
                     ) : (
@@ -378,28 +389,28 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Язык:</Text>
-                    <Text>{user.language_code}</Text>
+                    <Text>{currentUser.language_code}</Text>
                   </HStack>
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Успешных броней:</Text>
-                    <Badge colorScheme="green">{user.successful_bookings}</Badge>
+                    <Badge colorScheme="green">{currentUser.successful_bookings}</Badge>
                   </HStack>
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Приглашено:</Text>
-                    <Badge colorScheme="purple">{user.invited_count}</Badge>
+                    <Badge colorScheme="purple">{currentUser.invited_count}</Badge>
                   </HStack>
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Дата регистрации:</Text>
-                    <Text>{new Date(user.reg_date || user.first_join_time).toLocaleDateString('ru-RU')}</Text>
+                    <Text>{new Date(currentUser.reg_date || currentUser.first_join_time).toLocaleDateString('ru-RU')}</Text>
                   </HStack>
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Согласие с условиями:</Text>
-                    <Badge colorScheme={user.agreed_to_terms ? 'green' : 'red'}>
-                      {user.agreed_to_terms ? 'Да' : 'Нет'}
+                    <Badge colorScheme={currentUser.agreed_to_terms ? 'green' : 'red'}>
+                      {currentUser.agreed_to_terms ? 'Да' : 'Нет'}
                     </Badge>
                   </HStack>
                 </VStack>
@@ -462,7 +473,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
           <ModalBody>
             <VStack spacing={4}>
               <Image
-                key={`modal-avatar-${user.id}-${avatarVersion}`}
+                key={`modal-avatar-${currentUser.id}-${avatarVersion}`}
                 src={`${avatarUrl}&t=${avatarVersion}`}
                 alt="Аватар в полном размере"
                 boxSize="300px"
@@ -474,7 +485,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
               />
 
               <HStack spacing={3}>
-                {user.avatar && !isPlaceholderAvatar && (
+                {currentUser.avatar && !isPlaceholderAvatar && (
                   <Button
                     leftIcon={<FiTrash2 />}
                     colorScheme="red"

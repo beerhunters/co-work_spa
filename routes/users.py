@@ -334,7 +334,30 @@ async def delete_avatar(
         except Exception as e:
             logger.warning(f"Не удалось удалить файл {standard_path.name}: {e}")
 
-    return {"deleted": deleted}
+    # ИСПРАВЛЕНИЕ: Обновляем пользователя после удаления
+    db.refresh(user)
+
+    # Возвращаем полные данные пользователя с avatar: null
+    return {
+        "deleted": deleted,
+        "message": "Avatar deleted successfully",
+        "user": {
+            "id": user.id,
+            "telegram_id": user.telegram_id,
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "email": user.email,
+            "username": user.username,
+            "successful_bookings": user.successful_bookings or 0,
+            "language_code": user.language_code or "ru",
+            "invited_count": user.invited_count or 0,
+            "reg_date": user.reg_date,
+            "first_join_time": user.first_join_time,
+            "agreed_to_terms": user.agreed_to_terms or False,
+            "avatar": None,  # Убираем аватар
+            "referrer_id": user.referrer_id,
+        },
+    }
 
 
 @router.get("/avatars/{filename}")
