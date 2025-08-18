@@ -1,3 +1,4 @@
+import asyncio
 import os
 import threading
 import time as time_module
@@ -14,6 +15,8 @@ import jwt
 import pytz
 import schedule
 from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
+from aiogram.types import InputMediaPhoto, FSInputFile
 from fastapi import FastAPI, Depends, HTTPException, File, UploadFile, Form
 from fastapi import Query
 from fastapi.responses import FileResponse
@@ -242,6 +245,22 @@ class NewsletterBase(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class NewsletterCreate(BaseModel):
+    message: str
+    recipient_type: str  # 'all' или 'selected'
+    user_ids: Optional[List[int]] = None
+
+
+class NewsletterResponse(BaseModel):
+    id: int
+    message: str
+    status: str
+    total_count: int
+    success_count: int
+    photo_count: int
+    created_at: datetime
 
 
 class TicketBase(BaseModel):
@@ -2893,56 +2912,906 @@ async def create_notification(
 # ================== NEWSLETTER ENDPOINTS ==================
 
 
-@app.get("/newsletters", response_model=List[NewsletterBase])
-async def get_newsletters(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
+@app.post("/newsletters/send")
+async def send_newsletter(
+    message: str = Form(...),
+    recipient_type: str = Form(...),
+    user_ids: Optional[List[str]] = Form(None),
+    photos: Optional[List[UploadFile]] = File(None),
     _: str = Depends(verify_token),
 ):
-    """Получение списка рассылок."""
-    newsletters = (
-        db.query(Newsletter)
-        .order_by(Newsletter.created_at.desc())
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
-    return newsletters
+    """Отправка рассылки пользователям через Telegram бота."""
 
+    if not bot:
+        raise HTTPException(status_code=503, detail="Bot not available")
 
-@app.post("/newsletters")
-async def create_newsletter(
-    newsletter_data: dict, db: Session = Depends(get_db), _: str = Depends(verify_token)
-):
-    """Создание новой рассылки."""
-    message = newsletter_data.get("message", "")
+    # Валидация сообщения
     if not message.strip():
-        raise HTTPException(status_code=400, detail="Message cannot be empty")
+        raise HTTPException(
+            status_code=400, detail="Текст сообщения не может быть пустым"
+        )
 
-    # Подсчитываем количество получателей
-    users = db.query(User).all()
-    newsletter = Newsletter(message=message, recipient_count=len(users))
+    if len(message) > 4096:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Сообщение слишком длинное. Текущая длина: {len(message)} символов, максимум: 4096 символов",
+        )
 
-    db.add(newsletter)
-    db.commit()
-    db.refresh(newsletter)
+    if recipient_type not in ["all", "selected"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Неверный тип получателей. Допустимы: 'all' или 'selected'",
+        )
 
-    # Отправляем рассылку через бота
-    if bot:
-        sent_count = 0
-        for user in users:
-            try:
-                await bot.send_message(user.telegram_id, message)
-                sent_count += 1
-            except Exception as e:
-                logger.error(
-                    f"Не удалось отправить сообщение пользователю {user.telegram_id}: {e}"
+    if recipient_type == "selected":
+        if not user_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Не выбраны получатели. Выберите хотя бы одного пользователя",
+            )
+
+        if len(user_ids) == 0:
+            raise HTTPException(status_code=400, detail="Список получателей пуст")
+
+        # Проверка корректности ID
+        invalid_ids = [uid for uid in user_ids if not uid.isdigit()]
+        if invalid_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Некорректные ID пользователей: {', '.join(invalid_ids)}",
+            )
+
+    # Детальная валидация фотографий
+    if photos:
+        if len(photos) > 10:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Превышено максимальное количество фотографий. Загружено: {len(photos)}, максимум: 10",
+            )
+
+        # Проверка размера и типа каждого файла
+        MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+        ALLOWED_TYPES = [
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/gif",
+            "image/webp",
+        ]
+
+        for idx, photo in enumerate(photos):
+            # Получаем размер файла
+            contents = await photo.read()
+            file_size = len(contents)
+            await photo.seek(0)  # Возвращаем указатель в начало
+
+            # Проверка размера файла
+            if file_size > MAX_FILE_SIZE:
+                size_mb = file_size / (1024 * 1024)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Файл #{idx + 1} '{photo.filename}' слишком большой. Размер: {size_mb:.1f} MB, максимум: 20 MB",
                 )
 
-        logger.info(f"Рассылка отправлена {sent_count} из {len(users)} пользователей")
+            # Проверка типа файла
+            if photo.content_type not in ALLOWED_TYPES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Файл #{idx + 1} '{photo.filename}' имеет недопустимый тип: {photo.content_type}. Разрешены: JPEG, PNG, GIF, WebP",
+                )
 
-    return {"id": newsletter.id, "message": "Newsletter sent", "recipients": len(users)}
+            # Проверка наличия имени файла
+            if not photo.filename:
+                raise HTTPException(
+                    status_code=400, detail=f"Файл #{idx + 1} не имеет имени"
+                )
+
+    def _get_recipients(session):
+        """Получение списка получателей."""
+        if recipient_type == "all":
+            users = session.query(User).filter(User.telegram_id.isnot(None)).all()
+        else:
+            # Преобразуем строки в числа
+            telegram_ids = [int(uid) for uid in user_ids if uid.isdigit()]
+            users = session.query(User).filter(User.telegram_id.in_(telegram_ids)).all()
+
+        return [
+            {
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name or f"User {user.telegram_id}",
+            }
+            for user in users
+        ]
+
+    # Получаем получателей с детальной информацией
+    recipients = DatabaseManager.safe_execute(_get_recipients)
+
+    if not recipients:
+        if recipient_type == "all":
+            raise HTTPException(
+                status_code=400,
+                detail="В системе нет пользователей с активными Telegram аккаунтами",
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Среди выбранных {len(user_ids)} пользователей не найдено активных Telegram аккаунтов",
+            )
+
+    # Сохраняем фотографии с подробной валидацией
+    photo_paths = []
+    if photos:
+        NEWSLETTER_PHOTOS_DIR = Path("newsletter_photos")
+        NEWSLETTER_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Проверка свободного места на диске
+        import shutil
+
+        free_space = shutil.disk_usage(NEWSLETTER_PHOTOS_DIR).free
+
+        total_size = 0
+        for photo in photos:
+            contents = await photo.read()
+            total_size += len(contents)
+            await photo.seek(0)
+
+        if total_size > free_space:
+            raise HTTPException(
+                status_code=507,
+                detail=f"Недостаточно места на диске. Требуется: {total_size / (1024 * 1024):.1f} MB, доступно: {free_space / (1024 * 1024):.1f} MB",
+            )
+
+        for idx, photo in enumerate(photos):
+            try:
+                if photo.content_type and photo.content_type.startswith("image/"):
+                    timestamp = int(time.time())
+                    # Получаем расширение файла
+                    file_ext = Path(photo.filename).suffix if photo.filename else ".jpg"
+                    if file_ext not in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+                        file_ext = ".jpg"
+
+                    filename = f"newsletter_{timestamp}_{idx}{file_ext}"
+                    file_path = NEWSLETTER_PHOTOS_DIR / filename
+
+                    contents = await photo.read()
+                    with open(file_path, "wb") as f:
+                        f.write(contents)
+
+                    photo_paths.append(str(file_path))
+                    logger.info(
+                        f"Saved photo {idx + 1}: {filename} ({len(contents) / 1024:.1f} KB)"
+                    )
+                else:
+                    logger.warning(
+                        f"Skipped file {idx + 1} '{photo.filename}': unsupported type {photo.content_type}"
+                    )
+            except Exception as e:
+                logger.error(f"Error saving photo {idx + 1}: {e}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Ошибка сохранения файла #{idx + 1} '{photo.filename}': {str(e)}",
+                )
+
+    # Отправка сообщений с детальным логированием
+    success_count = 0
+    failed_count = 0
+    failed_users = []
+
+    logger.info(f"Starting newsletter delivery to {len(recipients)} recipients")
+
+    for idx, recipient in enumerate(recipients):
+        try:
+            user_info = f"{recipient['full_name']} (ID: {recipient['telegram_id']})"
+            logger.debug(f"Sending to {idx + 1}/{len(recipients)}: {user_info}")
+
+            if photo_paths:
+                # Отправка с фотографиями
+                if len(photo_paths) == 1:
+                    # Одно фото - отправляем как фото с подписью
+                    with open(photo_paths[0], "rb") as photo:
+                        await bot.send_photo(
+                            chat_id=recipient["telegram_id"],
+                            photo=photo,
+                            caption=message,
+                            parse_mode="HTML",
+                        )
+                    logger.debug(f"Sent photo message to {user_info}")
+                else:
+                    # Несколько фото - отправляем как медиагруппу
+                    media_group = []
+                    for photo_idx, photo_path in enumerate(photo_paths):
+                        media = InputMediaPhoto(
+                            media=FSInputFile(photo_path),
+                            caption=message if photo_idx == 0 else None,
+                            parse_mode="HTML" if photo_idx == 0 else None,
+                        )
+                        media_group.append(media)
+
+                    await bot.send_media_group(
+                        chat_id=recipient["telegram_id"], media=media_group
+                    )
+                    logger.debug(
+                        f"Sent media group ({len(photo_paths)} photos) to {user_info}"
+                    )
+            else:
+                # Отправка только текста
+                await bot.send_message(
+                    chat_id=recipient["telegram_id"], text=message, parse_mode="HTML"
+                )
+                logger.debug(f"Sent text message to {user_info}")
+
+            success_count += 1
+
+            # Небольшая задержка чтобы не превысить лимиты Telegram
+            await asyncio.sleep(0.05)
+
+        except TelegramAPIError as e:
+            failed_count += 1
+            error_msg = str(e)
+            failed_users.append(
+                {
+                    "telegram_id": recipient["telegram_id"],
+                    "full_name": recipient["full_name"],
+                    "error": error_msg,
+                }
+            )
+
+            # Детальное логирование ошибок Telegram API
+            if "bot was blocked by the user" in error_msg.lower():
+                logger.warning(f"User {user_info} blocked the bot")
+            elif "chat not found" in error_msg.lower():
+                logger.warning(f"Chat not found for user {user_info}")
+            elif "user is deactivated" in error_msg.lower():
+                logger.warning(f"User {user_info} is deactivated")
+            elif "too many requests" in error_msg.lower():
+                logger.error(f"Rate limit exceeded when sending to {user_info}")
+                # Увеличиваем задержку для следующих сообщений
+                await asyncio.sleep(1)
+            else:
+                logger.warning(f"Telegram API error for {user_info}: {error_msg}")
+
+        except Exception as e:
+            failed_count += 1
+            error_msg = str(e)
+            failed_users.append(
+                {
+                    "telegram_id": recipient["telegram_id"],
+                    "full_name": recipient["full_name"],
+                    "error": error_msg,
+                }
+            )
+            logger.error(f"Unexpected error sending to {user_info}: {error_msg}")
+
+    # Итоговое логирование
+    logger.info(
+        f"Newsletter delivery completed: {success_count} successful, {failed_count} failed out of {len(recipients)} total"
+    )
+
+    # Определяем статус рассылки
+    if success_count == len(recipients):
+        status = "success"
+    elif success_count == 0:
+        status = "failed"
+    else:
+        status = "partial"
+
+    # Сохраняем в БД
+    def _save_newsletter(session):
+        newsletter = Newsletter(
+            message=message,
+            recipient_type=recipient_type,
+            recipient_ids=",".join([str(r["telegram_id"]) for r in recipients]),
+            total_count=len(recipients),
+            success_count=success_count,
+            failed_count=failed_count,
+            photo_count=len(photo_paths),
+            status=status,
+            created_at=datetime.now(MOSCOW_TZ),
+        )
+        session.add(newsletter)
+        session.flush()
+
+        return {
+            "id": newsletter.id,
+            "total_count": newsletter.total_count,
+            "success_count": newsletter.success_count,
+            "failed_count": newsletter.failed_count,
+            "photo_count": newsletter.photo_count or 0,
+            "status": newsletter.status,
+            "recipient_type": newsletter.recipient_type,
+            "created_at": newsletter.created_at,
+        }
+
+    result = DatabaseManager.safe_execute(_save_newsletter)
+
+    # Удаляем временные файлы фотографий
+    for photo_path in photo_paths:
+        try:
+            Path(photo_path).unlink()
+        except Exception as e:
+            logger.warning(f"Failed to delete photo {photo_path}: {e}")
+
+    logger.info(
+        f"Newsletter sent successfully: {success_count}/{len(recipients)} delivered, "
+        f"message length: {len(message)} chars, photos: {len(photo_paths)}"
+    )
+
+    # Формируем детальный ответ
+    response_data = {
+        **result,
+        "message_stats": {
+            "length": len(message),
+            "has_html": "<" in message and ">" in message,
+            "photo_count": len(photo_paths),
+        },
+    }
+
+    # Добавляем информацию о неудачах если есть
+    if failed_count > 0:
+        response_data["failed_users"] = failed_users
+        response_data["failure_summary"] = {
+            "blocked_users": len(
+                [u for u in failed_users if "blocked" in u["error"].lower()]
+            ),
+            "not_found_users": len(
+                [u for u in failed_users if "not found" in u["error"].lower()]
+            ),
+            "api_errors": len([u for u in failed_users if "api" in u["error"].lower()]),
+            "other_errors": len(
+                [
+                    u
+                    for u in failed_users
+                    if not any(
+                        keyword in u["error"].lower()
+                        for keyword in ["blocked", "not found", "api"]
+                    )
+                ]
+            ),
+        }
+
+    return response_data
+
+
+@app.get("/newsletters", response_model=List[NewsletterResponse])
+async def get_newsletters(
+    limit: int = 50, offset: int = 0, _: str = Depends(verify_token)
+):
+    """Получение списка рассылок (алиас для history)."""
+    return await get_newsletter_history(limit, offset, _)
+
+
+@app.get("/newsletters/history", response_model=List[NewsletterResponse])
+async def get_newsletter_history(
+    limit: int = 50, offset: int = 0, _: str = Depends(verify_token)
+):
+    """Получение истории рассылок."""
+
+    def _get_history(session):
+        newsletters = (
+            session.query(Newsletter)
+            .order_by(Newsletter.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .all()
+        )
+
+        return [
+            {
+                "id": n.id,
+                "message": n.message,
+                "status": n.status,
+                "total_count": n.total_count,
+                "success_count": n.success_count,
+                "photo_count": n.photo_count or 0,
+                "created_at": n.created_at,
+            }
+            for n in newsletters
+        ]
+
+    try:
+        return DatabaseManager.safe_execute(_get_history)
+    except Exception as e:
+        logger.error(f"Error getting newsletter history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get newsletter history")
+
+
+@app.get("/newsletters/{newsletter_id}")
+async def get_newsletter_detail(newsletter_id: int, _: str = Depends(verify_token)):
+    """Получение детальной информации о рассылке."""
+
+    def _get_detail(session):
+        newsletter = (
+            session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        )
+
+        if not newsletter:
+            raise HTTPException(status_code=404, detail="Newsletter not found")
+
+        # Получаем информацию о получателях
+        recipient_ids = []
+        if newsletter.recipient_ids:
+            recipient_ids = [
+                int(rid)
+                for rid in newsletter.recipient_ids.split(",")
+                if rid.strip().isdigit()
+            ]
+
+        recipients = []
+        if recipient_ids:
+            recipients = (
+                session.query(User).filter(User.telegram_id.in_(recipient_ids)).all()
+            )
+
+        return {
+            "id": newsletter.id,
+            "message": newsletter.message,
+            "status": newsletter.status,
+            "total_count": newsletter.total_count,
+            "success_count": newsletter.success_count,
+            "failed_count": newsletter.failed_count,
+            "photo_count": newsletter.photo_count or 0,
+            "recipient_type": newsletter.recipient_type,
+            "created_at": newsletter.created_at,
+            "recipients": [
+                {
+                    "id": user.id,
+                    "telegram_id": user.telegram_id,
+                    "full_name": user.full_name,
+                    "username": user.username,
+                }
+                for user in recipients
+            ],
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_get_detail)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting newsletter detail: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get newsletter detail")
+
+
+@app.delete("/newsletters/{newsletter_id}")
+async def delete_newsletter(newsletter_id: int, _: str = Depends(verify_token)):
+    """Удаление записи о рассылке из истории."""
+
+    def _delete_newsletter(session):
+        newsletter = (
+            session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        )
+
+        if not newsletter:
+            raise HTTPException(status_code=404, detail="Newsletter not found")
+
+        session.delete(newsletter)
+
+        return {"message": "Newsletter deleted successfully"}
+
+    try:
+        return DatabaseManager.safe_execute(_delete_newsletter)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting newsletter: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete newsletter")
+
+
+@app.get("/newsletters/stats")
+async def get_newsletter_stats(_: str = Depends(verify_token)):
+    """Получение статистики рассылок."""
+
+    def _get_stats(session):
+        # Общая статистика
+        total_newsletters = session.query(Newsletter).count()
+
+        # Статистика по статусам
+        successful = (
+            session.query(Newsletter).filter(Newsletter.status == "success").count()
+        )
+        failed = session.query(Newsletter).filter(Newsletter.status == "failed").count()
+        partial = (
+            session.query(Newsletter).filter(Newsletter.status == "partial").count()
+        )
+
+        # Последние рассылки
+        recent = (
+            session.query(Newsletter)
+            .order_by(Newsletter.created_at.desc())
+            .limit(5)
+            .all()
+        )
+
+        # Общее количество отправленных сообщений
+        total_sent = (
+            session.query(Newsletter)
+            .with_entities(session.query(Newsletter.success_count).label("total"))
+            .scalar()
+            or 0
+        )
+
+        return {
+            "total_newsletters": total_newsletters,
+            "successful_newsletters": successful,
+            "failed_newsletters": failed,
+            "partial_newsletters": partial,
+            "total_messages_sent": total_sent,
+            "recent_newsletters": [
+                {
+                    "id": n.id,
+                    "message": n.message[:100]
+                    + ("..." if len(n.message) > 100 else ""),
+                    "status": n.status,
+                    "success_count": n.success_count,
+                    "total_count": n.total_count,
+                    "created_at": n.created_at,
+                }
+                for n in recent
+            ],
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_get_stats)
+    except Exception as e:
+        logger.error(f"Error getting newsletter stats: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get newsletter stats")
+
+
+@app.post("/newsletters/validate")
+async def validate_newsletter_message(
+    message: str = Form(...), _: str = Depends(verify_token)
+):
+    """Валидация HTML тегов в сообщении рассылки."""
+
+    # Разрешенные HTML теги для Telegram
+    allowed_tags = ["b", "i", "u", "code", "a", "s", "strike", "pre", "strong", "em"]
+
+    import re
+
+    # Найти все теги
+    tag_pattern = r"<\/?([a-zA-Z]+)(?:\s[^>]*)?>"
+    matches = re.finditer(tag_pattern, message)
+
+    open_tags = []
+    errors = []
+
+    for match in matches:
+        full_tag = match.group(0)
+        tag_name = match.group(1).lower()
+        is_closing = full_tag.startswith("</")
+        is_self_closing = full_tag.endswith("/>")
+
+        # Проверка разрешенности тега
+        if tag_name not in allowed_tags:
+            errors.append(f"Недопустимый тег: <{tag_name}>")
+            continue
+
+        # Обработка открывающих и закрывающих тегов
+        if is_closing:
+            if not open_tags or open_tags[-1] != tag_name:
+                errors.append(f"Неожиданный закрывающий тег: </{tag_name}>")
+            else:
+                open_tags.pop()
+        elif not is_self_closing:
+            open_tags.append(tag_name)
+
+    # Проверка незакрытых тегов
+    if open_tags:
+        errors.append(
+            f"Незакрытые теги: {', '.join([f'<{tag}>' for tag in open_tags])}"
+        )
+
+    # Проверка специальных правил для тега <a>
+    link_pattern = r'<a\s+href="([^"]*)"[^>]*>'
+    link_matches = re.finditer(link_pattern, message)
+
+    for match in link_matches:
+        href = match.group(1)
+        if not href or not (href.startswith("http://") or href.startswith("https://")):
+            errors.append(f"Некорректная ссылка: {href or 'пустая ссылка'}")
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "message": (
+            "Сообщение валидно"
+            if len(errors) == 0
+            else f"Найдено ошибок: {len(errors)}"
+        ),
+    }
+
+
+@app.post("/newsletters/preview")
+async def preview_newsletter(
+    message: str = Form(...),
+    recipient_type: str = Form(...),
+    user_ids: Optional[List[str]] = Form(None),
+    _: str = Depends(verify_token),
+):
+    """Предварительный просмотр рассылки."""
+
+    def _get_preview_data(session):
+        if recipient_type == "all":
+            users = session.query(User).filter(User.telegram_id.isnot(None)).all()
+        else:
+            telegram_ids = [int(uid) for uid in user_ids if uid.isdigit()]
+            users = session.query(User).filter(User.telegram_id.in_(telegram_ids)).all()
+
+        return {
+            "recipient_count": len(users),
+            "message_length": len(message),
+            "recipients": [
+                {
+                    "telegram_id": user.telegram_id,
+                    "full_name": user.full_name,
+                    "username": user.username,
+                }
+                for user in users[:10]  # Показываем только первых 10
+            ],
+            "has_more_recipients": len(users) > 10,
+        }
+
+    try:
+        preview_data = DatabaseManager.safe_execute(_get_preview_data)
+
+        # Валидация сообщения
+        validation_result = await validate_newsletter_message(message)
+
+        return {
+            **preview_data,
+            "message_valid": validation_result["valid"],
+            "validation_errors": validation_result.get("errors", []),
+        }
+    except Exception as e:
+        logger.error(f"Error creating newsletter preview: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create preview")
+
+
+@app.post("/newsletters/test")
+async def test_newsletter(
+    message: str = Form(...),
+    test_telegram_id: int = Form(...),
+    photos: Optional[List[UploadFile]] = File(None),
+    _: str = Depends(verify_token),
+):
+    """Тестовая отправка рассылки на указанный Telegram ID."""
+
+    if not bot:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram бот недоступен. Обратитесь к системному администратору",
+        )
+
+    if not message.strip():
+        raise HTTPException(
+            status_code=400, detail="Текст тестового сообщения не может быть пустым"
+        )
+
+    if len(message) > 4096:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Тестовое сообщение слишком длинное: {len(message)} символов (максимум 4096)",
+        )
+
+    # Валидация фотографий для теста
+    if photos:
+        if len(photos) > 10:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Слишком много фотографий для теста: {len(photos)} (максимум 10)",
+            )
+
+        MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+        for idx, photo in enumerate(photos):
+            contents = await photo.read()
+            await photo.seek(0)
+
+            if len(contents) > MAX_FILE_SIZE:
+                size_mb = len(contents) / (1024 * 1024)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Тестовое фото #{idx + 1} слишком большое: {size_mb:.1f} MB (максимум 20 MB)",
+                )
+
+    # Сохраняем фотографии во временную папку
+    photo_paths = []
+    if photos:
+        TEST_PHOTOS_DIR = Path("static/test_photos")
+        TEST_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+        for idx, photo in enumerate(photos):
+            if photo.content_type and photo.content_type.startswith("image/"):
+                timestamp = int(time.time())
+                file_ext = Path(photo.filename).suffix if photo.filename else ".jpg"
+                filename = f"test_{timestamp}_{idx}{file_ext}"
+                file_path = TEST_PHOTOS_DIR / filename
+
+                contents = await photo.read()
+                with open(file_path, "wb") as f:
+                    f.write(contents)
+
+                photo_paths.append(str(file_path))
+
+    try:
+        # Отправляем тестовое сообщение
+        if photo_paths:
+            if len(photo_paths) == 1:
+                with open(photo_paths[0], "rb") as photo:
+                    await bot.send_photo(
+                        chat_id=test_telegram_id,
+                        photo=photo,
+                        caption=f"🧪 ТЕСТ: {message}",
+                        parse_mode="HTML",
+                    )
+                logger.info(f"Test photo message sent to {test_telegram_id}")
+            else:
+                media_group = []
+                for idx, photo_path in enumerate(photo_paths):
+                    media = InputMediaPhoto(
+                        media=FSInputFile(photo_path),
+                        caption=f"🧪 ТЕСТ: {message}" if idx == 0 else None,
+                        parse_mode="HTML" if idx == 0 else None,
+                    )
+                    media_group.append(media)
+
+                await bot.send_media_group(chat_id=test_telegram_id, media=media_group)
+                logger.info(
+                    f"Test media group ({len(photo_paths)} photos) sent to {test_telegram_id}"
+                )
+        else:
+            await bot.send_message(
+                chat_id=test_telegram_id, text=f"🧪 ТЕСТ: {message}", parse_mode="HTML"
+            )
+            logger.info(f"Test text message sent to {test_telegram_id}")
+
+        return {
+            "success": True,
+            "message": f"Тестовое сообщение успешно отправлено на Telegram ID: {test_telegram_id}",
+            "details": {
+                "recipient_id": test_telegram_id,
+                "message_length": len(message),
+                "photo_count": len(photo_paths),
+                "has_html": "<" in message and ">" in message,
+            },
+        }
+
+    except TelegramAPIError as e:
+        error_msg = str(e)
+        logger.error(
+            f"Telegram API error during test to {test_telegram_id}: {error_msg}"
+        )
+
+        # Специфичные ошибки Telegram
+        if "bot was blocked" in error_msg.lower():
+            detail = f"Пользователь {test_telegram_id} заблокировал бота"
+        elif "chat not found" in error_msg.lower():
+            detail = f"Чат с пользователем {test_telegram_id} не найден"
+        elif "user is deactivated" in error_msg.lower():
+            detail = f"Аккаунт пользователя {test_telegram_id} деактивирован"
+        elif "too many requests" in error_msg.lower():
+            detail = "Превышен лимит запросов к Telegram API. Попробуйте позже"
+        else:
+            detail = f"Ошибка Telegram API: {error_msg}"
+
+        raise HTTPException(status_code=400, detail=detail)
+    except Exception as e:
+        logger.error(f"Unexpected error sending test to {test_telegram_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Неожиданная ошибка при отправке тестового сообщения: {str(e)}",
+        )
+    finally:
+        # Удаляем тестовые фотографии
+        for photo_path in photo_paths:
+            try:
+                Path(photo_path).unlink()
+                logger.debug(f"Deleted test photo: {photo_path}")
+            except Exception as e:
+                logger.warning(f"Failed to delete test photo {photo_path}: {e}")
+
+
+@app.get("/newsletters/templates")
+async def get_newsletter_templates(_: str = Depends(verify_token)):
+    """Получение шаблонов сообщений для рассылки."""
+
+    templates = [
+        {
+            "id": 1,
+            "name": "Приветствие",
+            "message": "<b>Добро пожаловать!</b>\n\nСпасибо за регистрацию в нашем сервисе. Мы рады видеть вас среди наших пользователей!",
+        },
+        {
+            "id": 2,
+            "name": "Новости",
+            "message": "<b>📰 Новости недели</b>\n\nУважаемые пользователи!\n\nСпешим поделиться с вами последними новостями...",
+        },
+        {
+            "id": 3,
+            "name": "Обновление",
+            "message": "<b>🚀 Обновление системы</b>\n\nВ системе появились новые возможности:\n• Новая функция 1\n• Улучшение 2\n• Исправление 3",
+        },
+        {
+            "id": 4,
+            "name": "Техническое обслуживание",
+            "message": "<b>⚠️ Техническое обслуживание</b>\n\nВнимание! Планируется техническое обслуживание системы.\n\n<u>Время:</u> [УКАЖИТЕ ВРЕМЯ]\n<u>Продолжительность:</u> [УКАЖИТЕ ВРЕМЯ]",
+        },
+    ]
+
+    return templates
+
+
+@app.get("/newsletters/limits")
+async def get_newsletter_limits(_: str = Depends(verify_token)):
+    """Получение ограничений системы для рассылок."""
+
+    import shutil
+
+    # Получаем информацию о дисковом пространстве
+    newsletter_dir = Path("newsletter_photos")
+    newsletter_dir.mkdir(parents=True, exist_ok=True)
+
+    disk_usage = shutil.disk_usage(newsletter_dir)
+
+    return {
+        "message_limits": {
+            "max_length": 4096,
+            "supported_html_tags": [
+                "b",
+                "i",
+                "u",
+                "code",
+                "a",
+                "s",
+                "strike",
+                "pre",
+                "strong",
+                "em",
+            ],
+            "description": "Максимальная длина сообщения для Telegram",
+        },
+        "photo_limits": {
+            "max_count": 10,
+            "max_file_size_mb": 20,
+            "supported_formats": ["JPEG", "PNG", "GIF", "WebP"],
+            "description": "Ограничения для фотографий",
+        },
+        "system_info": {
+            "disk_total_gb": round(disk_usage.total / (1024**3), 2),
+            "disk_used_gb": round((disk_usage.total - disk_usage.free) / (1024**3), 2),
+            "disk_free_gb": round(disk_usage.free / (1024**3), 2),
+            "disk_usage_percent": round(
+                ((disk_usage.total - disk_usage.free) / disk_usage.total) * 100, 1
+            ),
+        },
+        "telegram_limits": {
+            "rate_limit": "30 сообщений в секунду для ботов",
+            "file_size_limit": "20 MB для фотографий",
+            "media_group_limit": "10 файлов в медиагруппе",
+        },
+    }
+
+
+@app.get("/newsletters/user-count")
+async def get_newsletter_user_count(_: str = Depends(verify_token)):
+    """Получение количества пользователей для рассылки."""
+
+    def _get_count(session):
+        total_users = session.query(User).count()
+        telegram_users = (
+            session.query(User).filter(User.telegram_id.isnot(None)).count()
+        )
+
+        return {
+            "total_users": total_users,
+            "telegram_users": telegram_users,
+            "available_for_newsletter": telegram_users,
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_get_count)
+    except Exception as e:
+        logger.error(f"Error getting user count: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get user count")
 
 
 # ================== DASHBOARD ENDPOINTS ==================

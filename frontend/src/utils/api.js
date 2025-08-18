@@ -844,22 +844,148 @@ export const ticketApi = {
 };
 
 // -------------------- API: Рассылки --------------------
-
 export const newsletterApi = {
-  getAll: async (page = 1, perPage = 20) => {
-    const res = await apiClient.get('/newsletters', {
-      params: { page, per_page: perPage }
-    });
-    return res.data;
+  // Отправка рассылки
+  send: async (formData) => {
+    try {
+      console.log('Отправка рассылки...');
+
+      const res = await apiClient.post('/newsletters/send', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('Рассылка отправлена:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка отправки рассылки:', error);
+
+      if (error.response?.status === 400) {
+        const detail = error.response.data?.detail;
+        if (detail?.includes('Message cannot be empty')) {
+          throw new Error('Сообщение не может быть пустым');
+        } else if (detail?.includes('No users selected')) {
+          throw new Error('Не выбраны получатели');
+        } else if (detail?.includes('Maximum 10 photos')) {
+          throw new Error('Максимум 10 фотографий');
+        } else if (detail?.includes('No valid recipients')) {
+          throw new Error('Не найдено подходящих получателей');
+        }
+      } else if (error.response?.status === 503) {
+        throw new Error('Telegram бот недоступен');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось отправить рассылку');
+    }
   },
-  create: async (message) => {
-    const res = await apiClient.post('/newsletters', { message });
-    return res.data;
+
+  // Получение истории рассылок
+  getHistory: async (limit = 50, offset = 0) => {
+    try {
+      const res = await apiClient.get('/newsletters/history', {
+        params: { limit, offset }
+      });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения истории рассылок:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить историю рассылок');
+    }
+  },
+
+  // Получение детальной информации о рассылке
+  getDetail: async (newsletterId) => {
+    try {
+      const res = await apiClient.get(`/newsletters/${newsletterId}`);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения деталей рассылки:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Рассылка не найдена');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить детали рассылки');
+    }
+  },
+
+  // Удаление рассылки из истории
+  delete: async (newsletterId) => {
+    try {
+      const res = await apiClient.delete(`/newsletters/${newsletterId}`);
+      console.log('Рассылка удалена:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка удаления рассылки:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Рассылка не найдена');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось удалить рассылку');
+    }
+  },
+
+  // Валидация HTML тегов в сообщении
+  validateMessage: (message) => {
+    // Проверка на корректность HTML тегов
+    const allowedTags = ['b', 'i', 'u', 'code', 'a', 'strong', 'em', 's', 'strike', 'pre'];
+    const tagRegex = /<\/?([a-zA-Z]+)(?:\s[^>]*)?>/g;
+
+    let match;
+    const openTags = [];
+
+    while ((match = tagRegex.exec(message)) !== null) {
+      const isClosing = match[0].startsWith('</');
+      const tagName = match[1].toLowerCase();
+
+      if (!allowedTags.includes(tagName)) {
+        return {
+          valid: false,
+          error: `Недопустимый тег: <${tagName}>`
+        };
+      }
+
+      if (isClosing) {
+        const lastOpen = openTags.pop();
+        if (lastOpen !== tagName) {
+          return {
+            valid: false,
+            error: `Незакрытый тег: <${lastOpen}>`
+          };
+        }
+      } else if (!match[0].endsWith('/>')) {
+        openTags.push(tagName);
+      }
+    }
+
+    if (openTags.length > 0) {
+      return {
+        valid: false,
+        error: `Незакрытые теги: ${openTags.map(t => `<${t}>`).join(', ')}`
+      };
+    }
+
+    return { valid: true };
+  },
+
+  // Форматирование текста для Telegram
+  formatText: (text, format) => {
+    const formats = {
+      bold: (t) => `<b>${t}</b>`,
+      italic: (t) => `<i>${t}</i>`,
+      underline: (t) => `<u>${t}</u>`,
+      strike: (t) => `<s>${t}</s>`,
+      code: (t) => `<code>${t}</code>`,
+      pre: (t) => `<pre>${t}</pre>`,
+      link: (t, url) => `<a href="${url}">${t}</a>`
+    };
+
+    return formats[format] ? formats[format](text) : text;
   }
 };
 
 // -------------------- API: Дашборд --------------------
-
 export const dashboardApi = {
   getStats: async () => {
     const res = await apiClient.get('/dashboard/stats');

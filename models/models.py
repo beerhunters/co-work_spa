@@ -22,6 +22,7 @@ from sqlalchemy import (
     select,
     Enum,
     event,
+    Text,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, scoped_session
@@ -291,11 +292,27 @@ class Booking(Base):
 
 
 class Newsletter(Base):
+    """Модель для хранения истории рассылок."""
+
     __tablename__ = "newsletters"
-    id = Column(Integer, primary_key=True)
-    message = Column(String, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ))
-    recipient_count = Column(Integer, nullable=False)
+
+    id = Column(Integer, primary_key=True, index=True)
+    message = Column(Text, nullable=False)
+    recipient_type = Column(String(50), nullable=False)  # 'all' или 'selected'
+    recipient_ids = Column(Text)  # Список telegram_id через запятую
+    total_count = Column(Integer, default=0)
+    success_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    photo_count = Column(Integer, default=0)
+    status = Column(
+        String(50), default="pending"
+    )  # 'pending', 'success', 'failed', 'partial'
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ)
+    )
+
+    def __repr__(self):
+        return f"<Newsletter(id={self.id}, status={self.status}, recipients={self.total_count})>"
 
 
 class TicketStatus(enum.Enum):

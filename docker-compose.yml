@@ -21,6 +21,7 @@ services:
       - ./bot:/app/bot
       - ./avatars:/app/avatars
       - ./ticket_photos:/app/ticket_photos
+      - ./newsletter_photos:/app/newsletter_photos
     restart: unless-stopped
     depends_on:
       web:
@@ -65,6 +66,7 @@ services:
       - ./frontend/static:/app/frontend/static
       - ./avatars:/app/avatars
       - ./ticket_photos:/app/ticket_photos
+      - ./newsletter_photos:/app/newsletter_photos
     working_dir: /app
     restart: unless-stopped
     healthcheck:
