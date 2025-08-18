@@ -4,16 +4,9 @@ import threading
 import time as time_module
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from typing import Optional, List
-import jwt
-from werkzeug.security import check_password_hash
 
 # Импорты моделей и конфигурации
 from models.models import init_db, create_admin, Admin
@@ -28,15 +21,12 @@ from config import (
     CORS_ORIGINS,
     DATA_DIR,
     AVATARS_DIR,
-    SECRET_KEY_JWT,
-    ALGORITHM,
-    ACCESS_TOKEN_EXPIRE_HOURS,
 )
 from dependencies import init_bot, close_bot, get_db
 from utils.logger import get_logger
 
-# Импорты маршрутов
-from routes.auth import router as auth_router, create_access_token
+# Импорты всех роутеров
+from routes.auth import router as auth_router
 from routes.users import router as users_router
 from routes.bookings import router as bookings_router
 from routes.tariffs import router as tariffs_router
@@ -49,31 +39,6 @@ from routes.dashboard import router as dashboard_router
 from routes.health import router as health_router
 
 logger = get_logger(__name__)
-security = HTTPBearer()
-
-
-# Модели для корневых эндпоинтов
-class AdminCredentials(BaseModel):
-    login: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
-def verify_token_func(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Проверка JWT токена."""
-    try:
-        token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return username
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @asynccontextmanager
@@ -202,10 +167,46 @@ async def root():
     }
 
 
-# Только необходимые корневые эндпоинты для совместимости с фронтендом
+# Корневые эндпоинты для совместимости с фронтендом
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+import jwt
+from werkzeug.security import check_password_hash
+from models.models import Admin
+from routes.auth import create_access_token
+
+security = HTTPBearer()
+
+
+class AdminCredentials(BaseModel):
+    login: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+def verify_token_func(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Проверка JWT токена."""
+    from config import SECRET_KEY_JWT, ALGORITHM
+
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        return username
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
 @app.post("/login", response_model=TokenResponse)
 async def login_root(credentials: AdminCredentials, db: Session = Depends(get_db)):
-    """Аутентификация администратора (для фронтенда)."""
+    """Аутентификация администратора (корневой эндпоинт для фронтенда)."""
     admin = db.query(Admin).filter(Admin.login == credentials.login).first()
     if not admin or not check_password_hash(admin.password, credentials.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -217,7 +218,7 @@ async def login_root(credentials: AdminCredentials, db: Session = Depends(get_db
 
 @app.get("/verify_token")
 async def verify_token_root(username: str = Depends(verify_token_func)):
-    """Проверка действительности токена (для фронтенда)."""
+    """Проверка действительности токена (корневой эндпоинт для фронтенда)."""
     return {"username": username, "valid": True}
 
 
@@ -225,7 +226,7 @@ async def verify_token_root(username: str = Depends(verify_token_func)):
 async def get_current_user_root(
     username: str = Depends(verify_token_func), db: Session = Depends(get_db)
 ):
-    """Получение информации о текущем пользователе (для фронтенда)."""
+    """Получение информации о текущем пользователе (корневой эндпоинт для фронтенда)."""
     admin = db.query(Admin).filter(Admin.login == username).first()
     if not admin:
         raise HTTPException(status_code=404, detail="User not found")
@@ -238,21 +239,12 @@ async def get_current_user_root(
     }
 
 
-# Статические файлы
-@app.get("/avatars/{filename}")
-async def get_avatar(filename: str):
-    """Получение аватара."""
-    from routes.users import get_avatar as get_avatar_handler
-
-    return await get_avatar_handler(filename)
-
-
-# Подключение всех маршрутов (теперь с префиксами и без дублирования)
+# Подключение всех роутеров БЕЗ префиксов (они уже есть в роутерах)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(bookings_router)
 app.include_router(tariffs_router)
-app.include_router(promocodes_router)  # Теперь включает delete_promocode
+app.include_router(promocodes_router)
 app.include_router(tickets_router)
 app.include_router(payments_router)
 app.include_router(notifications_router)

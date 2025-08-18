@@ -11,11 +11,11 @@ from utils.external_api import (
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-# router = APIRouter(prefix="/payments", tags=["payments"])
-router = APIRouter(tags=["payments"])
+router = APIRouter(prefix="/payments", tags=["payments"])
+# router = APIRouter(tags=["payments"])
 
 
-@router.post("/payments")
+@router.post("")
 async def create_payment(payment_data: dict, db: Session = Depends(get_db)):
     """Создание платежа через YooKassa. Используется ботом."""
     try:
@@ -39,7 +39,7 @@ async def create_payment(payment_data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Payment creation failed")
 
 
-@router.get("/payments/{payment_id}/status")
+@router.get("/{payment_id}/status")
 async def check_payment_status_api(payment_id: str, _: str = Depends(verify_token)):
     """Проверка статуса платежа."""
     try:

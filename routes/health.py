@@ -11,11 +11,11 @@ from utils.database_maintenance import get_database_stats, optimize_database
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-# router = APIRouter(prefix="/health", tags=["health"])
-router = APIRouter(tags=["health"])
+router = APIRouter(prefix="/health", tags=["health"])
+# router = APIRouter(tags=["health"])
 
 
-@router.get("/health/database")
+@router.get("/database")
 async def database_health(_: str = Depends(verify_token)):
     """Проверяет состояние базы данных."""
     try:
@@ -49,7 +49,7 @@ async def database_health(_: str = Depends(verify_token)):
         }
 
 
-@router.post("/health/database/optimize")
+@router.post("/database/optimize")
 async def optimize_database_endpoint(_: str = Depends(verify_token)):
     """Оптимизирует базу данных."""
     try:
@@ -68,7 +68,7 @@ async def optimize_database_endpoint(_: str = Depends(verify_token)):
         }
 
 
-@router.get("/health/database/status")
+@router.get("/database/status")
 async def get_database_status(_: str = Depends(verify_token)):
     """Получение подробного статуса базы данных."""
     try:
@@ -82,7 +82,7 @@ async def get_database_status(_: str = Depends(verify_token)):
         return {"error": str(e), "timestamp": datetime.now(MOSCOW_TZ).isoformat()}
 
 
-@router.get("/health/system")
+@router.get("/system")
 async def system_health():
     """Общее состояние системы."""
     import shutil

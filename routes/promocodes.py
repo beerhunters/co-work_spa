@@ -13,18 +13,18 @@ from schemas.promocode_schemas import PromocodeBase, PromocodeCreate
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-# router = APIRouter(prefix="/promocodes", tags=["promocodes"])
-router = APIRouter(tags=["promocodes"])
+router = APIRouter(prefix="/promocodes", tags=["promocodes"])
+# router = APIRouter(tags=["promocodes"])
 
 
-@router.get("/promocodes", response_model=List[PromocodeBase])
+@router.get("", response_model=List[PromocodeBase])
 async def get_promocodes(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     """Получение всех промокодов."""
     promocodes = db.query(Promocode).order_by(Promocode.id.desc()).all()
     return promocodes
 
 
-@router.get("/promocodes/by_name/{name}")
+@router.get("/by_name/{name}")
 async def get_promocode_by_name(name: str, db: Session = Depends(get_db)):
     """Получение промокода по названию. Используется ботом."""
     promocode = db.query(Promocode).filter_by(name=name, is_active=True).first()
@@ -51,7 +51,7 @@ async def get_promocode_by_name(name: str, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/promocodes", response_model=PromocodeBase)
+@router.post("", response_model=PromocodeBase)
 async def create_promocode(
     promocode_data: PromocodeCreate,
     db: Session = Depends(get_db),
@@ -104,7 +104,7 @@ async def create_promocode(
         raise HTTPException(status_code=500, detail="Не удалось создать промокод")
 
 
-@router.post("/promocodes/{promocode_id}/use")
+@router.post("/{promocode_id}/use")
 async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
     """Использование промокода (уменьшение счетчика)."""
     promocode = db.query(Promocode).get(promocode_id)
@@ -141,7 +141,7 @@ async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="Failed to use promocode")
 
 
-@router.delete("/promocodes/{promocode_id}")
+@router.delete("/{promocode_id}")
 async def delete_promocode(
     promocode_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):

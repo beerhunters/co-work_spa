@@ -14,11 +14,11 @@ from utils.logger import get_logger
 from utils.external_api import send_telegram_notification, send_telegram_photo
 
 logger = get_logger(__name__)
-# router = APIRouter(prefix="/newsletters", tags=["newsletters"])
-router = APIRouter(tags=["newsletters"])
+router = APIRouter(prefix="/newsletters", tags=["newsletters"])
+# router = APIRouter(tags=["newsletters"])
 
 
-@router.get("/newsletters")
+@router.get("")
 async def get_newsletters(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -28,7 +28,7 @@ async def get_newsletters(
     return await get_newsletter_history(limit, offset, _)
 
 
-@router.post("/newsletters/send")
+@router.post("/send")
 async def send_newsletter(
     message: str = Form(...),
     recipient_type: str = Form(...),
@@ -191,7 +191,7 @@ async def send_newsletter(
     return result
 
 
-@router.get("/newsletters/history", response_model=List[NewsletterResponse])
+@router.get("/history", response_model=List[NewsletterResponse])
 async def get_newsletter_history(
     limit: int = 50, offset: int = 0, _: str = Depends(verify_token)
 ):

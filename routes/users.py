@@ -15,11 +15,11 @@ from config import AVATARS_DIR, MOSCOW_TZ
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-# router = APIRouter(prefix="/users", tags=["users"])
-router = APIRouter(tags=["users"])
+router = APIRouter(prefix="/users", tags=["users"])
+# router = APIRouter(tags=["users"])
 
 
-@router.get("/users", response_model=List[UserBase])
+@router.get("", response_model=List[UserBase])
 async def get_users(_: str = Depends(verify_token)):
     """Получение списка всех пользователей."""
 
@@ -53,7 +53,7 @@ async def get_users(_: str = Depends(verify_token)):
         raise HTTPException(status_code=500, detail="Ошибка получения пользователей")
 
 
-@router.get("/users/{user_id}", response_model=UserBase)
+@router.get("/{user_id}", response_model=UserBase)
 async def get_user(
     user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
@@ -64,7 +64,7 @@ async def get_user(
     return user
 
 
-@router.get("/users/telegram/{telegram_id}")
+@router.get("/telegram/{telegram_id}")
 async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db)):
     """Получение пользователя по Telegram ID. Используется ботом."""
     user = db.query(User).filter_by(telegram_id=telegram_id).first()
@@ -94,7 +94,7 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
     return user_data
 
 
-@router.put("/users/telegram/{telegram_id}")
+@router.put("/telegram/{telegram_id}")
 async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
     """Обновление пользователя по telegram_id."""
 
@@ -137,7 +137,7 @@ async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
         )
 
 
-@router.post("/users/check_and_add")
+@router.post("/check_and_add")
 async def check_and_add_user(
     telegram_id: int,
     username: Optional[str] = None,
@@ -209,7 +209,7 @@ async def check_and_add_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.put("/users/{user_identifier}")
+@router.put("/{user_identifier}")
 async def update_user(
     user_identifier: str,
     user_data: UserUpdate,
@@ -260,7 +260,7 @@ async def update_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/users/{user_id}/avatar")
+@router.post("/{user_id}/avatar")
 async def upload_avatar(
     user_id: int,
     file: UploadFile = File(...),
@@ -302,7 +302,7 @@ async def upload_avatar(
     }
 
 
-@router.delete("/users/{user_id}/avatar")
+@router.delete("/{user_id}/avatar")
 async def delete_avatar(
     user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
@@ -337,7 +337,7 @@ async def delete_avatar(
     return {"deleted": deleted}
 
 
-@router.get("/users/avatars/{filename}")
+@router.get("/avatars/{filename}")
 async def get_avatar(filename: str):
     """Получение аватара по имени файла."""
     file_path = AVATARS_DIR / filename
@@ -373,7 +373,7 @@ async def get_avatar(filename: str):
     )
 
 
-@router.post("/users/{user_id}/download-telegram-avatar")
+@router.post("/{user_id}/download-telegram-avatar")
 async def download_telegram_avatar(
     user_id: int,
     _: str = Depends(verify_token),
@@ -479,7 +479,7 @@ async def download_telegram_avatar(
         )
 
 
-@router.delete("/users/{user_id}")
+@router.delete("/{user_id}")
 async def delete_user(user_id: int, _: str = Depends(verify_token)):
     """Удаление пользователя и всех связанных данных."""
 
