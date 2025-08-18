@@ -27,12 +27,24 @@ import { getStatusColor } from '../../styles/styles';
 
 const API_BASE_URL = 'http://localhost/api';
 
+// Утилита для получения URL аватара с защитой от кэширования
+const getAvatarUrl = (avatar, forceRefresh = false) => {
+  if (!avatar || avatar === 'placeholder_avatar.png') {
+    return `${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`;
+  }
+
+  // Добавляем timestamp для предотвращения кэширования
+  const timestamp = forceRefresh ? Date.now() : new Date().getTime();
+  return `${API_BASE_URL}/avatars/${avatar}?v=${timestamp}`;
+};
+
 const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({});
   const [avatarFile, setAvatarFile] = useState(null);
   const [isAvatarModalOpen, setAvatarModalOpen] = useState(false);
   const [isDownloadingAvatar, setIsDownloadingAvatar] = useState(false);
+  const [avatarVersion, setAvatarVersion] = useState(Date.now()); // Для форсированного обновления
   const toast = useToast();
 
   useEffect(() => {
@@ -43,23 +55,22 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
         email: user.email || '',
         language_code: user.language_code || 'ru'
       });
+      // Обновляем версию при изменении пользователя
+      setAvatarVersion(Date.now());
     }
   }, [user]);
 
   // Проверка, является ли текущий аватар плейсхолдером
   const isPlaceholderAvatar = !user?.avatar || user.avatar === 'placeholder_avatar.png';
 
-  // Логика аватара - исправленная с отладкой
+  // URL аватара с версионированием
   const avatarUrl = avatarFile
     ? URL.createObjectURL(avatarFile)
-    : user?.avatar
-      ? `${API_BASE_URL}/avatars/${user.avatar}`  // avatar содержит только имя файла
-      : `${API_BASE_URL}/avatars/placeholder_avatar.png`;
+    : getAvatarUrl(user?.avatar, true);
 
   // Формирование ссылок
   const getTelegramUrl = (username) => {
     if (!username) return null;
-    // Убираем @ если он есть в начале
     const cleanUsername = username.startsWith('@') ? username.slice(1) : username;
     return `https://t.me/${cleanUsername}`;
   };
@@ -75,14 +86,26 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       console.log('Начинаем скачивание аватара из Telegram для пользователя:', user.id);
 
       const result = await userApi.downloadTelegramAvatar(user.id);
-
       console.log('Аватар успешно скачан:', result);
+
+      // Форсируем обновление версии для перезагрузки изображения
+      setAvatarVersion(Date.now());
 
       // Обновляем данные пользователя
       await onUpdate();
 
-      // Закрываем модальное окно аватара, если оно открыто
+      // Закрываем модальное окно аватара
       setAvatarModalOpen(false);
+
+      // Предзагружаем новое изображение безопасным способом
+      if (result.avatar_url) {
+        try {
+          const img = document.createElement('img');
+          img.src = API_BASE_URL + result.avatar_url;
+        } catch (e) {
+          console.log('Не удалось предзагрузить изображение:', e);
+        }
+      }
 
       toast({
         title: 'Аватар загружен',
@@ -96,12 +119,8 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       console.error('Ошибка при скачивании аватара:', error);
 
       let errorMessage = 'Произошла ошибка при скачивании аватара из Telegram';
-
-      // Более детальная обработка ошибок
       if (error.message) {
         errorMessage = error.message;
-      } else if (error.response?.data?.detail) {
-        errorMessage = error.response.data.detail;
       }
 
       toast({
@@ -121,8 +140,21 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       await userApi.update(user.id, formData);
 
       if (avatarFile) {
-        await userApi.uploadAvatar(user.id, avatarFile);
+        const uploadResult = await userApi.uploadAvatar(user.id, avatarFile);
         setAvatarFile(null);
+
+        // Форсируем обновление версии
+        setAvatarVersion(Date.now());
+
+        // Предзагружаем новое изображение безопасным способом
+        if (uploadResult.avatar_url) {
+          try {
+            const img = document.createElement('img');
+            img.src = API_BASE_URL + uploadResult.avatar_url;
+          } catch (e) {
+            console.log('Не удалось предзагрузить изображение:', e);
+          }
+        }
       }
 
       await onUpdate();
@@ -152,6 +184,9 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       await userApi.deleteAvatar(user.id);
       setAvatarFile(null);
 
+      // Форсируем обновление версии
+      setAvatarVersion(Date.now());
+
       await onUpdate();
 
       toast({
@@ -174,6 +209,12 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   };
 
+  // Функция для форсированной перезагрузки изображения
+  const handleImageError = () => {
+    console.log('Ошибка загрузки изображения, пробуем перезагрузить');
+    setAvatarVersion(Date.now());
+  };
+
   if (!user) return null;
 
   const telegramUrl = getTelegramUrl(user.username);
@@ -188,23 +229,26 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
           <ModalCloseButton />
           <ModalBody>
             <VStack spacing={4} align="stretch">
-              {/* Аватар */}
+              {/* Аватар с версионированием */}
               <Box textAlign="center">
                 <Image
-                  src={avatarUrl}
+                  key={`avatar-${user.id}-${avatarVersion}`} // Ключ для форсированного обновления
+                  src={`${avatarUrl}&t=${avatarVersion}`} // Дополнительный параметр времени
                   alt="Аватар пользователя"
                   boxSize="120px"
                   borderRadius="full"
                   objectFit="cover"
-                  fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png`}
+                  fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`}
                   mx="auto"
                   mb={4}
                   cursor="pointer"
                   onClick={() => setAvatarModalOpen(true)}
+                  onError={handleImageError}
                   _hover={{ boxShadow: 'md', transform: 'scale(1.05)', transition: '0.2s' }}
+                  loading="eager" // Отключаем lazy loading
                 />
 
-                {/* Кнопка загрузки аватара из Telegram - показывается только если нет аватара */}
+                {/* Кнопка загрузки аватара из Telegram */}
                 {isPlaceholderAvatar && (
                   <Button
                     leftIcon={<FiUpload />}
@@ -225,7 +269,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     {user.full_name || 'Не указано'}
                   </Text>
 
-                  {/* Кликабельный username с переходом в Telegram */}
                   {user.username ? (
                     <Link
                       href={telegramUrl}
@@ -255,7 +298,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 </VStack>
               </Box>
 
-              {/* Форма */}
+              {/* Форма редактирования */}
               {isEditing ? (
                 <VStack spacing={3} align="stretch">
                   <FormControl>
@@ -378,7 +421,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                   Редактировать
                 </Button>
 
-                {/* Быстрые ссылки */}
                 {telegramUrl && (
                   <Button
                     as={Link}
@@ -420,12 +462,15 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
           <ModalBody>
             <VStack spacing={4}>
               <Image
-                src={avatarUrl}
+                key={`modal-avatar-${user.id}-${avatarVersion}`}
+                src={`${avatarUrl}&t=${avatarVersion}`}
                 alt="Аватар в полном размере"
                 boxSize="300px"
                 objectFit="contain"
-                fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png`}
+                fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`}
                 mx="auto"
+                onError={handleImageError}
+                loading="eager"
               />
 
               <HStack spacing={3}>
@@ -440,7 +485,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                   </Button>
                 )}
 
-                {/* Кнопка загрузки из Telegram в модальном окне аватара */}
                 {isPlaceholderAvatar && (
                   <Button
                     leftIcon={<FiUpload />}

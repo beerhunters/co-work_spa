@@ -33,6 +33,7 @@ from yookassa import Payment, Refund, Configuration
 from pathlib import Path
 from fastapi import File, UploadFile
 from fastapi.responses import FileResponse
+import hashlib
 
 # Импорты моделей и утилит
 from models.models import *
@@ -791,9 +792,13 @@ async def upload_avatar(
     if user.avatar:
         old_avatar_path = AVATARS_DIR / user.avatar
         if old_avatar_path.exists():
-            old_avatar_path.unlink()
+            try:
+                old_avatar_path.unlink()
+                logger.info(f"Удален старый аватар: {user.avatar}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить старый аватар: {e}")
 
-    # Сохраняем новый аватар
+    # Сохраняем с именем telegram_id
     avatar_filename = f"{user.telegram_id}.jpg"
     avatar_path = AVATARS_DIR / avatar_filename
 
@@ -805,7 +810,16 @@ async def upload_avatar(
     user.avatar = avatar_filename
     db.commit()
 
-    return {"message": "Avatar uploaded successfully", "filename": avatar_filename}
+    logger.info(f"Загружен новый аватар для пользователя {user_id}: {avatar_filename}")
+
+    # Возвращаем с версией для обновления на фронте
+    timestamp = int(time.time() * 1000)
+    return {
+        "message": "Avatar uploaded successfully",
+        "filename": avatar_filename,
+        "avatar_url": f"/avatars/{avatar_filename}?v={timestamp}",
+        "version": timestamp,
+    }
 
 
 @app.delete("/users/{user_id}/avatar")
@@ -818,35 +832,74 @@ async def delete_avatar(
         raise HTTPException(status_code=404, detail="User not found")
 
     deleted = False
+
+    # Удаляем текущий аватар
     if user.avatar:
         avatar_path = AVATARS_DIR / user.avatar
         if avatar_path.exists():
-            avatar_path.unlink()
-            deleted = True
+            try:
+                avatar_path.unlink()
+                deleted = True
+                logger.info(f"Удален аватар: {user.avatar}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить аватар {user.avatar}: {e}")
         user.avatar = None
         db.commit()
 
     # Также удаляем стандартный файл аватара, если существует
     standard_path = AVATARS_DIR / f"{user.telegram_id}.jpg"
     if standard_path.exists():
-        standard_path.unlink()
-        deleted = True
+        try:
+            standard_path.unlink()
+            deleted = True
+            logger.info(f"Удален файл аватара: {standard_path.name}")
+        except Exception as e:
+            logger.warning(f"Не удалось удалить файл {standard_path.name}: {e}")
 
     return {"deleted": deleted}
 
 
 @app.get("/avatars/{filename}")
 async def get_avatar(filename: str):
-    """Получение аватара по имени файла."""
+    """Получение аватара по имени файла с заголовками против кэширования."""
     file_path = AVATARS_DIR / filename
+
     if not file_path.exists():
         # Возвращаем заглушку, если файл не найден
         placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
         if placeholder_path.exists():
-            return FileResponse(placeholder_path)
+            return FileResponse(
+                placeholder_path,
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
         raise HTTPException(status_code=404, detail="Avatar not found")
 
-    return FileResponse(file_path)
+    # Получаем время последней модификации файла
+    mtime = file_path.stat().st_mtime
+    last_modified = datetime.fromtimestamp(mtime).strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    # Создаем ETag на основе имени файла и времени модификации
+    etag_base = f"{filename}-{mtime}"
+    etag = hashlib.md5(etag_base.encode()).hexdigest()
+
+    # Возвращаем файл с агрессивными заголовками против кэширования
+    return FileResponse(
+        file_path,
+        headers={
+            # Полностью отключаем кэширование
+            "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "ETag": f'"{etag}"',
+            "Last-Modified": last_modified,
+            # Дополнительный заголовок для прокси-серверов
+            "Surrogate-Control": "no-store",
+        },
+    )
 
 
 @app.post("/users/{user_id}/download-telegram-avatar")
@@ -855,9 +908,8 @@ async def download_telegram_avatar(
     _: str = Depends(verify_token),
 ):
     """Скачивание аватара пользователя из Telegram."""
-
     try:
-        # Получаем данные пользователя (не объект SQLAlchemy)
+        # Получаем данные пользователя
         def _get_user_data(session):
             user = session.query(User).filter(User.id == user_id).first()
             if not user:
@@ -866,14 +918,22 @@ async def download_telegram_avatar(
             if not user.telegram_id:
                 raise HTTPException(status_code=400, detail="User has no Telegram ID")
 
-            # Возвращаем только данные, а не объект SQLAlchemy
+            # Удаляем старый аватар если есть
+            if user.avatar:
+                old_avatar_path = AVATARS_DIR / user.avatar
+                if old_avatar_path.exists():
+                    try:
+                        old_avatar_path.unlink()
+                        logger.info(f"Удален старый аватар: {user.avatar}")
+                    except Exception as e:
+                        logger.error(f"Ошибка удаления старого аватара: {e}")
+
             return {
                 "id": user.id,
                 "telegram_id": user.telegram_id,
                 "full_name": user.full_name,
             }
 
-        # Получаем данные пользователя
         user_data = DatabaseManager.safe_execute(_get_user_data)
 
         if not bot:
@@ -883,23 +943,47 @@ async def download_telegram_avatar(
             f"Попытка скачать аватар для пользователя {user_data['telegram_id']}"
         )
 
-        # Скачиваем аватар
-        avatar_path = await save_user_avatar(bot, user_data["telegram_id"])
+        # Получаем фото профиля
+        profile_photos = await bot.get_user_profile_photos(
+            user_id=user_data["telegram_id"], limit=1
+        )
 
-        if not avatar_path:
+        if not profile_photos.photos:
+            logger.info(f"У пользователя {user_data['telegram_id']} нет фото профиля")
             raise HTTPException(
                 status_code=404,
                 detail="User has no profile photo or photo is not accessible",
             )
 
-        # Обновляем пользователя в БД
-        avatar_filename = os.path.basename(avatar_path)
+        # Берем самое большое фото
+        photo = profile_photos.photos[0][-1]
+        file = await bot.get_file(photo.file_id)
 
+        # Сохраняем с именем telegram_id
+        avatar_filename = f"{user_data['telegram_id']}.jpg"
+        avatar_path = AVATARS_DIR / avatar_filename
+
+        # Создаем директорию если её нет
+        AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Если файл уже существует, удаляем его
+        if avatar_path.exists():
+            try:
+                avatar_path.unlink()
+                logger.info(f"Удален существующий аватар: {avatar_filename}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить существующий аватар: {e}")
+
+        # Скачиваем файл
+        await bot.download_file(file.file_path, destination=avatar_path)
+        logger.info(f"Аватар сохранен: {avatar_path}")
+
+        # Обновляем пользователя в БД
         def _update_avatar(session):
             user_obj = session.query(User).filter(User.id == user_id).first()
             if user_obj:
                 user_obj.avatar = avatar_filename
-                session.commit()  # Добавляем commit
+                session.commit()
                 return {
                     "id": user_obj.id,
                     "telegram_id": user_obj.telegram_id,
@@ -916,9 +1000,13 @@ async def download_telegram_avatar(
             f"Аватар пользователя {user_data['telegram_id']} успешно загружен: {avatar_filename}"
         )
 
+        # Возвращаем с версией для обновления на фронте
+        timestamp = int(time.time() * 1000)
         return {
             "message": "Avatar downloaded successfully",
             "avatar_filename": avatar_filename,
+            "avatar_url": f"/avatars/{avatar_filename}?v={timestamp}",
+            "version": timestamp,
             "user_id": updated_user_data["id"],
             "telegram_id": updated_user_data["telegram_id"],
         }
@@ -965,7 +1053,7 @@ async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
         AVATARS_DIR.mkdir(parents=True, exist_ok=True)
         logger.info(f"Директория аватаров: {AVATARS_DIR.absolute()}")
 
-        # Формируем путь к файлу
+        # Формируем путь к файлу - используем telegram_id как имя
         avatar_filename = f"{user_id}.jpg"
         file_path = AVATARS_DIR / avatar_filename
 

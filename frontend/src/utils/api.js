@@ -215,17 +215,54 @@ export const userApi = {
         'Content-Type': 'multipart/form-data',
       },
     });
+    // Безопасная предзагрузка изображения
+    if (res.data.avatar_url) {
+      try {
+        const img = document.createElement('img');
+        img.src = `/api${res.data.avatar_url}`;
+        img.style.display = 'none';
+        document.body.appendChild(img);
+        // Удаляем элемент после загрузки
+        img.onload = () => {
+          document.body.removeChild(img);
+        };
+        img.onerror = () => {
+          document.body.removeChild(img);
+        };
+      } catch (e) {
+        console.log('Не удалось предзагрузить аватар:', e);
+      }
+    }
+
     return res.data;
   },
 
-  // НОВЫЙ: Скачивание аватара из Telegram
+  // Скачивание аватара из Telegram
   downloadTelegramAvatar: async (userId) => {
     try {
       console.log(`Запрос скачивания аватара из Telegram для пользователя ${userId}`);
-
       const res = await apiClient.post(`/users/${userId}/download-telegram-avatar`);
-
       console.log('Аватар успешно скачан:', res.data);
+
+      // Безопасная предзагрузка изображения
+      if (res.data.avatar_url) {
+        try {
+          const img = document.createElement('img');
+          img.src = `/api${res.data.avatar_url}`;
+          img.style.display = 'none';
+          document.body.appendChild(img);
+          // Удаляем элемент после загрузки
+          img.onload = () => {
+            document.body.removeChild(img);
+          };
+          img.onerror = () => {
+            document.body.removeChild(img);
+          };
+        } catch (e) {
+          console.log('Не удалось предзагрузить аватар:', e);
+        }
+      }
+
       return res.data;
     } catch (error) {
       console.error('Ошибка скачивания аватара из Telegram:', error);
@@ -247,7 +284,6 @@ export const userApi = {
     }
   },
 };
-
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {
   getAll: async (params = {}) => {
