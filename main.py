@@ -4,7 +4,7 @@ import threading
 import time as time_module
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, middleware
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
@@ -37,6 +37,7 @@ from routes.notifications import router as notifications_router
 from routes.newsletters import router as newsletters_router
 from routes.dashboard import router as dashboard_router
 from routes.health import router as health_router
+from routes.rubitime import router as rubitime_router
 
 logger = get_logger(__name__)
 
@@ -251,6 +252,7 @@ app.include_router(notifications_router)
 app.include_router(newsletters_router)
 app.include_router(dashboard_router)
 app.include_router(health_router)
+app.include_router(rubitime_router)
 
 
 if __name__ == "__main__":
