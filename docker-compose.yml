@@ -1,19 +1,139 @@
+#services:
+#  bot:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.bot
+#    environment:
+#      - BOT_TOKEN=${BOT_TOKEN}
+#      - LOG_LEVEL=${LOG_LEVEL}
+#      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+#      - BOT_LINK=${BOT_LINK}
+#      - INVITE_LINK=${INVITE_LINK}
+#      - GROUP_ID=${GROUP_ID}
+#      - FOR_LOGS=${FOR_LOGS}
+#      - ADMIN_LOGIN=${ADMIN_LOGIN}
+#      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+#      - API_BASE_URL=http://web:8000  # Добавлено для связи с API
+#    volumes:
+#      - ./data:/app/data
+#      - ./utils:/app/utils
+#      - ./models:/app/models
+#      - ./bot:/app/bot
+#      - ./avatars:/app/avatars
+#      - ./ticket_photos:/app/ticket_photos
+#      - ./newsletter_photos:/app/newsletter_photos
+#    restart: unless-stopped
+#    depends_on:
+#      web:
+#        condition: service_healthy
+#    healthcheck:
+#      test: ["CMD", "test", "-f", "/data/bot_initialized"]
+#      interval: 5s
+#      timeout: 3s
+#      retries: 10
+#      start_period: 10s
+#    networks:
+#      - coworking_network
+#
+#  web:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.web
+#    environment:
+#      - SECRET_KEY=${SECRET_KEY}
+#      - SECRET_KEY_JWT=${SECRET_KEY_JWT}
+#      - ADMIN_LOGIN=${ADMIN_LOGIN}
+#      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+#      - LOG_LEVEL=${LOG_LEVEL}
+#      - BOT_TOKEN=${BOT_TOKEN}
+#      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+#      - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
+#      - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
+#      - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+#      - RUBITIME_BRANCH_ID=${RUBITIME_BRANCH_ID:-12595}
+#      - RUBITIME_COOPERATOR_ID=${RUBITIME_COOPERATOR_ID:-25786}
+#      - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}  # Срок хранения файлов в днях
+#      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}        # Максимальный размер файла в МБ
+#      - DB_TIMEOUT=20                    # Таймаут операций БД в секундах
+#      - DB_RETRY_ATTEMPTS=3              # Количество повторных попыток
+#      - DB_RETRY_DELAY=0.1              # Задержка между попытками
+#    ports:
+#      - "8000:8000"
+#    volumes:
+#      - ./data:/app/data
+#      - ./utils:/app/utils
+#      - ./models:/app/models
+#      - ./frontend/static:/app/frontend/static
+#      - ./avatars:/app/avatars
+#      - ./ticket_photos:/app/ticket_photos
+#      - ./newsletter_photos:/app/newsletter_photos
+#    working_dir: /app
+#    restart: unless-stopped
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+#      interval: 10s
+#      timeout: 10s
+#      retries: 5
+#      start_period: 30s
+#    deploy:
+#      resources:
+#        limits:
+#          memory: 512M
+#        reservations:
+#          memory: 256M
+#    networks:
+#      - coworking_network
+#
+#  frontend:
+#    build:
+#      context: .
+#      dockerfile: Dockerfile.frontend
+#    ports:
+#      - "80:80"
+#    restart: unless-stopped
+#    depends_on:
+#      web:
+#        condition: service_healthy
+#    networks:
+#      - coworking_network
+#
+#networks:
+#  coworking_network:
+#    driver: bridge
 services:
   bot:
     build:
       context: .
       dockerfile: Dockerfile.bot
     environment:
+      # Основные настройки
+      - DEBUG=${DEBUG:-false}
+      - HOST=${HOST:-localhost}
+      - PORT=${PORT:-8000}
+
+      # Telegram Bot
       - BOT_TOKEN=${BOT_TOKEN}
-      - LOG_LEVEL=${LOG_LEVEL}
       - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
       - BOT_LINK=${BOT_LINK}
       - INVITE_LINK=${INVITE_LINK}
       - GROUP_ID=${GROUP_ID}
       - FOR_LOGS=${FOR_LOGS}
+
+      # Безопасность
+      - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_JWT=${SECRET_KEY_JWT}
       - ADMIN_LOGIN=${ADMIN_LOGIN}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - API_BASE_URL=http://web:8000  # Добавлено для связи с API
+
+      # API
+      - API_BASE_URL=http://web:8000
+
+      # Логирование
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Внешние URL
+      - ADMIN_URL=${ADMIN_URL:-https://t.me/partacoworking}
+      - RULES_URL=${RULES_URL:-https://parta-works.ru/main_rules}
     volumes:
       - ./data:/app/data
       - ./utils:/app/utils
@@ -40,29 +160,79 @@ services:
       context: .
       dockerfile: Dockerfile.web
     environment:
+      # Основные настройки
+      - DEBUG=${DEBUG:-false}
+      - HOST=${HOST:-localhost}
+      - PORT=${PORT:-8000}
+      - APP_NAME=${APP_NAME:-Coworking API}
+      - APP_VERSION=${APP_VERSION:-1.0.0}
+
+      # Сетевые настройки
+      - API_BASE_URL=${API_BASE_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+
+      # Безопасность
       - SECRET_KEY=${SECRET_KEY}
       - SECRET_KEY_JWT=${SECRET_KEY_JWT}
+      - ACCESS_TOKEN_EXPIRE_HOURS=${ACCESS_TOKEN_EXPIRE_HOURS:-24}
       - ADMIN_LOGIN=${ADMIN_LOGIN}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - LOG_LEVEL=${LOG_LEVEL}
+
+      # Telegram Bot
       - BOT_TOKEN=${BOT_TOKEN}
       - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - BOT_LINK=${BOT_LINK}
+      - INVITE_LINK=${INVITE_LINK}
+      - GROUP_ID=${GROUP_ID}
+      - FOR_LOGS=${FOR_LOGS}
+
+      # Платежные системы
       - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
       - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
+
+      # Rubitime
       - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+      - RUBITIME_BASE_URL=${RUBITIME_BASE_URL:-https://rubitime.ru/api2/}
       - RUBITIME_BRANCH_ID=${RUBITIME_BRANCH_ID:-12595}
       - RUBITIME_COOPERATOR_ID=${RUBITIME_COOPERATOR_ID:-25786}
-      - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}  # Срок хранения файлов в днях
-      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}        # Максимальный размер файла в МБ
-      - DB_TIMEOUT=20                    # Таймаут операций БД в секундах
-      - DB_RETRY_ATTEMPTS=3              # Количество повторных попыток
-      - DB_RETRY_DELAY=0.1              # Задержка между попытками
+
+      # База данных
+      - DB_TIMEOUT=${DB_TIMEOUT:-60}
+      - DB_RETRY_ATTEMPTS=${DB_RETRY_ATTEMPTS:-3}
+      - DB_RETRY_DELAY=${DB_RETRY_DELAY:-0.1}
+
+      # Файлы и лимиты
+      - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}
+      - NEWSLETTER_MAX_PHOTOS=${NEWSLETTER_MAX_PHOTOS:-10}
+      - NEWSLETTER_MAX_FILE_SIZE_MB=${NEWSLETTER_MAX_FILE_SIZE_MB:-20}
+      - NEWSLETTER_RATE_LIMIT_DELAY=${NEWSLETTER_RATE_LIMIT_DELAY:-0.05}
+
+      # Логирование
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+
+      # Внешние URL
+      - ADMIN_URL=${ADMIN_URL:-https://t.me/partacoworking}
+      - RULES_URL=${RULES_URL:-https://parta-works.ru/main_rules}
+
+      # Email (опционально)
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
       - ./utils:/app/utils
       - ./models:/app/models
+      - ./routes:/app/routes
+      - ./schemas:/app/schemas
+      - ./config.py:/app/config.py
+      - ./dependencies.py:/app/dependencies.py
+      - ./main.py:/app/main.py
       - ./frontend/static:/app/frontend/static
       - ./avatars:/app/avatars
       - ./ticket_photos:/app/ticket_photos
@@ -88,6 +258,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+    environment:
+      - HOST=${HOST:-localhost}
+      - API_BASE_URL=${API_BASE_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
     ports:
       - "80:80"
     restart: unless-stopped
