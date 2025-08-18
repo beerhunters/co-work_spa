@@ -3,13 +3,14 @@ import os
 import threading
 import time as time_module
 from pathlib import Path
-
-from fastapi import FastAPI, Depends, HTTPException, middleware
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
 # Импорты моделей и конфигурации
-from models.models import init_db, create_admin, Admin
+from models.models import init_db, create_admin
 from config import (
     APP_NAME,
     APP_VERSION,
@@ -21,9 +22,12 @@ from config import (
     CORS_ORIGINS,
     DATA_DIR,
     AVATARS_DIR,
+    TICKET_PHOTOS_DIR,
+    NEWSLETTER_PHOTOS_DIR,
 )
-from dependencies import init_bot, close_bot, get_db
+from dependencies import init_bot, close_bot
 from utils.logger import get_logger
+from utils.database_maintenance import start_maintenance_tasks
 
 # Импорты всех роутеров
 from routes.auth import router as auth_router
@@ -51,8 +55,8 @@ async def lifespan(app: FastAPI):
     for directory in [
         DATA_DIR,
         AVATARS_DIR,
-        Path("/app/ticket_photos"),
-        Path("/app/newsletter_photos"),
+        TICKET_PHOTOS_DIR,
+        NEWSLETTER_PHOTOS_DIR,
     ]:
         try:
             directory.mkdir(exist_ok=True, parents=True)
@@ -86,7 +90,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка инициализации бота: {e}")
 
-    # Запускаем планировщики
+    # Запускаем планировщики обслуживания БД
     start_maintenance_tasks()
 
     # Создаем placeholder аватар
@@ -115,27 +119,6 @@ async def lifespan(app: FastAPI):
         logger.info("Бот закрыт")
     except Exception as e:
         logger.error(f"Ошибка закрытия бота: {e}")
-
-
-def start_maintenance_tasks():
-    """Запускает фоновые задачи обслуживания."""
-    import schedule
-    from utils.database_maintenance import optimize_database, check_db_health
-
-    # Оптимизация каждый день в 3:00
-    schedule.every().day.at("03:00").do(optimize_database)
-
-    # Проверка состояния каждые 10 минут
-    schedule.every(10).minutes.do(check_db_health)
-
-    def run_maintenance():
-        while True:
-            schedule.run_pending()
-            time_module.sleep(60)  # Проверяем каждую минуту
-
-    maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
-    maintenance_thread.start()
-    logger.info("Планировщик обслуживания БД запущен")
 
 
 # Создание приложения FastAPI
@@ -168,79 +151,15 @@ async def root():
     }
 
 
-# Корневые эндпоинты для совместимости с фронтендом
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-import jwt
-from werkzeug.security import check_password_hash
-from models.models import Admin
-from routes.auth import create_access_token
+# Подключение статических файлов для аватаров
+app.mount("/avatars", StaticFiles(directory=str(AVATARS_DIR)), name="avatars")
+app.mount(
+    "/ticket_photos",
+    StaticFiles(directory=str(TICKET_PHOTOS_DIR)),
+    name="ticket_photos",
+)
 
-security = HTTPBearer()
-
-
-class AdminCredentials(BaseModel):
-    login: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
-def verify_token_func(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Проверка JWT токена."""
-    from config import SECRET_KEY_JWT, ALGORITHM
-
-    try:
-        token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return username
-    except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
-@app.post("/login", response_model=TokenResponse)
-async def login_root(credentials: AdminCredentials, db: Session = Depends(get_db)):
-    """Аутентификация администратора (корневой эндпоинт для фронтенда)."""
-    admin = db.query(Admin).filter(Admin.login == credentials.login).first()
-    if not admin or not check_password_hash(admin.password, credentials.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    access_token = create_access_token(data={"sub": admin.login})
-    logger.info(f"Успешная аутентификация пользователя: {admin.login}")
-    return {"access_token": access_token}
-
-
-@app.get("/verify_token")
-async def verify_token_root(username: str = Depends(verify_token_func)):
-    """Проверка действительности токена (корневой эндпоинт для фронтенда)."""
-    return {"username": username, "valid": True}
-
-
-@app.get("/me")
-async def get_current_user_root(
-    username: str = Depends(verify_token_func), db: Session = Depends(get_db)
-):
-    """Получение информации о текущем пользователе (корневой эндпоинт для фронтенда)."""
-    admin = db.query(Admin).filter(Admin.login == username).first()
-    if not admin:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    return {
-        "id": admin.id,
-        "login": admin.login,
-        "is_active": admin.is_active,
-        "permissions": ["admin"],
-    }
-
-
-# Подключение всех роутеров БЕЗ префиксов (они уже есть в роутерах)
+# Подключение всех роутеров
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(bookings_router)

@@ -2,7 +2,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 
 from models.models import Tariff
 from dependencies import get_db, verify_token
@@ -11,7 +10,6 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/tariffs", tags=["tariffs"])
-# router = APIRouter(tags=["tariffs"])
 
 
 @router.get("/active")

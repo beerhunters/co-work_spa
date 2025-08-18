@@ -13,8 +13,7 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# ИСПРАВЛЕНО: добавлен префикс
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(tags=["authentication"])
 security = HTTPBearer()
 
 
@@ -54,9 +53,10 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(credentials: AdminCredentials, db: Session = Depends(get_db)):
-    """Аутентификация администратора."""
+# Основные эндпоинты аутентификации с префиксом /auth
+@router.post("/auth/login", response_model=TokenResponse)
+async def login_auth(credentials: AdminCredentials, db: Session = Depends(get_db)):
+    """Аутентификация администратора через /auth/login."""
     admin = db.query(Admin).filter(Admin.login == credentials.login).first()
     if not admin or not check_password_hash(admin.password, credentials.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -66,20 +66,20 @@ async def login(credentials: AdminCredentials, db: Session = Depends(get_db)):
     return {"access_token": access_token}
 
 
-@router.get("/verify")
+@router.get("/auth/verify")
 async def verify_token_endpoint(username: str = Depends(verify_token)):
     """Проверка действительности токена."""
     return {"username": username, "valid": True}
 
 
-@router.post("/logout")
+@router.post("/auth/logout")
 async def logout():
     """Выход из системы."""
     return {"message": "Logged out successfully"}
 
 
-@router.get("/me")
-async def get_current_user(
+@router.get("/auth/me")
+async def get_current_user_auth(
     username: str = Depends(verify_token), db: Session = Depends(get_db)
 ):
     """Получение информации о текущем пользователе."""
@@ -91,5 +91,26 @@ async def get_current_user(
         "id": admin.id,
         "login": admin.login,
         "is_active": admin.is_active,
-        "permissions": ["admin"],  # Расширяемо для будущих ролей
+        "permissions": ["admin"],
     }
+
+
+# Дублирующие эндпоинты для совместимости с фронтендом (без префикса)
+@router.post("/login", response_model=TokenResponse, include_in_schema=False)
+async def login_root(credentials: AdminCredentials, db: Session = Depends(get_db)):
+    """Аутентификация администратора (корневой эндпоинт для совместимости)."""
+    return await login_auth(credentials, db)
+
+
+@router.get("/verify_token", include_in_schema=False)
+async def verify_token_root(username: str = Depends(verify_token)):
+    """Проверка токена (корневой эндпоинт для совместимости)."""
+    return await verify_token_endpoint(username)
+
+
+@router.get("/me", include_in_schema=False)
+async def get_current_user_root(
+    username: str = Depends(verify_token), db: Session = Depends(get_db)
+):
+    """Получение текущего пользователя (корневой эндпоинт для совместимости)."""
+    return await get_current_user_auth(username, db)
