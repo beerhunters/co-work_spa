@@ -29,12 +29,6 @@ from dependencies import init_bot, close_bot
 from utils.logger import get_logger
 from utils.database_maintenance import start_maintenance_tasks
 
-# from middleware import (
-#     ErrorHandlingMiddleware,
-#     DatabaseMaintenanceMiddleware,
-#     RequestLoggingMiddleware,
-# )
-
 # Импорты всех роутеров
 from routes.auth import router as auth_router
 from routes.users import router as users_router
@@ -115,21 +109,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка запуска планировщиков: {e}")
 
-    # Создаем placeholder аватар
-    placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
-    if not placeholder_path.exists():
-        try:
-            from PIL import Image, ImageDraw
-
-            img = Image.new("RGB", (200, 200), color="#E2E8F0")
-            draw = ImageDraw.Draw(img)
-            draw.ellipse([75, 50, 125, 100], fill="#718096")  # голова
-            draw.ellipse([50, 100, 150, 180], fill="#718096")  # тело
-            img.save(placeholder_path)
-            logger.info("Создан placeholder аватар")
-        except Exception as e:
-            logger.error(f"Ошибка создания placeholder аватара: {e}")
-
     logger.info("Приложение запущено успешно")
 
     yield
@@ -153,12 +132,6 @@ app = FastAPI(
     docs_url="/api/docs" if DEBUG else None,
     redoc_url="/api/redoc" if DEBUG else None,
 )
-
-# # Добавляем middleware
-# app.add_middleware(ErrorHandlingMiddleware)
-# app.add_middleware(DatabaseMaintenanceMiddleware)
-# if DEBUG:
-#     app.add_middleware(RequestLoggingMiddleware)
 
 # Настройка CORS
 app.add_middleware(
