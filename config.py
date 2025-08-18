@@ -12,11 +12,11 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # Директории
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path("/app/data")  # Используем абсолютный путь для Docker
 LOGS_DIR = BASE_DIR / "logs"
-AVATARS_DIR = BASE_DIR / "avatars"
-TICKET_PHOTOS_DIR = BASE_DIR / "ticket_photos"
-NEWSLETTER_PHOTOS_DIR = BASE_DIR / "newsletter_photos"
+AVATARS_DIR = Path("/app/avatars")  # Абсолютный путь
+TICKET_PHOTOS_DIR = Path("/app/ticket_photos")  # Абсолютный путь
+NEWSLETTER_PHOTOS_DIR = Path("/app/newsletter_photos")  # Абсолютный путь
 
 # Создаем директории если не существуют
 for directory in [
@@ -29,7 +29,7 @@ for directory in [
     directory.mkdir(exist_ok=True, parents=True)
 
 # Сетевые настройки
-HOST = os.getenv("HOST", "localhost")
+HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
 API_BASE_URL = os.getenv("API_BASE_URL", f"http://{HOST}:{PORT}")
 
@@ -52,8 +52,8 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 # Telegram Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
-BOT_LINK = os.getenv("BOT_LINK", f"https://t.me/your_bot")
-INVITE_LINK = os.getenv("INVITE_LINK", f"https://t.me/your_bot")
+BOT_LINK = os.getenv("BOT_LINK", "https://t.me/your_bot")
+INVITE_LINK = os.getenv("INVITE_LINK", "https://t.me/your_bot")
 GROUP_ID = os.getenv("GROUP_ID")
 FOR_LOGS = os.getenv("FOR_LOGS")
 
@@ -96,20 +96,18 @@ NEWSLETTER_MAX_PHOTOS = int(os.getenv("NEWSLETTER_MAX_PHOTOS", "10"))
 NEWSLETTER_MAX_FILE_SIZE_MB = int(os.getenv("NEWSLETTER_MAX_FILE_SIZE_MB", "20"))
 NEWSLETTER_RATE_LIMIT_DELAY = float(os.getenv("NEWSLETTER_RATE_LIMIT_DELAY", "0.05"))
 
-# Валидация обязательных переменных
-required_env_vars = {
-    "BOT_TOKEN": BOT_TOKEN,
-    "SECRET_KEY": SECRET_KEY,
-    "SECRET_KEY_JWT": SECRET_KEY_JWT,
-}
-
-missing_vars = [key for key, value in required_env_vars.items() if not value]
-if missing_vars:
-    raise ValueError(
-        f"Отсутствуют обязательные переменные окружения: {', '.join(missing_vars)}"
-    )
-
 # Настройки временной зоны
 import pytz
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
+
+# Валидация обязательных переменных
+required_env_vars = {
+    "BOT_TOKEN": BOT_TOKEN,
+}
+
+missing_vars = [key for key, value in required_env_vars.items() if not value]
+if missing_vars:
+    print(
+        f"ПРЕДУПРЕЖДЕНИЕ: Отсутствуют переменные окружения: {', '.join(missing_vars)}"
+    )

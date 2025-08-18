@@ -1,13 +1,13 @@
 import asyncio
 import os
-import threading
-import time as time_module
+import time  # Добавляем недостающий импорт
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 # Импорты моделей и конфигурации
 from models.models import init_db, create_admin
@@ -28,6 +28,12 @@ from config import (
 from dependencies import init_bot, close_bot
 from utils.logger import get_logger
 from utils.database_maintenance import start_maintenance_tasks
+
+# from middleware import (
+#     ErrorHandlingMiddleware,
+#     DatabaseMaintenanceMiddleware,
+#     RequestLoggingMiddleware,
+# )
 
 # Импорты всех роутеров
 from routes.auth import router as auth_router
@@ -75,6 +81,19 @@ async def lifespan(app: FastAPI):
         logger.info("База данных инициализирована успешно")
     except Exception as e:
         logger.error(f"Критическая ошибка инициализации БД: {e}")
+        # Попытка восстановления
+        try:
+            db_path = DATA_DIR / "coworking.db"
+            if db_path.exists():
+                backup_path = db_path.with_suffix(f".corrupted.{int(time.time())}")
+                db_path.rename(backup_path)
+                logger.info(f"Поврежденная БД перемещена в {backup_path}")
+
+            # Создаем новую БД
+            init_db()
+            logger.info("Создана новая БД")
+        except Exception as recovery_error:
+            logger.error(f"Не удалось восстановить БД: {recovery_error}")
 
     # Создаем админа
     try:
@@ -91,7 +110,10 @@ async def lifespan(app: FastAPI):
         logger.error(f"Ошибка инициализации бота: {e}")
 
     # Запускаем планировщики обслуживания БД
-    start_maintenance_tasks()
+    try:
+        start_maintenance_tasks()
+    except Exception as e:
+        logger.error(f"Ошибка запуска планировщиков: {e}")
 
     # Создаем placeholder аватар
     placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
@@ -128,7 +150,15 @@ app = FastAPI(
     description="API для управления коворкингом",
     debug=DEBUG,
     lifespan=lifespan,
+    docs_url="/api/docs" if DEBUG else None,
+    redoc_url="/api/redoc" if DEBUG else None,
 )
+
+# # Добавляем middleware
+# app.add_middleware(ErrorHandlingMiddleware)
+# app.add_middleware(DatabaseMaintenanceMiddleware)
+# if DEBUG:
+#     app.add_middleware(RequestLoggingMiddleware)
 
 # Настройка CORS
 app.add_middleware(
@@ -152,29 +182,70 @@ async def root():
 
 
 # Подключение статических файлов для аватаров
-app.mount("/avatars", StaticFiles(directory=str(AVATARS_DIR)), name="avatars")
-app.mount(
-    "/ticket_photos",
-    StaticFiles(directory=str(TICKET_PHOTOS_DIR)),
-    name="ticket_photos",
-)
+try:
+    if AVATARS_DIR.exists():
+        app.mount("/avatars", StaticFiles(directory=str(AVATARS_DIR)), name="avatars")
+
+    if TICKET_PHOTOS_DIR.exists():
+        app.mount(
+            "/ticket_photos",
+            StaticFiles(directory=str(TICKET_PHOTOS_DIR)),
+            name="ticket_photos",
+        )
+except Exception as e:
+    logger.error(f"Ошибка монтирования статических файлов: {e}")
 
 # Подключение всех роутеров
-app.include_router(auth_router)
-app.include_router(users_router)
-app.include_router(bookings_router)
-app.include_router(tariffs_router)
-app.include_router(promocodes_router)
-app.include_router(tickets_router)
-app.include_router(payments_router)
-app.include_router(notifications_router)
-app.include_router(newsletters_router)
-app.include_router(dashboard_router)
-app.include_router(health_router)
-app.include_router(rubitime_router)
+try:
+    app.include_router(auth_router)
+    app.include_router(users_router)
+    app.include_router(bookings_router)
+    app.include_router(tariffs_router)
+    app.include_router(promocodes_router)
+    app.include_router(tickets_router)
+    app.include_router(payments_router)
+    app.include_router(notifications_router)
+    app.include_router(newsletters_router)
+    app.include_router(dashboard_router)
+    app.include_router(health_router)
+    app.include_router(rubitime_router)
+    logger.info("Все роутеры подключены успешно")
+except Exception as e:
+    logger.error(f"Ошибка подключения роутеров: {e}")
 
+# Дублирующие эндпоинты для совместимости (если фронтенд ожидает их в корне)
+# Эти эндпоинты будут работать как с префиксами, так и без них
+try:
+
+    @app.post("/login")
+    async def login_compat(*args, **kwargs):
+        """Совместимость с фронтендом - дублирование /auth/login."""
+        from routes.auth import login_auth
+
+        return await login_auth(*args, **kwargs)
+
+    @app.get("/verify_token")
+    async def verify_token_compat(*args, **kwargs):
+        """Совместимость с фронтендом - дублирование /auth/verify."""
+        from routes.auth import verify_token_endpoint
+
+        return await verify_token_endpoint(*args, **kwargs)
+
+    @app.get("/logout")
+    async def logout_compat():
+        """Совместимость с фронтендом - дублирование /auth/logout."""
+        return {"message": "Logged out successfully"}
+
+except Exception as e:
+    logger.error(f"Ошибка настройки совместимости: {e}")
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=DEBUG, log_level="info")
+    uvicorn.run(
+        "main:app",
+        host=HOST,
+        port=PORT,
+        reload=DEBUG,
+        log_level="debug" if DEBUG else "info",
+    )

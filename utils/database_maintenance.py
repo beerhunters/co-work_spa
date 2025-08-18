@@ -1,7 +1,11 @@
+# utils/database_maintenance.py
 import sqlite3
 import time
 import shutil
+import threading
+import schedule
 from pathlib import Path
+from typing import Optional
 
 from models.models import DatabaseManager
 from config import DATA_DIR
@@ -80,6 +84,25 @@ def check_db_health():
             logger.warning("Файл базы данных не найден")
     except Exception as e:
         logger.warning(f"Проблема с БД обнаружена: {e}")
+
+
+def start_maintenance_tasks():
+    """Запускает планировщик обслуживания БД."""
+
+    # Оптимизация каждый день в 3:00
+    schedule.every().day.at("03:00").do(optimize_database)
+
+    # Проверка состояния каждые 10 минут
+    schedule.every(10).minutes.do(check_db_health)
+
+    def run_maintenance():
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # Проверяем каждую минуту
+
+    maintenance_thread = threading.Thread(target=run_maintenance, daemon=True)
+    maintenance_thread.start()
+    logger.info("Планировщик обслуживания БД запущен")
 
 
 def create_database_backup(backup_name: str = None) -> Path:
