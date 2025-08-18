@@ -1,5 +1,10 @@
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
+import base64
+from pathlib import Path
+from fastapi.responses import FileResponse, Response
+from config import TICKET_PHOTOS_DIR
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -7,7 +12,7 @@ from pydantic import BaseModel
 
 from models.models import Ticket, User, TicketStatus, Notification, DatabaseManager
 from dependencies import get_db, verify_token, get_bot
-from config import MOSCOW_TZ
+from config import MOSCOW_TZ, TICKET_PHOTOS_DIR
 from schemas.ticket_schemas import TicketCreate
 from utils.logger import get_logger
 
@@ -118,6 +123,58 @@ async def get_tickets_detailed(
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка при получении тикетов: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{ticket_id}")
+async def get_ticket_by_id(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Получение тикета по ID."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        user = db.query(User).filter(User.id == ticket.user_id).first()
+
+        return {
+            "id": ticket.id,
+            "user_id": ticket.user_id,
+            "description": ticket.description,
+            "photo_id": ticket.photo_id,
+            "response_photo_id": ticket.response_photo_id,
+            "status": ticket.status.name,
+            "comment": ticket.comment,
+            "created_at": ticket.created_at.isoformat(),
+            "updated_at": ticket.updated_at.isoformat(),
+            "user": (
+                {
+                    "id": user.id if user else ticket.user_id,
+                    "telegram_id": user.telegram_id if user else None,
+                    "full_name": user.full_name if user else "Пользователь не найден",
+                    "username": user.username if user else None,
+                    "phone": user.phone if user else None,
+                    "email": user.email if user else None,
+                }
+                if user
+                else {
+                    "id": ticket.user_id,
+                    "telegram_id": None,
+                    "full_name": "Пользователь не найден",
+                    "username": None,
+                    "phone": None,
+                    "email": None,
+                }
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении тикета {ticket_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -241,7 +298,7 @@ async def update_ticket(
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),
 ):
-    """Обновление тикета (статус, комментарий)."""
+    """Обновление тикета (статус, комментарий, фото ответа)."""
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -252,18 +309,17 @@ async def update_ticket(
         old_status = ticket.status
         old_comment = ticket.comment
 
-        if "status" in update_data:
+        # Обновляем статус
+        if "status" in update_data and update_data["status"]:
             try:
                 new_status = TicketStatus[update_data["status"]]
                 ticket.status = new_status
             except KeyError:
                 raise HTTPException(status_code=400, detail="Invalid status")
 
+        # Обновляем комментарий
         if "comment" in update_data:
             ticket.comment = update_data["comment"]
-
-        if "response_photo_id" in update_data:
-            ticket.response_photo_id = update_data["response_photo_id"]
 
         ticket.updated_at = datetime.now(MOSCOW_TZ)
 
@@ -318,6 +374,465 @@ async def update_ticket(
         raise
     except Exception as e:
         logger.error(f"❌ Ошибка обновления тикета {ticket_id}: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{ticket_id}/photo")
+async def get_ticket_photo(
+    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение фото тикета по ID."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        if not ticket.photo_id:
+            raise HTTPException(
+                status_code=404, detail="Photo not found for this ticket"
+            )
+
+        # Пытаемся найти файл фото
+        possible_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        photo_file = None
+
+        for ext in possible_extensions:
+            photo_path = TICKET_PHOTOS_DIR / f"{ticket.photo_id}{ext}"
+            if photo_path.exists():
+                photo_file = photo_path
+                break
+
+        # Если локальный файл не найден, пытаемся получить из Telegram
+        if not photo_file:
+            logger.info(
+                f"Локальное фото не найдено для тикета {ticket_id}, пытаемся загрузить из Telegram"
+            )
+
+            bot = get_bot()
+            if bot and ticket.photo_id:
+                try:
+                    # Создаем директорию если не существует
+                    TICKET_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+                    # Скачиваем файл из Telegram
+                    file = await bot.get_file(ticket.photo_id)
+
+                    # Определяем расширение файла
+                    file_path = file.file_path
+                    ext = Path(file_path).suffix or ".jpg"
+
+                    # Сохраняем файл локально
+                    local_photo_path = TICKET_PHOTOS_DIR / f"{ticket.photo_id}{ext}"
+                    await bot.download_file(
+                        file.file_path, destination=local_photo_path
+                    )
+
+                    photo_file = local_photo_path
+                    logger.info(
+                        f"Фото тикета {ticket_id} успешно загружено из Telegram"
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        f"Ошибка загрузки фото из Telegram для тикета {ticket_id}: {e}"
+                    )
+
+        if not photo_file or not photo_file.exists():
+            raise HTTPException(status_code=404, detail="Photo file not found")
+
+        # Возвращаем файл
+        return FileResponse(
+            photo_file,
+            media_type=f"image/{photo_file.suffix[1:]}",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Content-Disposition": f"inline; filename=ticket_{ticket_id}_photo{photo_file.suffix}",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения фото тикета {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{ticket_id}/photo-base64")
+async def get_ticket_photo_base64(
+    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение фото тикета в формате base64."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        if not ticket.photo_id:
+            raise HTTPException(
+                status_code=404, detail="Photo not found for this ticket"
+            )
+
+        # Пытаемся найти файл фото
+        possible_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        photo_file = None
+
+        for ext in possible_extensions:
+            photo_path = TICKET_PHOTOS_DIR / f"{ticket.photo_id}{ext}"
+            if photo_path.exists():
+                photo_file = photo_path
+                break
+
+        # Если локальный файл не найден, пытаемся получить из Telegram
+        if not photo_file:
+            logger.info(
+                f"Локальное фото не найдено для тикета {ticket_id}, пытаемся загрузить из Telegram"
+            )
+
+            bot = get_bot()
+            if bot and ticket.photo_id:
+                try:
+                    # Создаем директорию если не существует
+                    TICKET_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+                    # Скачиваем файл из Telegram
+                    file = await bot.get_file(ticket.photo_id)
+
+                    # Определяем расширение файла
+                    file_path = file.file_path
+                    ext = Path(file_path).suffix or ".jpg"
+
+                    # Сохраняем файл локально
+                    local_photo_path = TICKET_PHOTOS_DIR / f"{ticket.photo_id}{ext}"
+                    await bot.download_file(
+                        file.file_path, destination=local_photo_path
+                    )
+
+                    photo_file = local_photo_path
+                    logger.info(
+                        f"Фото тикета {ticket_id} успешно загружено из Telegram"
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        f"Ошибка загрузки фото из Telegram для тикета {ticket_id}: {e}"
+                    )
+                    raise HTTPException(
+                        status_code=404, detail="Photo not available from Telegram"
+                    )
+
+        if not photo_file or not photo_file.exists():
+            raise HTTPException(status_code=404, detail="Photo file not found")
+
+        # Читаем файл и конвертируем в base64
+        with open(photo_file, "rb") as f:
+            photo_data = f.read()
+
+        # Определяем MIME type
+        mime_types = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+        }
+
+        mime_type = mime_types.get(photo_file.suffix.lower(), "image/jpeg")
+
+        # Кодируем в base64
+        base64_data = base64.b64encode(photo_data).decode("utf-8")
+        data_url = f"data:{mime_type};base64,{base64_data}"
+
+        # ИСПРАВЛЕНО: Возвращаем photo_url вместо photo_base64 согласно вашему API клиенту
+        return {
+            "photo_url": data_url,  # Изменено с photo_base64 на photo_url
+            "mime_type": mime_type,
+            "size": len(photo_data),
+            "ticket_id": ticket_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения base64 фото тикета {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{ticket_id}/response-photo")
+async def get_ticket_response_photo(
+    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение фото ответа администратора на тикет."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        if not ticket.response_photo_id:
+            raise HTTPException(
+                status_code=404, detail="Response photo not found for this ticket"
+            )
+
+        # Пытаемся найти файл фото ответа
+        possible_extensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+        photo_file = None
+
+        for ext in possible_extensions:
+            photo_path = TICKET_PHOTOS_DIR / f"response_{ticket.response_photo_id}{ext}"
+            if photo_path.exists():
+                photo_file = photo_path
+                break
+
+        if not photo_file or not photo_file.exists():
+            raise HTTPException(status_code=404, detail="Response photo file not found")
+
+        # Возвращаем файл
+        return FileResponse(
+            photo_file,
+            media_type=f"image/{photo_file.suffix[1:]}",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "Content-Disposition": f"inline; filename=ticket_{ticket_id}_response{photo_file.suffix}",
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения фото ответа тикета {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/{ticket_id}/photo")
+async def send_photo_to_user(
+    ticket_id: int,
+    file: UploadFile = File(...),
+    comment: str = Form(None),
+    status: str = Form(None),
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Отправка фото пользователю с комментарием и обновлением статуса тикета."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        user = db.query(User).filter(User.id == ticket.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        old_status = ticket.status
+        old_comment = ticket.comment
+        response_photo_id = None
+
+        # Обработка загружаемого фото
+        if file:
+            try:
+                # Создаем директорию если не существует
+                TICKET_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+                # Проверяем размер файла (максимум 10MB)
+                if file.size and file.size > 10 * 1024 * 1024:
+                    raise HTTPException(
+                        status_code=400, detail="File too large. Maximum size is 10MB"
+                    )
+
+                # Проверяем тип файла
+                allowed_types = [
+                    "image/jpeg",
+                    "image/jpg",
+                    "image/png",
+                    "image/gif",
+                    "image/webp",
+                ]
+                if file.content_type and file.content_type not in allowed_types:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Invalid file type. Only images are allowed",
+                    )
+
+                # Генерируем уникальное имя файла
+                import uuid
+                import time
+
+                file_extension = Path(file.filename).suffix if file.filename else ".png"
+                response_photo_id = (
+                    f"response_{ticket_id}_{int(time.time())}_{str(uuid.uuid4())[:8]}"
+                )
+                photo_filename = f"{response_photo_id}{file_extension}"
+                photo_path = TICKET_PHOTOS_DIR / photo_filename
+
+                # Сохраняем файл
+                contents = await file.read()
+                with open(photo_path, "wb") as f:
+                    f.write(contents)
+
+                logger.info(
+                    f"Сохранено фото ответа для тикета {ticket_id}: {photo_filename}"
+                )
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Ошибка сохранения фото ответа для тикета {ticket_id}: {e}"
+                )
+                raise HTTPException(
+                    status_code=500, detail="Failed to save response photo"
+                )
+
+        # Обновляем статус
+        if status:
+            try:
+                new_status = TicketStatus[status]
+                ticket.status = new_status
+            except KeyError:
+                raise HTTPException(status_code=400, detail="Invalid status")
+
+        # Обновляем комментарий
+        if comment is not None:
+            ticket.comment = comment
+
+        # Обновляем ID фото ответа
+        if response_photo_id:
+            ticket.response_photo_id = response_photo_id
+
+        ticket.updated_at = datetime.now(MOSCOW_TZ)
+
+        db.commit()
+        db.refresh(ticket)
+
+        # Отправка фото и сообщения пользователю через Telegram
+        bot = get_bot()
+        photo_sent = False
+
+        if bot and user.telegram_id:
+            try:
+                status_changed = old_status != ticket.status
+                comment_changed = ticket.comment and ticket.comment != old_comment
+                has_response_photo = response_photo_id is not None
+
+                if status_changed or comment_changed or has_response_photo:
+                    status_messages = {
+                        TicketStatus.OPEN: "📋 Ваша заявка получена и находится в обработке",
+                        TicketStatus.IN_PROGRESS: "⚙️ Ваша заявка взята в работу",
+                        TicketStatus.CLOSED: "✅ Ваша заявка решена",
+                    }
+
+                    message = f"🎫 <b>Обновление по заявке #{ticket.id}</b>\n\n"
+
+                    if status_changed:
+                        message += status_messages.get(
+                            ticket.status, f"Статус: {ticket.status.name}"
+                        )
+
+                    if comment_changed:
+                        message += f"\n\n💬 <b>Комментарий администратора:</b>\n{ticket.comment}"
+
+                    # ИСПРАВЛЕНО: Отправляем фото если есть с правильным InputFile
+                    if has_response_photo and file:
+                        try:
+                            photo_path = TICKET_PHOTOS_DIR / photo_filename
+                            if photo_path.exists():
+                                # ВАЖНО: Используем FSInputFile для отправки файла
+                                from aiogram.types import FSInputFile
+
+                                input_file = FSInputFile(photo_path)
+                                await bot.send_photo(
+                                    chat_id=user.telegram_id,
+                                    photo=input_file,
+                                    caption=message,
+                                    parse_mode="HTML",
+                                )
+                                photo_sent = True
+                                logger.info(
+                                    f"Отправлено сообщение с фото пользователю {user.telegram_id}"
+                                )
+                            else:
+                                logger.warning(f"Файл фото не найден: {photo_path}")
+                                # Если файл не найден, отправляем только текст
+                                from utils.external_api import (
+                                    send_telegram_notification,
+                                )
+
+                                await send_telegram_notification(
+                                    bot, user.telegram_id, message
+                                )
+                        except Exception as e:
+                            logger.error(
+                                f"Ошибка отправки фото пользователю {user.telegram_id}: {e}"
+                            )
+                            # Отправляем только текст в случае ошибки
+                            try:
+                                from utils.external_api import (
+                                    send_telegram_notification,
+                                )
+
+                                await send_telegram_notification(
+                                    bot, user.telegram_id, message
+                                )
+                            except Exception as fallback_error:
+                                logger.error(
+                                    f"Ошибка отправки текстового сообщения: {fallback_error}"
+                                )
+                    else:
+                        # Отправляем только текст
+                        try:
+                            from utils.external_api import send_telegram_notification
+
+                            await send_telegram_notification(
+                                bot, user.telegram_id, message
+                            )
+                        except Exception as text_error:
+                            logger.error(
+                                f"Ошибка отправки текстового сообщения: {text_error}"
+                            )
+
+            except Exception as e:
+                logger.error(
+                    f"❌ Ошибка отправки уведомления о тикете #{ticket.id}: {e}"
+                )
+
+        # Возвращаем обновленный тикет согласно ожиданиям API клиента
+        updated_ticket = {
+            "id": ticket.id,
+            "description": ticket.description,
+            "photo_id": ticket.photo_id,
+            "response_photo_id": ticket.response_photo_id,
+            "status": ticket.status.name,
+            "comment": ticket.comment,
+            "created_at": ticket.created_at.isoformat(),
+            "updated_at": ticket.updated_at.isoformat(),
+            "user_id": ticket.user_id,
+            "user": {
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name or "Имя не указано",
+                "username": user.username,
+                "phone": user.phone,
+                "email": user.email,
+            },
+        }
+
+        return {
+            "success": True,
+            "message": (
+                "Photo sent to user successfully"
+                if photo_sent
+                else "Ticket updated successfully"
+            ),
+            "photo_sent": photo_sent,
+            "updated_ticket": updated_ticket,
+            "response_photo_id": response_photo_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"❌ Ошибка отправки фото пользователю для тикета {ticket_id}: {e}"
+        )
         db.rollback()
         raise HTTPException(status_code=500, detail="Internal server error")
 
