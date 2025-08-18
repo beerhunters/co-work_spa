@@ -12,10 +12,11 @@ from schemas.notification_schemas import NotificationBase
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+# router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(tags=["notifications"])
 
 
-@router.get("", response_model=List[NotificationBase])
+@router.get("/notifications", response_model=List[NotificationBase])
 async def get_notifications(
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=100),
@@ -35,7 +36,7 @@ async def get_notifications(
     return notifications
 
 
-@router.get("/check_new")
+@router.get("/notifications/check_new")
 async def check_new_notifications(
     since_id: int = Query(0),
     db: Session = Depends(get_db),
@@ -67,7 +68,7 @@ async def check_new_notifications(
     }
 
 
-@router.post("/mark_read/{notification_id}")
+@router.post("/notifications/mark_read/{notification_id}")
 async def mark_notification_read(
     notification_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
@@ -85,7 +86,7 @@ async def mark_notification_read(
     return {"message": "Notification marked as read"}
 
 
-@router.post("/mark_all_read")
+@router.post("/notifications/mark_all_read")
 async def mark_all_notifications_read(
     db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
@@ -110,7 +111,7 @@ async def mark_all_notifications_read(
         )
 
 
-@router.post("/create")
+@router.post("/notifications/create")
 async def create_notification(
     notification_data: dict,
     db: Session = Depends(get_db),

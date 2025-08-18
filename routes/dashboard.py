@@ -7,10 +7,11 @@ from dependencies import verify_token
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+# router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(tags=["dashboard"])
 
 
-@router.get("/stats")
+@router.get("/dashboard/stats")
 async def get_dashboard_stats(_: str = Depends(verify_token)):
     """Получение статистики для дашборда."""
 

@@ -1,7 +1,7 @@
 # ================== routes/newsletters.py ==================
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Query
 from pathlib import Path
 import time
 import asyncio
@@ -14,10 +14,21 @@ from utils.logger import get_logger
 from utils.external_api import send_telegram_notification, send_telegram_photo
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/newsletters", tags=["newsletters"])
+# router = APIRouter(prefix="/newsletters", tags=["newsletters"])
+router = APIRouter(tags=["newsletters"])
 
 
-@router.post("/send")
+@router.get("/newsletters")
+async def get_newsletters(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _: str = Depends(verify_token),
+):
+    """Получение рассылок (для фронтенда)."""
+    return await get_newsletter_history(limit, offset, _)
+
+
+@router.post("/newsletters/send")
 async def send_newsletter(
     message: str = Form(...),
     recipient_type: str = Form(...),
@@ -180,7 +191,7 @@ async def send_newsletter(
     return result
 
 
-@router.get("/history", response_model=List[NewsletterResponse])
+@router.get("/newsletters/history", response_model=List[NewsletterResponse])
 async def get_newsletter_history(
     limit: int = 50, offset: int = 0, _: str = Depends(verify_token)
 ):

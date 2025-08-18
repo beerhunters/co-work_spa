@@ -26,10 +26,11 @@ from utils.external_api import rubitime
 from utils.helpers import format_phone_for_rubitime
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/bookings", tags=["bookings"])
+# router = APIRouter(prefix="/bookings", tags=["bookings"])
+router = APIRouter(tags=["bookings"])
 
 
-@router.get("/detailed")
+@router.get("/bookings/detailed")
 async def get_bookings_detailed(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -169,7 +170,7 @@ async def get_bookings_detailed(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/stats")
+@router.get("/bookings/stats")
 async def get_booking_stats(_: str = Depends(verify_token)):
     """Получение статистики по бронированиям."""
 
@@ -244,7 +245,7 @@ async def get_booking_stats(_: str = Depends(verify_token)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("", response_model=List[BookingBase])
+@router.get("/bookings", response_model=List[BookingBase])
 async def get_bookings(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -270,7 +271,7 @@ async def get_bookings(
     return bookings
 
 
-@router.post("", response_model=BookingBase)
+@router.post("/bookings", response_model=BookingBase)
 async def create_booking(booking_data: BookingCreate):
     """Создание бронирования с улучшенной обработкой промокодов."""
 
@@ -404,7 +405,7 @@ async def create_booking(booking_data: BookingCreate):
         raise HTTPException(status_code=500, detail="Failed to create booking")
 
 
-@router.get("/{booking_id}/validate")
+@router.get("/bookings/{booking_id}/validate")
 async def validate_booking_id(
     booking_id: str, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
@@ -437,7 +438,7 @@ async def validate_booking_id(
         raise HTTPException(status_code=500, detail="Validation error")
 
 
-@router.get("/{booking_id}/detailed")
+@router.get("/bookings/{booking_id}/detailed")
 async def get_booking_detailed(
     booking_id: str,
     db: Session = Depends(get_db),
@@ -572,7 +573,7 @@ async def get_booking_detailed(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/{booking_id}", response_model=BookingBase)
+@router.get("/bookings/{booking_id}", response_model=BookingBase)
 async def get_booking(
     booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
@@ -583,7 +584,7 @@ async def get_booking(
     return booking
 
 
-@router.put("/{booking_id}")
+@router.put("/bookings/{booking_id}")
 async def update_booking(
     booking_id: int,
     update_data: dict,
@@ -794,7 +795,7 @@ async def update_booking(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.delete("/{booking_id}")
+@router.delete("/bookings/{booking_id}")
 async def delete_booking(
     booking_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):

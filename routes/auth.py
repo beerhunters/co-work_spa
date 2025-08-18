@@ -12,7 +12,8 @@ from dependencies import get_db
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/auth", tags=["authentication"])
+# router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(tags=["authe"])
 security = HTTPBearer()
 
 
@@ -52,7 +53,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/auth/login", response_model=TokenResponse)
 async def login(credentials: AdminCredentials, db: Session = Depends(get_db)):
     """Аутентификация администратора."""
     admin = db.query(Admin).filter(Admin.login == credentials.login).first()
@@ -64,19 +65,19 @@ async def login(credentials: AdminCredentials, db: Session = Depends(get_db)):
     return {"access_token": access_token}
 
 
-@router.get("/verify")
+@router.get("/authe/verify")
 async def verify_token_endpoint(username: str = Depends(verify_token)):
     """Проверка действительности токена."""
     return {"username": username, "valid": True}
 
 
-@router.post("/logout")
+@router.post("/authe/logout")
 async def logout():
     """Выход из системы."""
     return {"message": "Logged out successfully"}
 
 
-@router.get("/me")
+@router.get("/authe/me")
 async def get_current_user(
     username: str = Depends(verify_token), db: Session = Depends(get_db)
 ):

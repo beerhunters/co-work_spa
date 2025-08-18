@@ -10,10 +10,11 @@ from schemas.tariff_schemas import TariffBase, TariffCreate, TariffUpdate
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/tariffs", tags=["tariffs"])
+# router = APIRouter(prefix="/tariffs", tags=["tariffs"])
+router = APIRouter(tags=["tariffs"])
 
 
-@router.get("/active")
+@router.get("/tariffs/active")
 async def get_active_tariffs(db: Session = Depends(get_db)):
     """Получение активных тарифов. Используется ботом."""
     tariffs = db.query(Tariff).filter_by(is_active=True).all()
@@ -31,14 +32,14 @@ async def get_active_tariffs(db: Session = Depends(get_db)):
     ]
 
 
-@router.get("", response_model=List[TariffBase])
+@router.get("/tariffs", response_model=List[TariffBase])
 async def get_tariffs(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     """Получение всех тарифов."""
     tariffs = db.query(Tariff).order_by(Tariff.id.desc()).all()
     return tariffs
 
 
-@router.get("/{tariff_id}")
+@router.get("/tariffs/{tariff_id}")
 async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
     """Получение тарифа по ID."""
     tariff = db.query(Tariff).get(tariff_id)
@@ -56,7 +57,7 @@ async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("", response_model=TariffBase)
+@router.post("/tariffs", response_model=TariffBase)
 async def create_tariff(
     tariff_data: TariffCreate,
     db: Session = Depends(get_db),
@@ -103,7 +104,7 @@ async def create_tariff(
         raise HTTPException(status_code=500, detail="Не удалось создать тариф")
 
 
-@router.put("/{tariff_id}", response_model=TariffBase)
+@router.put("/tariffs/{tariff_id}", response_model=TariffBase)
 async def update_tariff(
     tariff_id: int,
     tariff_data: TariffUpdate,
@@ -153,7 +154,7 @@ async def update_tariff(
         raise HTTPException(status_code=500, detail="Не удалось обновить тариф")
 
 
-@router.delete("/{tariff_id}")
+@router.delete("/tariffs/{tariff_id}")
 async def delete_tariff(
     tariff_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):

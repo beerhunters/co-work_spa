@@ -321,10 +321,24 @@ from schemas.ticket_schemas import TicketCreate
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/tickets", tags=["tickets"])
+# router = APIRouter(prefix="/tickets", tags=["tickets"])
+router = APIRouter(tags=["tickets"])
 
 
-@router.get("/detailed")
+@router.get("/tickets")
+async def get_tickets(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
+    user_query: Optional[str] = Query(None),
+    _: str = Depends(verify_token),
+):
+    """Получение тикетов (возвращает только массив для фронтенда)."""
+    result = await get_tickets_detailed(page, per_page, status, user_query, _)
+    return result.get("tickets", []) if isinstance(result, dict) else []
+
+
+@router.get("/tickets/detailed")
 async def get_tickets_detailed(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
@@ -416,7 +430,7 @@ async def get_tickets_detailed(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/stats")
+@router.get("/tickets/stats")
 async def get_tickets_stats(_: str = Depends(verify_token)):
     """Получение статистики по тикетам."""
 
@@ -447,7 +461,7 @@ async def get_tickets_stats(_: str = Depends(verify_token)):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("")
+@router.post("/tickets")
 async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
     """Создание нового тикета. Используется ботом."""
     user = db.query(User).filter(User.telegram_id == ticket_data.user_id).first()
@@ -479,7 +493,7 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
 
 
 # ИСПРАВЛЕНО: Правильный эндпоинт для получения тикетов пользователя
-@router.get("/users/telegram/{telegram_id}/tickets")
+@router.get("/tickets/users/telegram/{telegram_id}/tickets")
 async def get_user_tickets_by_telegram_id(
     telegram_id: int, status: Optional[str] = Query(None), db: Session = Depends(get_db)
 ):
@@ -529,7 +543,7 @@ async def get_user_tickets_by_telegram_id(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.put("/{ticket_id}")
+@router.put("/tickets/{ticket_id}")
 async def update_ticket(
     ticket_id: int,
     update_data: dict,
@@ -617,7 +631,7 @@ async def update_ticket(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.delete("/{ticket_id}")
+@router.delete("/tickets/{ticket_id}")
 async def delete_ticket(
     ticket_id: int,
     db: Session = Depends(get_db),

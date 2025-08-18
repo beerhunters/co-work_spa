@@ -13,17 +13,18 @@ from schemas.promocode_schemas import PromocodeBase, PromocodeCreate
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/promocodes", tags=["promocodes"])
+# router = APIRouter(prefix="/promocodes", tags=["promocodes"])
+router = APIRouter(tags=["promocodes"])
 
 
-@router.get("", response_model=List[PromocodeBase])
+@router.get("/promocodes", response_model=List[PromocodeBase])
 async def get_promocodes(db: Session = Depends(get_db), _: str = Depends(verify_token)):
     """Получение всех промокодов."""
     promocodes = db.query(Promocode).order_by(Promocode.id.desc()).all()
     return promocodes
 
 
-@router.get("/by_name/{name}")
+@router.get("/promocodes/by_name/{name}")
 async def get_promocode_by_name(name: str, db: Session = Depends(get_db)):
     """Получение промокода по названию. Используется ботом."""
     promocode = db.query(Promocode).filter_by(name=name, is_active=True).first()
@@ -50,7 +51,7 @@ async def get_promocode_by_name(name: str, db: Session = Depends(get_db)):
     }
 
 
-@router.post("", response_model=PromocodeBase)
+@router.post("/promocodes", response_model=PromocodeBase)
 async def create_promocode(
     promocode_data: PromocodeCreate,
     db: Session = Depends(get_db),
@@ -103,7 +104,7 @@ async def create_promocode(
         raise HTTPException(status_code=500, detail="Не удалось создать промокод")
 
 
-@router.post("/{promocode_id}/use")
+@router.post("/promocodes/{promocode_id}/use")
 async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
     """Использование промокода (уменьшение счетчика)."""
     promocode = db.query(Promocode).get(promocode_id)
@@ -138,3 +139,36 @@ async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
         db.rollback()
         logger.error(f"Ошибка использования промокода {promocode_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to use promocode")
+
+
+@router.delete("/promocodes/{promocode_id}")
+async def delete_promocode(
+    promocode_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Удаление промокода."""
+    promocode = db.query(Promocode).get(promocode_id)
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Promocode not found")
+
+    # Проверяем, используется ли промокод в активных бронированиях
+    from models.models import Booking
+
+    active_bookings = db.query(Booking).filter_by(promocode_id=promocode_id).count()
+    if active_bookings > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нельзя удалить промокод. Он используется в {active_bookings} бронированиях.",
+        )
+
+    try:
+        promocode_name = promocode.name
+        db.delete(promocode)
+        db.commit()
+
+        logger.info(f"Удален промокод: {promocode_name}")
+        return {"message": f"Промокод '{promocode_name}' удален"}
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка удаления промокода {promocode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось удалить промокод")
