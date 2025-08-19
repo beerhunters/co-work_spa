@@ -311,29 +311,39 @@ async def update_ticket(
         old_status = ticket.status
         old_comment = ticket.comment
 
+        # Сохраняем ID для использования после async операций
+        user_telegram_id = user.telegram_id if user else None
+
+        # Подготавливаем данные для обновления
+        db_update_data = {}
+
         # Обновляем статус
         if "status" in update_data and update_data["status"]:
             try:
                 new_status = TicketStatus[update_data["status"]]
-                ticket.status = new_status
+                db_update_data["status"] = new_status
             except KeyError:
                 raise HTTPException(status_code=400, detail="Invalid status")
 
         # Обновляем комментарий
         if "comment" in update_data:
-            ticket.comment = update_data["comment"]
+            db_update_data["comment"] = update_data["comment"]
 
-        ticket.updated_at = datetime.now(MOSCOW_TZ)
-
-        db.commit()
-        db.refresh(ticket)
+        db_update_data["updated_at"] = datetime.now(MOSCOW_TZ)
 
         # Отправка уведомления пользователю
         bot = get_bot()
-        if bot and user and user.telegram_id and not update_data.get("photo_sent"):
+        if bot and user and user_telegram_id and not update_data.get("photo_sent"):
             try:
-                status_changed = old_status != ticket.status
-                comment_changed = ticket.comment and ticket.comment != old_comment
+                status_changed = (
+                    "status" in db_update_data
+                    and old_status != db_update_data["status"]
+                )
+                comment_changed = (
+                    "comment" in db_update_data
+                    and db_update_data["comment"]
+                    and db_update_data["comment"] != old_comment
+                )
 
                 if status_changed or comment_changed:
                     status_messages = {
@@ -342,34 +352,49 @@ async def update_ticket(
                         TicketStatus.CLOSED: "✅ Ваша заявка решена",
                     }
 
-                    message = f"🎫 <b>Обновление по заявке #{ticket.id}</b>\n\n"
+                    message = f"🎫 <b>Обновление по заявке #{ticket_id}</b>\n\n"
 
                     if status_changed:
                         message += status_messages.get(
-                            ticket.status, f"Статус: {ticket.status.name}"
+                            db_update_data["status"],
+                            f"Статус: {db_update_data['status'].name}",
                         )
 
                     if comment_changed:
-                        message += f"\n\n💬 <b>Комментарий администратора:</b>\n{ticket.comment}"
+                        message += f"\n\n💬 <b>Комментарий администратора:</b>\n{db_update_data['comment']}"
 
                     from utils.external_api import send_telegram_notification
 
-                    await send_telegram_notification(bot, user.telegram_id, message)
+                    await send_telegram_notification(bot, user_telegram_id, message)
 
             except Exception as e:
                 logger.error(
-                    f"❌ Ошибка отправки уведомления о тикете #{ticket.id}: {e}"
+                    f"❌ Ошибка отправки уведомления о тикете #{ticket_id}: {e}"
                 )
 
+        # Обновляем тикет в БД через свежий запрос
+        fresh_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not fresh_ticket:
+            raise HTTPException(
+                status_code=404, detail="Ticket not found during update"
+            )
+
+        # Применяем изменения
+        for key, value in db_update_data.items():
+            setattr(fresh_ticket, key, value)
+
+        db.commit()
+        db.refresh(fresh_ticket)
+
         return {
-            "id": ticket.id,
-            "description": ticket.description,
-            "photo_id": ticket.photo_id,
-            "response_photo_id": ticket.response_photo_id,
-            "status": ticket.status.name,
-            "comment": ticket.comment,
-            "created_at": ticket.created_at.isoformat(),
-            "updated_at": ticket.updated_at.isoformat(),
+            "id": fresh_ticket.id,
+            "description": fresh_ticket.description,
+            "photo_id": fresh_ticket.photo_id,
+            "response_photo_id": fresh_ticket.response_photo_id,
+            "status": fresh_ticket.status.name,
+            "comment": fresh_ticket.comment,
+            "created_at": fresh_ticket.created_at.isoformat(),
+            "updated_at": fresh_ticket.updated_at.isoformat(),
         }
 
     except HTTPException:
@@ -565,6 +590,7 @@ async def send_photo_to_user(
 ):
     """Отправка фото пользователю с комментарием и обновлением статуса тикета."""
     try:
+        # Получаем данные тикета и пользователя
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
@@ -573,11 +599,17 @@ async def send_photo_to_user(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Сохраняем исходные значения для сравнения
         old_status = ticket.status
         old_comment = ticket.comment
 
+        # Сохраняем ID и telegram_id для последующего использования
+        ticket_id_value = ticket.id
+        user_telegram_id = user.telegram_id
+        user_id_value = user.id
+
         # Обработка загружаемого фото
-        response_photo_id = None
+        file_content = None
         if file:
             try:
                 # Проверяем размер файла (максимум 10MB)
@@ -602,7 +634,6 @@ async def send_photo_to_user(
 
                 # Читаем содержимое файла
                 file_content = await file.read()
-
                 logger.info(
                     f"Получено фото для отправки пользователю тикета {ticket_id}, размер: {len(file_content)} байт"
                 )
@@ -617,29 +648,39 @@ async def send_photo_to_user(
                     status_code=500, detail="Failed to process uploaded photo"
                 )
 
+        # Подготавливаем данные для обновления
+        update_data = {}
+
         # Обновляем статус
         if status:
             try:
                 new_status = TicketStatus[status]
-                ticket.status = new_status
+                update_data["status"] = new_status
             except KeyError:
                 raise HTTPException(status_code=400, detail="Invalid status")
 
         # Обновляем комментарий
         if comment is not None:
-            ticket.comment = comment
+            update_data["comment"] = comment
 
-        ticket.updated_at = datetime.now(MOSCOW_TZ)
+        update_data["updated_at"] = datetime.now(MOSCOW_TZ)
 
         # Отправка фото и сообщения пользователю через Telegram
         bot = get_bot()
         photo_sent = False
+        response_photo_id = None
 
-        if bot and user.telegram_id:
+        if bot and user_telegram_id:
             try:
-                status_changed = old_status != ticket.status
-                comment_changed = ticket.comment and ticket.comment != old_comment
-                has_file = file is not None
+                status_changed = (
+                    "status" in update_data and old_status != update_data["status"]
+                )
+                comment_changed = (
+                    "comment" in update_data
+                    and update_data["comment"]
+                    and update_data["comment"] != old_comment
+                )
+                has_file = file_content is not None
 
                 if status_changed or comment_changed or has_file:
                     status_messages = {
@@ -648,15 +689,16 @@ async def send_photo_to_user(
                         TicketStatus.CLOSED: "✅ Ваша заявка решена",
                     }
 
-                    message = f"🎫 <b>Обновление по заявке #{ticket.id}</b>\n\n"
+                    message = f"🎫 <b>Обновление по заявке #{ticket_id_value}</b>\n\n"
 
                     if status_changed:
                         message += status_messages.get(
-                            ticket.status, f"Статус: {ticket.status.name}"
+                            update_data["status"],
+                            f"Статус: {update_data['status'].name}",
                         )
 
                     if comment_changed:
-                        message += f"\n\n💬 <b>Комментарий администратора:</b>\n{ticket.comment}"
+                        message += f"\n\n💬 <b>Комментарий администратора:</b>\n{update_data['comment']}"
 
                     # Отправляем фото если есть
                     if has_file and file_content:
@@ -667,12 +709,13 @@ async def send_photo_to_user(
                             # Создаем BufferedInputFile для отправки через aiogram
                             input_file = BufferedInputFile(
                                 file_content,
-                                filename=file.filename or f"response_{ticket_id}.jpg",
+                                filename=file.filename
+                                or f"response_{ticket_id_value}.jpg",
                             )
 
                             # Отправляем фото с сообщением
                             sent_message = await bot.send_photo(
-                                chat_id=user.telegram_id,
+                                chat_id=user_telegram_id,
                                 photo=input_file,
                                 caption=message,
                                 parse_mode="HTML",
@@ -683,16 +726,16 @@ async def send_photo_to_user(
                                 response_photo_id = sent_message.photo[
                                     -1
                                 ].file_id  # Берем самое большое фото
-                                ticket.response_photo_id = response_photo_id
+                                update_data["response_photo_id"] = response_photo_id
 
                             photo_sent = True
                             logger.info(
-                                f"Отправлено сообщение с фото пользователю {user.telegram_id}, file_id: {response_photo_id}"
+                                f"Отправлено сообщение с фото пользователю {user_telegram_id}, file_id: {response_photo_id}"
                             )
 
                         except Exception as e:
                             logger.error(
-                                f"Ошибка отправки фото пользователю {user.telegram_id}: {e}"
+                                f"Ошибка отправки фото пользователю {user_telegram_id}: {e}"
                             )
                             # Отправляем только текст в случае ошибки
                             try:
@@ -701,7 +744,7 @@ async def send_photo_to_user(
                                 )
 
                                 await send_telegram_notification(
-                                    bot, user.telegram_id, message
+                                    bot, user_telegram_id, message
                                 )
                             except Exception as fallback_error:
                                 logger.error(
@@ -713,7 +756,7 @@ async def send_photo_to_user(
                             from utils.external_api import send_telegram_notification
 
                             await send_telegram_notification(
-                                bot, user.telegram_id, message
+                                bot, user_telegram_id, message
                             )
                         except Exception as text_error:
                             logger.error(
@@ -722,31 +765,66 @@ async def send_photo_to_user(
 
             except Exception as e:
                 logger.error(
-                    f"❌ Ошибка отправки уведомления о тикете #{ticket.id}: {e}"
+                    f"❌ Ошибка отправки уведомления о тикете #{ticket_id_value}: {e}"
                 )
 
-        # Сохраняем изменения в БД после успешной отправки
-        db.commit()
-        db.refresh(ticket)
+        # КРИТИЧЕСКИЙ МОМЕНТ: Обновляем тикет в БД ПОСЛЕ отправки через новый запрос
+        try:
+            # Получаем свежий объект тикета из БД
+            fresh_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+            if not fresh_ticket:
+                raise HTTPException(
+                    status_code=404, detail="Ticket not found during update"
+                )
+
+            # Применяем все изменения к свежему объекту
+            for key, value in update_data.items():
+                setattr(fresh_ticket, key, value)
+
+            # Сохраняем изменения
+            db.commit()
+            db.refresh(fresh_ticket)
+
+            logger.info(f"✅ Тикет #{ticket_id_value} успешно обновлен в БД")
+
+        except Exception as db_error:
+            logger.error(f"❌ Ошибка обновления тикета в БД: {db_error}")
+            db.rollback()
+            # Даже если БД не обновилась, уведомление уже отправлено
+            # Возвращаем частичный успех
+            return {
+                "success": False,
+                "message": "Photo sent but database update failed",
+                "photo_sent": photo_sent,
+                "db_error": str(db_error),
+                "response_photo_id": response_photo_id,
+            }
+
+        # Получаем обновленные данные пользователя для ответа
+        updated_user = db.query(User).filter(User.id == user_id_value).first()
 
         # Возвращаем обновленный тикет
         updated_ticket = {
-            "id": ticket.id,
-            "description": ticket.description,
-            "photo_id": ticket.photo_id,
-            "response_photo_id": ticket.response_photo_id,
-            "status": ticket.status.name,
-            "comment": ticket.comment,
-            "created_at": ticket.created_at.isoformat(),
-            "updated_at": ticket.updated_at.isoformat(),
-            "user_id": ticket.user_id,
+            "id": fresh_ticket.id,
+            "description": fresh_ticket.description,
+            "photo_id": fresh_ticket.photo_id,
+            "response_photo_id": fresh_ticket.response_photo_id,
+            "status": fresh_ticket.status.name,
+            "comment": fresh_ticket.comment,
+            "created_at": fresh_ticket.created_at.isoformat(),
+            "updated_at": fresh_ticket.updated_at.isoformat(),
+            "user_id": fresh_ticket.user_id,
             "user": {
-                "id": user.id,
-                "telegram_id": user.telegram_id,
-                "full_name": user.full_name or "Имя не указано",
-                "username": user.username,
-                "phone": user.phone,
-                "email": user.email,
+                "id": updated_user.id if updated_user else user_id_value,
+                "telegram_id": (
+                    updated_user.telegram_id if updated_user else user_telegram_id
+                ),
+                "full_name": (
+                    updated_user.full_name if updated_user else "Имя не указано"
+                ),
+                "username": updated_user.username if updated_user else None,
+                "phone": updated_user.phone if updated_user else None,
+                "email": updated_user.email if updated_user else None,
             },
         }
 
@@ -766,7 +844,7 @@ async def send_photo_to_user(
         raise
     except Exception as e:
         logger.error(
-            f"❌ Ошибка отправки фото пользователю для тикета {ticket_id}: {e}"
+            f"❌ Критическая ошибка в send_photo_to_user для тикета {ticket_id}: {e}"
         )
         db.rollback()
         raise HTTPException(status_code=500, detail="Internal server error")
