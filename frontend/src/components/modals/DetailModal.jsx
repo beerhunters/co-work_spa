@@ -4,8 +4,9 @@ import PromocodeDetailModal from './PromocodeDetailModal';
 import TariffDetailModal from './TariffDetailModal';
 import TicketDetailModal from './TicketDetailModal';
 import UserDetailModal from './UserDetailModal';
+import AdminDetailModal from "./AdminDetailModal.jsx";
 
-const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
+const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate, currentAdmin }) => {
   if (!selectedItem) return null;
 
   const { type } = selectedItem;
@@ -51,6 +52,16 @@ const DetailModal = ({ isOpen, onClose, selectedItem, onUpdate }) => {
           onClose={onClose}
           ticket={selectedItem}
           onUpdate={onUpdate}
+        />
+      );
+    case 'admin':
+      return (
+        <AdminDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          admin={selectedItem}
+          onUpdate={onUpdate}
+          currentAdmin={currentAdmin}
         />
       );
     default:

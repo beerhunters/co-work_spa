@@ -1,9 +1,10 @@
 import React from 'react';
 import { Box, VStack, Flex, Heading, Button, Icon, Spacer } from '@chakra-ui/react';
-import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield } from 'react-icons/fi';
 import { colors, sizes, styles } from '../styles/styles';
 
-const Sidebar = ({ section, setSection, handleLogout }) => {
+const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
+  // Сначала объявляем menuItems
   const menuItems = [
     { icon: FiTrendingUp, label: 'Дашборд', section: 'dashboard', color: 'purple' },
     { icon: FiUser, label: 'Пользователи', section: 'users', color: 'blue' },
@@ -12,8 +13,17 @@ const Sidebar = ({ section, setSection, handleLogout }) => {
     { icon: FiPercent, label: 'Промокоды', section: 'promocodes', color: 'orange' },
     { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
-    { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' }
+    { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' },
+    { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple', requiresSuperAdmin: true },
   ];
+
+  // Теперь фильтруем пункты меню в зависимости от роли
+  const filteredMenuItems = menuItems.filter(item => {
+    if (item.requiresSuperAdmin) {
+      return currentAdmin?.role === 'super_admin';
+    }
+    return true;
+  });
 
   return (
     <Box
@@ -50,7 +60,7 @@ const Sidebar = ({ section, setSection, handleLogout }) => {
             </Heading>
           </Flex>
 
-          {menuItems.map(({ icon: ItemIcon, label, section: sec, color }) => (
+          {filteredMenuItems.map(({ icon: ItemIcon, label, section: sec, color }) => (
             <Button
               key={sec}
               leftIcon={<ItemIcon />}

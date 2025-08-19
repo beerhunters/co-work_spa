@@ -10,7 +10,8 @@ import {
   PromocodeDetailModal,
   TariffDetailModal,
   TicketDetailModal,
-  UserDetailModal
+  UserDetailModal,
+  AdminDetailModal
 } from './components/modals';
 
 // Секции
@@ -22,6 +23,7 @@ import Promocodes from './sections/Promocodes';
 import Tickets from './sections/Tickets';
 import Notifications from './sections/Notifications';
 import Newsletters from './sections/Newsletters';
+import Admins from './sections/Admins';
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -33,20 +35,27 @@ import {
   userApi,
   promocodeApi,
   tariffApi,
-  bookingApi, ticketApi,
+  bookingApi,
+  ticketApi,
+  adminApi,
 } from './utils/api.js';
 import notificationManager from './utils/notifications';
 
 function App() {
-  // Состояния
+  // Защита от ошибок рендеринга
+  if (typeof useState === 'undefined') {
+    return <div>Loading...</div>;
+  }
+  // Основные состояния
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [section, setSection] = useState('dashboard');
+  const [currentAdmin, setCurrentAdmin] = useState(null);
 
-  // Данные
+  // Данные приложения
   const [users, setUsers] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [bookingsMeta, setBookingsMeta] = useState({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
@@ -56,6 +65,7 @@ function App() {
   const [ticketsMeta, setTicketsMeta] = useState({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
   const [notifications, setNotifications] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
+  const [admins, setAdmins] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [dashboardStats, setDashboardStats] = useState({
     total_users: 0,
@@ -63,26 +73,16 @@ function App() {
     open_tickets: 0
   });
 
-  // НОВОЕ: Состояние для фильтров бронирований
-  const [bookingFilters, setBookingFilters] = useState({
-    page: 1,
-    per_page: 20
-  });
+  // Фильтры
+  const [bookingFilters, setBookingFilters] = useState({ page: 1, per_page: 20 });
   const [isBookingsLoading, setIsBookingsLoading] = useState(false);
-
-  // НОВОЕ: Состояние для фильтров тикетов
-  const [ticketFilters, setTicketFilters] = useState({
-    page: 1,
-    per_page: 20
-  });
+  const [ticketFilters, setTicketFilters] = useState({ page: 1, per_page: 20 });
   const [isTicketsLoading, setIsTicketsLoading] = useState(false);
 
   // UI состояния
   const [hasNewNotifications, setHasNewNotifications] = useState(false);
   const [lastNotificationId, setLastNotificationId] = useState(0);
   const [isChartInitialized, setIsChartInitialized] = useState(false);
-
-  // Состояния для браузерных уведомлений
   const [isNotificationPermissionOpen, setNotificationPermissionOpen] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -93,7 +93,7 @@ function App() {
   const chartInstanceRef = useRef(null);
   const { isOpen, onOpen, onClose } = useDisclosure();
 
-  // Объект с сеттерами для удобства
+  // Сеттеры данных
   const dataSetters = {
     users: setUsers,
     bookings: setBookings,
@@ -109,15 +109,63 @@ function App() {
       }
     },
     newsletters: setNewsletters,
+    admins: setAdmins,
     dashboardStats: setDashboardStats
   };
 
-  // НОВОЕ: Функция для загрузки тикетов с фильтрами
+  // Функция проверки прав доступа
+    const hasPermission = useCallback((permission) => {
+    // Защита от вызова до инициализации
+    if (!currentAdmin) {
+      console.log('hasPermission вызван до загрузки currentAdmin');
+      return false;
+    }
+
+  // Супер админ имеет все права
+  if (currentAdmin.role === 'super_admin') {
+    return true;
+  }
+
+  // Проверяем наличие разрешений и самого разрешения
+  if (!currentAdmin.permissions || !Array.isArray(currentAdmin.permissions)) {
+    console.log('permissions не найдены или не являются массивом');
+    return false;
+  }
+
+  return currentAdmin.permissions.includes(permission);
+}, [currentAdmin]);
+
+  // Загрузка профиля текущего администратора
+  const loadCurrentAdminProfile = useCallback(async () => {
+    try {
+      const profile = await adminApi.getCurrentProfile();
+      setCurrentAdmin(profile);
+      console.log('Профиль текущего админа загружен:', profile);
+    } catch (error) {
+      console.error('Ошибка загрузки профиля админа:', error);
+      if (error.response?.status === 401) {
+        removeAuthToken();
+        setIsAuthenticated(false);
+        setCurrentAdmin(null);
+      }
+    }
+  }, []);
+
+  // Загрузка тикетов с фильтрами и проверкой прав
   const loadTicketsWithFilters = useCallback(async (filters = ticketFilters) => {
+    if (!hasPermission('view_tickets')) {
+      toast({
+        title: 'Доступ запрещен',
+        description: 'У вас нет прав для просмотра тикетов',
+        status: 'error',
+        duration: 5000,
+      });
+      return;
+    }
+
     setIsTicketsLoading(true);
     try {
       console.log('Загружаем тикеты с фильтрами:', filters);
-
       const response = await ticketApi.getAllDetailed(filters);
 
       console.log('Получен ответ тикетов:', {
@@ -138,7 +186,6 @@ function App() {
     } catch (error) {
       console.error('Ошибка загрузки тикетов:', error);
 
-      // Fallback
       try {
         console.log('Пробуем резервный способ загрузки тикетов...');
         const fallbackData = await ticketApi.getAll(filters);
@@ -160,7 +207,6 @@ function App() {
         });
       } catch (fallbackError) {
         console.error('Fallback ошибка тикетов:', fallbackError);
-
         setTickets([]);
         setTicketsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
 
@@ -175,13 +221,12 @@ function App() {
     } finally {
       setIsTicketsLoading(false);
     }
-  }, [ticketFilters, toast]);
+  }, [ticketFilters, toast, hasPermission]);
 
-  // НОВОЕ: Обработчик изменения фильтров тикетов
+  // Обработчик изменения фильтров тикетов
   const handleTicketFiltersChange = useCallback((newFilters) => {
     console.log('Получены новые фильтры тикетов:', newFilters);
 
-    // Проверяем, является ли это сбросом к дефолтным значениям
     const isDefaultFilters = (
       newFilters.page === 1 &&
       newFilters.per_page === 20 &&
@@ -200,11 +245,22 @@ function App() {
       });
     }
   }, []);
+
+  // Загрузка бронирований с фильтрами и проверкой прав
   const loadBookingsWithFilters = useCallback(async (filters = bookingFilters) => {
+    if (!hasPermission('view_bookings')) {
+      toast({
+        title: 'Доступ запрещен',
+        description: 'У вас нет прав для просмотра бронирований',
+        status: 'error',
+        duration: 5000,
+      });
+      return;
+    }
+
     setIsBookingsLoading(true);
     try {
       console.log('Загружаем бронирования с фильтрами:', filters);
-
       const response = await bookingApi.getAllDetailed(filters);
 
       console.log('Получен ответ:', {
@@ -225,7 +281,6 @@ function App() {
     } catch (error) {
       console.error('Ошибка загрузки бронирований:', error);
 
-      // Детальная обработка ошибок
       if (error.message?.includes('422')) {
         console.error('422 ошибка валидации при загрузке бронирований');
         toast({
@@ -237,7 +292,6 @@ function App() {
         });
       }
 
-      // Fallback
       try {
         console.log('Пробуем резервный способ загрузки...');
         const fallbackData = await bookingApi.getAll(filters);
@@ -259,7 +313,6 @@ function App() {
         });
       } catch (fallbackError) {
         console.error('Fallback ошибка:', fallbackError);
-
         setBookings([]);
         setBookingsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
 
@@ -274,13 +327,12 @@ function App() {
     } finally {
       setIsBookingsLoading(false);
     }
-  }, [bookingFilters, toast]);
+  }, [bookingFilters, toast, hasPermission]);
 
-  // НОВОЕ: Обработчик изменения фильтров от компонента Bookings
+  // Обработчик изменения фильтров бронирований
   const handleBookingFiltersChange = useCallback((newFilters) => {
     console.log('Получены новые фильтры бронирований:', newFilters);
 
-    // Проверяем, является ли это сбросом к дефолтным значениям
     const isDefaultFilters = (
       newFilters.page === 1 &&
       newFilters.per_page === 20 &&
@@ -300,63 +352,104 @@ function App() {
     }
   }, []);
 
-  // НОВОЕ: Загружаем тикеты при изменении фильтров
-  useEffect(() => {
-    if (isAuthenticated && section === 'tickets') {
-      console.log('Фильтры тикетов изменились, загружаем данные:', ticketFilters);
-      loadTicketsWithFilters(ticketFilters);
-    }
-  }, [ticketFilters, isAuthenticated, section, loadTicketsWithFilters]);
-  useEffect(() => {
-    if (isAuthenticated && section === 'bookings') {
-      console.log('Фильтры бронирований изменились, загружаем данные:', bookingFilters);
-      loadBookingsWithFilters(bookingFilters);
-    }
-  }, [bookingFilters, isAuthenticated, section, loadBookingsWithFilters]);
-
-  // Улучшенная функция для загрузки данных секций
+  // Загрузка данных секций с проверкой прав
   const fetchSectionDataEnhanced = async (sectionName, params = {}) => {
     try {
+      const sectionPermissions = {
+        users: 'view_users',
+        bookings: 'view_bookings',
+        tariffs: 'view_tariffs',
+        promocodes: 'view_promocodes',
+        tickets: 'view_tickets',
+        notifications: 'view_notifications',
+        newsletters: 'view_newsletters',
+        admins: 'manage_admins',
+        dashboard: 'view_dashboard'
+      };
+
+      const requiredPermission = sectionPermissions[sectionName];
+      if (requiredPermission && !hasPermission(requiredPermission)) {
+        toast({
+          title: 'Доступ запрещен',
+          description: `У вас нет прав для доступа к разделу "${sectionName}"`,
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+        return;
+      }
+
       switch (sectionName) {
         case 'bookings':
-          // Для бронирований используем новую функцию с фильтрами
           if (Object.keys(params).length > 0) {
-            // Если переданы конкретные параметры, используем их
             await loadBookingsWithFilters(params);
           } else {
-            // Иначе используем текущие фильтры
             await loadBookingsWithFilters(bookingFilters);
           }
           break;
 
         case 'tickets':
-          // Для тикетов используем новую функцию с фильтрами
           if (Object.keys(params).length > 0) {
-            // Если переданы конкретные параметры, используем их
             await loadTicketsWithFilters(params);
           } else {
-            // Иначе используем текущие фильтры
             await loadTicketsWithFilters(ticketFilters);
           }
           break;
 
+        case 'admins':
+          if (currentAdmin?.role === 'super_admin') {
+            await fetchSectionData(sectionName, dataSetters);
+          } else {
+            toast({
+              title: 'Доступ запрещен',
+              description: 'Только главный администратор может управлять администраторами',
+              status: 'error',
+              duration: 5000,
+            });
+          }
+          break;
+
         default:
-          // Для остальных секций используем стандартную загрузку
           await fetchSectionData(sectionName, dataSetters);
           break;
       }
     } catch (error) {
       console.error(`Общая ошибка загрузки данных для ${sectionName}:`, error);
 
-      toast({
-        title: 'Ошибка загрузки',
-        description: `Не удалось загрузить данные для раздела ${sectionName}`,
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+      if (error.response?.status === 403) {
+        toast({
+          title: 'Доступ запрещен',
+          description: 'У вас недостаточно прав для выполнения этого действия',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+      } else {
+        toast({
+          title: 'Ошибка загрузки',
+          description: `Не удалось загрузить данные для раздела ${sectionName}`,
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+      }
     }
   };
+
+  // Effects для загрузки данных при изменении фильтров
+  useEffect(() => {
+    if (isAuthenticated && section === 'tickets' && currentAdmin) {
+      console.log('Фильтры тикетов изменились, загружаем данные:', ticketFilters);
+      loadTicketsWithFilters(ticketFilters);
+    }
+  }, [ticketFilters, isAuthenticated, section, currentAdmin, loadTicketsWithFilters]);
+
+  useEffect(() => {
+    if (isAuthenticated && section === 'bookings' && currentAdmin) {
+      console.log('Фильтры бронирований изменились, загружаем данные:', bookingFilters);
+      loadBookingsWithFilters(bookingFilters);
+    }
+  }, [bookingFilters, isAuthenticated, section, currentAdmin, loadBookingsWithFilters]);
 
   // Инициализация браузерных уведомлений
   useEffect(() => {
@@ -410,7 +503,7 @@ function App() {
     }
   }, [notifications, notificationStatus, soundEnabled, isAuthenticated]);
 
-  // Проверка валидности токена при загрузке
+  // Проверка аутентификации при загрузке
   useEffect(() => {
     const checkAuth = async () => {
       const token = getAuthToken();
@@ -419,27 +512,30 @@ function App() {
           await verifyToken();
           setIsAuthenticated(true);
           setSection('dashboard');
+
+          await loadCurrentAdminProfile();
           await fetchInitialData(dataSetters, setLastNotificationId, toast);
         } catch (error) {
           removeAuthToken();
           setIsAuthenticated(false);
+          setCurrentAdmin(null);
         }
       }
       setIsCheckingAuth(false);
     };
     checkAuth();
-  }, []);
+  }, [loadCurrentAdminProfile]);
 
-  // При смене вкладки загружаем данные (исключая bookings и tickets - они загружаются через фильтры)
+  // Загрузка данных при смене секции
   useEffect(() => {
-    if (isAuthenticated && section !== 'bookings' && section !== 'tickets') {
+    if (isAuthenticated && currentAdmin && section !== 'bookings' && section !== 'tickets') {
       fetchSectionDataEnhanced(section);
     }
-  }, [section, isAuthenticated]);
+  }, [section, isAuthenticated, currentAdmin]);
 
-  // Отдельный useEffect для статистики дашборда
+  // Загрузка статистики дашборда
   useEffect(() => {
-    if (isAuthenticated && section === 'dashboard') {
+    if (isAuthenticated && currentAdmin && section === 'dashboard' && hasPermission('view_dashboard')) {
       const fetchDashboardStats = async () => {
         try {
           const stats = await dashboardApi.getStats();
@@ -453,11 +549,11 @@ function App() {
       const statsInterval = setInterval(fetchDashboardStats, 30000);
       return () => clearInterval(statsInterval);
     }
-  }, [isAuthenticated, section]);
+  }, [isAuthenticated, section, currentAdmin]);
 
-  // Auto-refresh ТОЛЬКО для уведомлений
+  // Auto-refresh уведомлений
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && hasPermission('view_notifications')) {
       const fetchUpdates = async () => {
         try {
           const res = await notificationApi.checkNew(lastNotificationId);
@@ -487,9 +583,9 @@ function App() {
       const notificationsInterval = setInterval(fetchUpdates, 10000);
       return () => clearInterval(notificationsInterval);
     }
-  }, [isAuthenticated, lastNotificationId]);
+  }, [isAuthenticated, lastNotificationId, currentAdmin]);
 
-  // Обновляем индикатор новых уведомлений
+  // Обновление индикатора новых уведомлений
   useEffect(() => {
     const unreadCount = notifications.filter(n => !n.is_read).length;
     setHasNewNotifications(unreadCount > 0);
@@ -524,14 +620,17 @@ function App() {
     });
   };
 
-  // Обработчики
+  // Обработчик входа
   const handleLogin = async () => {
     setIsLoading(true);
     try {
       await apiLogin({ login, password });
       setIsAuthenticated(true);
       setSection('dashboard');
+
+      await loadCurrentAdminProfile();
       await fetchInitialData(dataSetters, setLastNotificationId, toast);
+
       toast({
         title: 'Успешный вход',
         description: 'Добро пожаловать в панель администратора',
@@ -553,15 +652,16 @@ function App() {
     }
   };
 
+  // Обработчик выхода
   const handleLogout = async () => {
     try {
       await apiLogout();
       setIsAuthenticated(false);
+      setCurrentAdmin(null);
       setSection('login');
       setLogin('');
       setPassword('');
 
-      // Сбрасываем фильтры бронирований и тикетов
       setBookingFilters({ page: 1, per_page: 20 });
       setTicketFilters({ page: 1, per_page: 20 });
 
@@ -591,6 +691,7 @@ function App() {
     }
   };
 
+  // Обработчик пометки уведомления как прочитанного
   const markNotificationRead = async (notificationId, targetUrl) => {
     try {
       await notificationApi.markRead(notificationId);
@@ -602,7 +703,31 @@ function App() {
       if (targetUrl) {
         const urlParts = targetUrl.split('/');
         if (urlParts.length >= 2) {
-          setSection(urlParts[1]);
+          const targetSection = urlParts[1];
+
+          const sectionPermissions = {
+            users: 'view_users',
+            bookings: 'view_bookings',
+            tariffs: 'view_tariffs',
+            promocodes: 'view_promocodes',
+            tickets: 'view_tickets',
+            notifications: 'view_notifications',
+            newsletters: 'view_newsletters',
+            admins: 'manage_admins',
+            dashboard: 'view_dashboard'
+          };
+
+          const requiredPermission = sectionPermissions[targetSection];
+          if (!requiredPermission || hasPermission(requiredPermission)) {
+            setSection(targetSection);
+          } else {
+            toast({
+              title: 'Доступ запрещен',
+              description: `У вас нет прав для доступа к разделу "${targetSection}"`,
+              status: 'error',
+              duration: 5000,
+            });
+          }
         }
       }
     } catch (error) {
@@ -618,10 +743,10 @@ function App() {
     }
   };
 
+  // Обработчик пометки всех уведомлений как прочитанных
   const markAllNotificationsRead = async () => {
     try {
       await notificationApi.markAllRead();
-
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setHasNewNotifications(false);
 
@@ -646,7 +771,7 @@ function App() {
     }
   };
 
-  // Улучшенная функция openDetailModal с проверками
+  // Обработчик открытия модального окна
   const openDetailModal = async (item, type) => {
     try {
       console.log('Открытие модального окна:', type, item.id);
@@ -689,7 +814,6 @@ function App() {
       onOpen();
     } catch (error) {
       console.error('Ошибка открытия модального окна:', error);
-
       toast({
         title: 'Ошибка',
         description: 'Не удалось открыть детальную информацию',
@@ -699,7 +823,7 @@ function App() {
     }
   };
 
-  // Улучшенная функция handleUpdate с дополнительной валидацией
+  // Обработчик обновления данных
   const handleUpdate = async (updatedData = null) => {
     try {
       console.log('Обновление данных:', selectedItem?.type, updatedData);
@@ -742,8 +866,22 @@ function App() {
             onClose();
           }
         }
+      } else if (selectedItem?.type === 'admin') {
+        console.log('Обновление админов...');
+        await fetchSectionDataEnhanced('admins');
+
+        if (updatedData) {
+          setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
+        } else if (selectedItem?.id) {
+          try {
+            const updatedAdmin = await adminApi.getById(selectedItem.id);
+            setSelectedItem(prev => ({ ...updatedAdmin, type: prev.type }));
+          } catch (error) {
+            console.log('Администратор не найден, возможно был удален');
+            onClose();
+          }
+        }
       } else if (selectedItem?.type === 'booking') {
-        // Обновляем список бронирований с текущими фильтрами
         console.log('Обновление списка бронирований...');
         await loadBookingsWithFilters(bookingFilters);
 
@@ -776,7 +914,6 @@ function App() {
       console.log('Обновление завершено успешно');
     } catch (error) {
       console.error('Ошибка обновления:', error);
-
       toast({
         title: 'Ошибка обновления',
         description: 'Не удалось обновить данные. Попробуйте еще раз.',
@@ -787,12 +924,55 @@ function App() {
     }
   };
 
-  // Рендер секций
+  // Рендер секций с проверкой прав доступа
   const renderSection = () => {
     const sectionProps = {
       openDetailModal,
       fetchData: () => fetchSectionDataEnhanced(section)
     };
+
+    // Проверка прав доступа для каждой секции
+    const sectionPermissions = {
+      dashboard: 'view_dashboard',
+      users: 'view_users',
+      bookings: 'view_bookings',
+      tariffs: 'view_tariffs',
+      promocodes: 'view_promocodes',
+      tickets: 'view_tickets',
+      notifications: 'view_notifications',
+      newsletters: 'view_newsletters',
+      admins: 'manage_admins'
+    };
+
+    const requiredPermission = sectionPermissions[section];
+    const hasAccess = !requiredPermission || hasPermission(requiredPermission);
+
+    // Для админов дополнительная проверка на супер админа
+    if (section === 'admins' && currentAdmin?.role !== 'super_admin') {
+      return (
+        <div style={{ padding: '2rem', textAlign: 'center' }}>
+          <h2 style={{ color: '#e53e3e', fontSize: '1.5rem', marginBottom: '1rem' }}>
+            Доступ запрещен
+          </h2>
+          <p style={{ color: '#666', fontSize: '1rem' }}>
+            Только главный администратор может управлять администраторами.
+          </p>
+        </div>
+      );
+    }
+
+    if (!hasAccess) {
+      return (
+        <div style={{ padding: '2rem', textAlign: 'center' }}>
+          <h2 style={{ color: '#e53e3e', fontSize: '1.5rem', marginBottom: '1rem' }}>
+            Доступ запрещен
+          </h2>
+          <p style={{ color: '#666', fontSize: '1rem' }}>
+            У вас недостаточно прав для просмотра этого раздела.
+          </p>
+        </div>
+      );
+    }
 
     switch (section) {
       case 'dashboard':
@@ -810,7 +990,7 @@ function App() {
           />
         );
       case 'users':
-        return <Users users={users} {...sectionProps} />;
+        return <Users users={users} {...sectionProps} currentAdmin={currentAdmin} />;
       case 'bookings':
         return (
           <Bookings
@@ -820,6 +1000,7 @@ function App() {
             onRefresh={() => loadBookingsWithFilters(bookingFilters)}
             onFiltersChange={handleBookingFiltersChange}
             isLoading={isBookingsLoading}
+            currentAdmin={currentAdmin}
           />
         );
       case 'tariffs':
@@ -828,6 +1009,7 @@ function App() {
             tariffs={tariffs}
             openDetailModal={openDetailModal}
             onUpdate={() => fetchSectionDataEnhanced('tariffs')}
+            currentAdmin={currentAdmin}
           />
         );
       case 'promocodes':
@@ -836,6 +1018,7 @@ function App() {
             promocodes={promocodes}
             openDetailModal={openDetailModal}
             onUpdate={() => fetchSectionDataEnhanced('promocodes')}
+            currentAdmin={currentAdmin}
           />
         );
       case 'tickets':
@@ -847,6 +1030,7 @@ function App() {
             onRefresh={() => loadTicketsWithFilters(ticketFilters)}
             onFiltersChange={handleTicketFiltersChange}
             isLoading={isTicketsLoading}
+            currentAdmin={currentAdmin}
           />
         );
       case 'notifications':
@@ -856,10 +1040,20 @@ function App() {
             openDetailModal={openDetailModal}
             setSection={setSection}
             onRefresh={() => fetchSectionDataEnhanced('notifications')}
+            currentAdmin={currentAdmin}
           />
         );
       case 'newsletters':
-        return <Newsletters newsletters={newsletters} />;
+        return <Newsletters newsletters={newsletters} currentAdmin={currentAdmin} />;
+      case 'admins':
+        return (
+          <Admins
+            admins={admins}
+            openDetailModal={openDetailModal}
+            onUpdate={() => fetchSectionDataEnhanced('admins')}
+            currentAdmin={currentAdmin}
+          />
+        );
       default:
         return (
           <Dashboard
@@ -917,6 +1111,7 @@ function App() {
         notificationStatus={notificationStatus}
         soundEnabled={soundEnabled}
         onToggleNotificationSound={handleToggleNotificationSound}
+        currentAdmin={currentAdmin}
       >
         {renderSection()}
       </Layout>
@@ -928,6 +1123,7 @@ function App() {
           onClose={onClose}
           user={selectedItem}
           onUpdate={handleUpdate}
+          currentAdmin={currentAdmin}
         />
       )}
 
@@ -937,6 +1133,7 @@ function App() {
           onClose={onClose}
           booking={selectedItem}
           onUpdate={handleUpdate}
+          currentAdmin={currentAdmin}
         />
       )}
 
@@ -946,6 +1143,7 @@ function App() {
           onClose={onClose}
           tariff={selectedItem}
           onUpdate={() => fetchSectionDataEnhanced('tariffs')}
+          currentAdmin={currentAdmin}
         />
       )}
 
@@ -955,6 +1153,7 @@ function App() {
           onClose={onClose}
           promocode={selectedItem}
           onUpdate={() => fetchSectionDataEnhanced('promocodes')}
+          currentAdmin={currentAdmin}
         />
       )}
 
@@ -964,6 +1163,17 @@ function App() {
           onClose={onClose}
           ticket={selectedItem}
           onUpdate={handleUpdate}
+          currentAdmin={currentAdmin}
+        />
+      )}
+
+      {selectedItem?.type === 'admin' && (
+        <AdminDetailModal
+          isOpen={isOpen}
+          onClose={onClose}
+          admin={selectedItem}
+          onUpdate={handleUpdate}
+          currentAdmin={currentAdmin}
         />
       )}
 

@@ -9,6 +9,7 @@ const Layout = ({
   section,
   setSection,
   handleLogout,
+  currentAdmin,
   login,
   notifications,
   hasNewNotifications,
@@ -32,6 +33,7 @@ const Layout = ({
           section={section}
           setSection={setSection}
           handleLogout={handleLogout}
+          currentAdmin={currentAdmin}
         />
       </Box>
 

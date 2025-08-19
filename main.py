@@ -1,6 +1,6 @@
 import asyncio
 import os
-import time  # Добавляем недостающий импорт
+import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -42,6 +42,7 @@ from routes.newsletters import router as newsletters_router
 from routes.dashboard import router as dashboard_router
 from routes.health import router as health_router
 from routes.rubitime import router as rubitime_router
+from routes import admins
 
 logger = get_logger(__name__)
 
@@ -182,6 +183,7 @@ try:
     app.include_router(dashboard_router)
     app.include_router(health_router)
     app.include_router(rubitime_router)
+    app.include_router(admins.router)
     logger.info("Все роутеры подключены успешно")
 except Exception as e:
     logger.error(f"Ошибка подключения роутеров: {e}")

@@ -1,4 +1,3 @@
-// utils/api.js
 import axios from 'axios';
 import { initAuth } from './auth';
 
@@ -69,7 +68,8 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
     'tickets': { url: '/tickets', setter: dataSetters.tickets },
     'notifications': { url: '/notifications', setter: dataSetters.notifications },
     'newsletters': { url: '/newsletters', setter: dataSetters.newsletters },
-    'dashboard': { url: '/dashboard/stats', setter: dataSetters.dashboardStats }
+    'dashboard': { url: '/dashboard/stats', setter: dataSetters.dashboardStats },
+    'admins': { url: '/admins', setter: dataSetters.admins },
   };
 
   const endpoint = sectionEndpoints[sectionName];
@@ -80,6 +80,7 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
       endpoint.setter(res.data);
     } catch (error) {
       console.error(`Ошибка загрузки данных для ${sectionName}:`, error);
+      throw error;
     }
   }
 };
@@ -989,6 +990,57 @@ export const newsletterApi = {
 export const dashboardApi = {
   getStats: async () => {
     const res = await apiClient.get('/dashboard/stats');
+    return res.data;
+  }
+};
+
+// --------------------- API: Админы ---------------------
+export const adminApi = {
+  // Получение всех админов
+  getAll: async () => {
+    const res = await apiClient.get('/admins');
+    return res.data;
+  },
+
+  // Получение доступных разрешений
+  getAvailablePermissions: async () => {
+    const res = await apiClient.get('/admins/permissions');
+    return res.data;
+  },
+
+  // Получение профиля текущего админа
+  getCurrentProfile: async () => {
+    const res = await apiClient.get('/admins/current/profile');
+    return res.data;
+  },
+
+  // Получение админа по ID
+  getById: async (adminId) => {
+    const res = await apiClient.get(`/admins/${adminId}`);
+    return res.data;
+  },
+
+  // Создание нового админа
+  create: async (adminData) => {
+    const res = await apiClient.post('/admins', adminData);
+    return res.data;
+  },
+
+  // Обновление админа
+  update: async (adminId, adminData) => {
+    const res = await apiClient.put(`/admins/${adminId}`, adminData);
+    return res.data;
+  },
+
+  // Удаление админа
+  delete: async (adminId) => {
+    const res = await apiClient.delete(`/admins/${adminId}`);
+    return res.data;
+  },
+
+  // Смена пароля
+  changePassword: async (passwordData) => {
+    const res = await apiClient.post('/admins/change-password', passwordData);
     return res.data;
   }
 };

@@ -5,3 +5,4 @@ export { default as BookingDetailModal } from './BookingDetailModal';
 export { default as TicketDetailModal } from './TicketDetailModal';
 export { default as TariffDetailModal } from './TariffDetailModal';
 export { default as PromocodeDetailModal } from './PromocodeDetailModal';
+export { default as AdminDetailModal } from './AdminDetailModal';

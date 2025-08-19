@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from sqlite3 import IntegrityError
-from typing import Optional
+from typing import Optional, List
 import threading
 import time
 
@@ -24,11 +24,24 @@ from sqlalchemy import (
     event,
     Text,
 )
+from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, scoped_session
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from werkzeug.security import generate_password_hash, check_password_hash
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import relationship
+import enum
 import os
 from pathlib import Path
 from utils.logger import get_logger
@@ -150,17 +163,83 @@ class DatabaseManager:
         )
 
 
-class Admin(Base):
-    """Модель администратора."""
+class AdminRole(enum.Enum):
+    SUPER_ADMIN = "super_admin"
+    MANAGER = "manager"
 
+
+class Permission(enum.Enum):
+    # Пользователи
+    VIEW_USERS = "view_users"
+    EDIT_USERS = "edit_users"
+    DELETE_USERS = "delete_users"
+
+    # Бронирования
+    VIEW_BOOKINGS = "view_bookings"
+    EDIT_BOOKINGS = "edit_bookings"
+    DELETE_BOOKINGS = "delete_bookings"
+    CONFIRM_BOOKINGS = "confirm_bookings"
+
+    # Тарифы
+    VIEW_TARIFFS = "view_tariffs"
+    CREATE_TARIFFS = "create_tariffs"
+    EDIT_TARIFFS = "edit_tariffs"
+    DELETE_TARIFFS = "delete_tariffs"
+
+    # Промокоды
+    VIEW_PROMOCODES = "view_promocodes"
+    CREATE_PROMOCODES = "create_promocodes"
+    EDIT_PROMOCODES = "edit_promocodes"
+    DELETE_PROMOCODES = "delete_promocodes"
+
+    # Тикеты
+    VIEW_TICKETS = "view_tickets"
+    EDIT_TICKETS = "edit_tickets"
+    DELETE_TICKETS = "delete_tickets"
+
+    # Уведомления
+    VIEW_NOTIFICATIONS = "view_notifications"
+    MANAGE_NOTIFICATIONS = "manage_notifications"
+
+    # Рассылки
+    VIEW_NEWSLETTERS = "view_newsletters"
+    SEND_NEWSLETTERS = "send_newsletters"
+
+    # Управление администраторами (только для super_admin)
+    MANAGE_ADMINS = "manage_admins"
+
+    # Дашборд и статистика
+    VIEW_DASHBOARD = "view_dashboard"
+
+
+class Admin(Base):
     __tablename__ = "admins"
+
     id = Column(Integer, primary_key=True)
     login = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
+    role = Column(Enum(AdminRole), default=AdminRole.MANAGER, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ))
+    created_by = Column(Integer, ForeignKey("admins.id"), nullable=True)
 
-    @property
-    def is_active(self) -> bool:
-        return True
+    # Связь с создателем - используем remote_side для самореференции
+    creator = relationship(
+        "Admin",
+        remote_side=[id],
+        backref="created_admins",
+        foreign_keys=[created_by],
+        lazy="select",  # Явно указываем стратегию загрузки
+    )
+
+    # Связь с разрешениями - указываем foreign_keys явно
+    permissions = relationship(
+        "AdminPermission",
+        back_populates="admin",
+        cascade="all, delete-orphan",
+        foreign_keys="AdminPermission.admin_id",
+        lazy="select",  # Явно указываем стратегию загрузки
+    )
 
     @property
     def is_authenticated(self) -> bool:
@@ -172,6 +251,80 @@ class Admin(Base):
 
     def get_id(self) -> str:
         return str(self.id)
+
+    def has_permission(self, permission: Permission) -> bool:
+        """Проверяет, есть ли у админа определенное разрешение"""
+        if self.role == AdminRole.SUPER_ADMIN:
+            return True  # Супер админ имеет все права
+
+        # Безопасная проверка разрешений
+        try:
+            return any(
+                ap.permission == permission for ap in self.permissions if ap.granted
+            )
+        except Exception:
+            # Если возникла ошибка при загрузке permissions,
+            # считаем что разрешений нет
+            return False
+
+    def get_permissions_list(self) -> list:
+        """Возвращает список разрешений админа"""
+        if self.role == AdminRole.SUPER_ADMIN:
+            return [p.value for p in Permission]
+
+        # Безопасная загрузка разрешений
+        try:
+            return [ap.permission.value for ap in self.permissions if ap.granted]
+        except Exception:
+            # Если возникла ошибка при загрузке permissions,
+            # возвращаем пустой список
+            return []
+
+
+class AdminPermission(Base):
+    __tablename__ = "admin_permissions"
+
+    id = Column(Integer, primary_key=True)
+    admin_id = Column(Integer, ForeignKey("admins.id"), nullable=False)
+    permission = Column(Enum(Permission), nullable=False)
+    granted = Column(Boolean, default=True, nullable=False)
+    granted_by = Column(Integer, ForeignKey("admins.id"), nullable=True)
+    granted_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ))
+
+    # Связи с явным указанием foreign_keys
+    admin = relationship("Admin", back_populates="permissions", foreign_keys=[admin_id])
+    granter = relationship("Admin", foreign_keys=[granted_by])
+
+    __table_args__ = (
+        UniqueConstraint("admin_id", "permission", name="unique_admin_permission"),
+    )
+
+
+# Обновленная функция создания админа
+def create_admin(admin_login: str, admin_password: str) -> None:
+    """Создает главного администратора при первом запуске"""
+
+    def _create_admin_operation(session):
+        admin = session.query(Admin).filter_by(login=admin_login).first()
+        if admin:
+            logger.info(f"Администратор {admin_login} уже существует")
+            return
+
+        hashed_password = generate_password_hash(
+            admin_password, method="pbkdf2:sha256", salt_length=8
+        )
+
+        admin = Admin(
+            login=admin_login,
+            password=hashed_password,
+            role=AdminRole.SUPER_ADMIN,  # Первый админ всегда супер админ
+            is_active=True,
+        )
+        session.add(admin)
+        session.commit()
+        logger.info(f"Создан главный администратор: {admin_login}")
+
+    DatabaseManager.safe_execute(_create_admin_operation)
 
 
 class User(Base):
@@ -387,40 +540,4 @@ def init_db() -> None:
 
     except Exception as e:
         logger.error(f"Ошибка при инициализации базы данных: {e}")
-        raise
-
-
-def create_admin(admin_login: str, admin_password: str) -> None:
-    """Создает или обновляет администратора в базе данных."""
-
-    def _create_admin_operation(session):
-        admin = session.query(Admin).filter_by(login=admin_login).first()
-        if not admin:
-            hashed_password = generate_password_hash(
-                admin_password, method="pbkdf2:sha256"
-            )
-            admin = Admin(login=admin_login, password=hashed_password)
-            session.add(admin)
-            logger.info(f"Создан администратор с логином: {admin_login}")
-        else:
-            if not check_password_hash(admin.password, admin_password):
-                admin.password = generate_password_hash(
-                    admin_password, method="pbkdf2:sha256"
-                )
-                logger.info(
-                    f"Обновлен пароль для администратора с логином: {admin_login}"
-                )
-            else:
-                logger.info(
-                    f"Администратор с логином {admin_login} уже существует с корректным паролем"
-                )
-        return admin
-
-    try:
-        DatabaseManager.safe_execute(_create_admin_operation)
-    except IntegrityError as e:
-        logger.error(f"Ошибка уникальности при создании администратора: {e}")
-        logger.info("Администратор уже существует, пропускаем создание")
-    except Exception as e:
-        logger.error(f"Ошибка при создании/обновлении администратора: {e}")
         raise
