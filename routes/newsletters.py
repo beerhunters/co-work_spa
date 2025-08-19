@@ -1,4 +1,3 @@
-# ================== routes/newsletters.py ==================
 from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Query
@@ -6,23 +5,21 @@ from pathlib import Path
 import time
 import asyncio
 
-from dependencies import verify_token, get_bot
+from dependencies import verify_token, verify_token_with_permissions, get_bot
 from config import NEWSLETTER_PHOTOS_DIR, MOSCOW_TZ
-from models.models import Newsletter, User, DatabaseManager
+from models.models import Newsletter, User, DatabaseManager, Permission
 from schemas.newsletter_schemas import NewsletterResponse
 from utils.logger import get_logger
-from utils.external_api import send_telegram_notification, send_telegram_photo
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/newsletters", tags=["newsletters"])
-# router = APIRouter(tags=["newsletters"])
 
 
 @router.get("")
 async def get_newsletters(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    _: str = Depends(verify_token),
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
 ):
     """Получение рассылок (для фронтенда)."""
     return await get_newsletter_history(limit, offset, _)
@@ -34,7 +31,7 @@ async def send_newsletter(
     recipient_type: str = Form(...),
     user_ids: Optional[List[str]] = Form(None),
     photos: Optional[List[UploadFile]] = File(None),
-    _: str = Depends(verify_token),
+    _: str = Depends(verify_token_with_permissions([Permission.SEND_NEWSLETTERS])),
 ):
     """Отправка рассылки пользователям через Telegram бота."""
     bot = get_bot()
@@ -56,7 +53,7 @@ async def send_newsletter(
     if recipient_type == "selected" and not user_ids:
         raise HTTPException(status_code=400, detail="Не выбраны получатели")
 
-    # Валидация фотографий
+    # Валидация и сохранение фотографий
     photo_paths = []
     if photos:
         if len(photos) > 10:
@@ -108,11 +105,16 @@ async def send_newsletter(
         try:
             if photo_paths:
                 if len(photo_paths) == 1:
-                    # Одно фото
-                    with open(photo_paths[0], "rb") as photo:
-                        await send_telegram_photo(
-                            bot, recipient["telegram_id"], photo, message
-                        )
+                    # Одно фото - используем FSInputFile
+                    from aiogram.types import FSInputFile
+
+                    photo_file = FSInputFile(photo_paths[0])
+                    await bot.send_photo(
+                        chat_id=recipient["telegram_id"],
+                        photo=photo_file,
+                        caption=message,
+                        parse_mode="HTML",
+                    )
                 else:
                     # Несколько фото - отправляем как медиагруппу
                     from aiogram.types import InputMediaPhoto, FSInputFile
@@ -131,7 +133,9 @@ async def send_newsletter(
                     )
             else:
                 # Только текст
-                await send_telegram_notification(bot, recipient["telegram_id"], message)
+                await bot.send_message(
+                    chat_id=recipient["telegram_id"], text=message, parse_mode="HTML"
+                )
 
             success_count += 1
             await asyncio.sleep(0.05)  # Небольшая задержка
@@ -193,7 +197,9 @@ async def send_newsletter(
 
 @router.get("/history", response_model=List[NewsletterResponse])
 async def get_newsletter_history(
-    limit: int = 50, offset: int = 0, _: str = Depends(verify_token)
+    limit: int = 50,
+    offset: int = 0,
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
 ):
     """Получение истории рассылок."""
 
@@ -224,3 +230,122 @@ async def get_newsletter_history(
     except Exception as e:
         logger.error(f"Error getting newsletter history: {e}")
         raise HTTPException(status_code=500, detail="Failed to get newsletter history")
+
+
+# ВАЖНО: Специфичные маршруты ДОЛЖНЫ идти ПЕРЕД общими параметризированными!
+
+
+@router.delete("/clear-history")
+async def clear_newsletter_history(
+    current_admin: str = Depends(
+        verify_token_with_permissions([Permission.MANAGE_NEWSLETTERS])
+    ),
+):
+    """Очистка всей истории рассылок."""
+
+    def _clear_history(session):
+        # Получаем количество рассылок для логирования
+        count = session.query(Newsletter).count()
+
+        # Удаляем все рассылки
+        session.query(Newsletter).delete()
+        session.flush()
+
+        return count
+
+    try:
+        deleted_count = DatabaseManager.safe_execute(_clear_history)
+
+        logger.info(
+            f"Newsletter history cleared by admin {current_admin}. Deleted {deleted_count} newsletters"
+        )
+        return {
+            "message": f"Newsletter history cleared successfully",
+            "deleted_count": deleted_count,
+        }
+
+    except Exception as e:
+        logger.error(f"Error clearing newsletter history: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to clear newsletter history"
+        )
+
+
+@router.get("/{newsletter_id}", response_model=NewsletterResponse)
+async def get_newsletter_detail(
+    newsletter_id: int,
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+):
+    """Получение деталей конкретной рассылки."""
+
+    def _get_newsletter(session):
+        newsletter = (
+            session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        )
+        if not newsletter:
+            return None
+
+        return {
+            "id": newsletter.id,
+            "message": newsletter.message,
+            "status": newsletter.status,
+            "total_count": newsletter.total_count,
+            "success_count": newsletter.success_count,
+            "photo_count": newsletter.photo_count or 0,
+            "created_at": newsletter.created_at,
+        }
+
+    try:
+        result = DatabaseManager.safe_execute(_get_newsletter)
+        if not result:
+            raise HTTPException(status_code=404, detail="Newsletter not found")
+        return result
+    except Exception as e:
+        logger.error(f"Error getting newsletter {newsletter_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get newsletter details")
+
+
+@router.delete("/{newsletter_id}")
+async def delete_newsletter(
+    newsletter_id: int,
+    current_admin: str = Depends(
+        verify_token_with_permissions([Permission.MANAGE_NEWSLETTERS])
+    ),
+):
+    """Удаление конкретной рассылки."""
+
+    def _delete_newsletter(session):
+        newsletter = (
+            session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        )
+        if not newsletter:
+            return False
+
+        newsletter_info = {
+            "id": newsletter.id,
+            "message": (
+                newsletter.message[:50] + "..."
+                if len(newsletter.message) > 50
+                else newsletter.message
+            ),
+            "created_at": newsletter.created_at,
+        }
+
+        session.delete(newsletter)
+        session.flush()
+        return newsletter_info
+
+    try:
+        result = DatabaseManager.safe_execute(_delete_newsletter)
+        if not result:
+            raise HTTPException(status_code=404, detail="Newsletter not found")
+
+        logger.info(f"Newsletter {newsletter_id} deleted by admin {current_admin}")
+        return {
+            "message": f"Newsletter {newsletter_id} successfully deleted",
+            "deleted_newsletter": result,
+        }
+
+    except Exception as e:
+        logger.error(f"Error deleting newsletter {newsletter_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete newsletter")

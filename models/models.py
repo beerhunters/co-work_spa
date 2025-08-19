@@ -204,6 +204,7 @@ class Permission(enum.Enum):
     # Рассылки
     VIEW_NEWSLETTERS = "view_newsletters"
     SEND_NEWSLETTERS = "send_newsletters"
+    MANAGE_NEWSLETTERS = "manage_newsletters"
 
     # Управление администраторами (только для super_admin)
     MANAGE_ADMINS = "manage_admins"

@@ -45,6 +45,7 @@ class PermissionEnum(str, Enum):
     # Рассылки
     VIEW_NEWSLETTERS = "view_newsletters"
     SEND_NEWSLETTERS = "send_newsletters"
+    MANAGE_NEWSLETTERS = "manage_newsletters"
 
     # Управление администраторами
     MANAGE_ADMINS = "manage_admins"
@@ -159,6 +160,7 @@ class AvailablePermissions(BaseModel):
             # Рассылки
             "view_newsletters": "Просмотр рассылок",
             "send_newsletters": "Отправка рассылок",
+            "manage_newsletters": "Управление рассылками",
             # Администраторы
             "manage_admins": "Управление администраторами",
             # Дашборд
@@ -190,6 +192,7 @@ class AvailablePermissions(BaseModel):
             "manage_notifications": "Уведомления",
             "view_newsletters": "Рассылки",
             "send_newsletters": "Рассылки",
+            "manage_newsletters": "Рассылки",
             "manage_admins": "Администрирование",
             "view_dashboard": "Система",
         }
