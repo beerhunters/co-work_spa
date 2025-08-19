@@ -3,6 +3,10 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import jwt
+from jwt.exceptions import (
+    InvalidTokenError,
+    ExpiredSignatureError,
+)  # ← Правильный импорт
 
 from config import SECRET_KEY_JWT, ALGORITHM, BOT_TOKEN
 from models.models import DatabaseManager, Admin, Permission, AdminRole
@@ -15,6 +19,7 @@ _bot: Optional[Bot] = None
 
 
 def get_db():
+    """Генератор сессий для FastAPI dependency injection"""
     session = DatabaseManager.get_session()
     try:
         yield session
@@ -27,17 +32,34 @@ def verify_token(
     db: Session = Depends(get_db),
 ) -> Admin:
     """Базовая проверка токена и получение админа"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
     try:
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
 
         if username is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
-            )
+            raise credentials_exception
 
-        # Используем переданную сессию вместо создания новой
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
+        )
+    except InvalidTokenError:  # ← Правильное исключение
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in token validation: {e}")
+        raise credentials_exception
+
+    # Безопасный поиск администратора
+    try:
         admin = (
             db.query(Admin)
             .filter(Admin.login == username, Admin.is_active == True)
@@ -50,21 +72,29 @@ def verify_token(
                 detail="Admin not found or inactive",
             )
 
-        # Принудительно загружаем связанные данные, пока сессия активна
-        # Это предотвратит DetachedInstanceError
-        _ = admin.permissions  # Загружаем permissions
-        if admin.creator:
-            _ = admin.creator.login  # Загружаем creator
+        # Принудительно загружаем связанные данные в текущей сессии
+        # для предотвращения DetachedInstanceError
+        try:
+            # Загружаем permissions - используем len() для инициализации коллекции
+            _ = len(admin.permissions)
+
+            # Загружаем creator если есть
+            if admin.created_by:
+                _ = admin.creator.login if admin.creator else None
+
+        except Exception as e:
+            logger.warning(f"Could not preload admin relations for {username}: {e}")
+            # Продолжаем работу, даже если не удалось загрузить связанные данные
 
         return admin
 
-    except jwt.ExpiredSignatureError:
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Database error in verify_token for user {username}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
-        )
-    except jwt.JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database error during authentication",
         )
 
 
@@ -74,15 +104,33 @@ def verify_token_with_permissions(required_permissions: List[Permission]):
     def permission_checker(
         current_admin: Admin = Depends(verify_token), db: Session = Depends(get_db)
     ) -> Admin:
+
+        # Супер админ имеет все права
+        if current_admin.role == AdminRole.SUPER_ADMIN:
+            return current_admin
+
         # Проверяем каждое требуемое разрешение
         for permission in required_permissions:
-            if not current_admin.has_permission(permission):
-                logger.warning(
-                    f"Admin {current_admin.login} tried to access {permission.value} without permission"
+            try:
+                has_perm = current_admin.has_permission(permission)
+                if not has_perm:
+                    logger.warning(
+                        f"Admin {current_admin.login} tried to access {permission.value} without permission"
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail=f"Insufficient permissions. Required: {permission.value}",
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Error checking permission {permission.value} for admin {current_admin.login}: {e}"
                 )
+                # В случае ошибки загрузки разрешений, запрещаем доступ
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Insufficient permissions. Required: {permission.value}",
+                    detail=f"Could not verify permissions. Required: {permission.value}",
                 )
 
         return current_admin
@@ -102,6 +150,7 @@ def require_super_admin(
 
 
 def get_bot() -> Optional[Bot]:
+    """Получение экземпляра бота"""
     global _bot
     if _bot is None and BOT_TOKEN:
         try:
@@ -114,6 +163,7 @@ def get_bot() -> Optional[Bot]:
 
 
 def init_bot():
+    """Инициализация бота"""
     global _bot
     if BOT_TOKEN:
         try:
@@ -124,6 +174,7 @@ def init_bot():
 
 
 async def close_bot():
+    """Закрытие сессии бота"""
     global _bot
     if _bot:
         try:

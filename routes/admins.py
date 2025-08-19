@@ -124,22 +124,42 @@ async def get_admin(
     current_admin: Admin = Depends(require_super_admin),
 ):
     """Получение информации об администраторе"""
-    admin = db.query(Admin).filter(Admin.id == admin_id).first()
-    if not admin:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Администратор не найден"
+    try:
+        admin = db.query(Admin).filter(Admin.id == admin_id).first()
+        if not admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Администратор не найден"
+            )
+
+        # Безопасная загрузка связанных данных
+        permissions_list = []
+        creator_login = None
+
+        try:
+            permissions_list = admin.get_permissions_list()
+            creator_login = admin.safe_get_creator_login()
+        except Exception as e:
+            logger.warning(f"Could not load admin relations for admin {admin_id}: {e}")
+
+        return AdminResponse(
+            id=admin.id,
+            login=admin.login,
+            role=admin.role,
+            is_active=admin.is_active,
+            created_at=admin.created_at,
+            created_by=admin.created_by,  # ← Правильное поле
+            creator_login=creator_login,
+            permissions=permissions_list,
         )
 
-    return AdminResponse(
-        id=admin.id,
-        login=admin.login,
-        role=admin.role,
-        is_active=admin.is_active,
-        created_at=admin.created_at,
-        created_by=admin.created_by,
-        creator_login=admin.creator.login if admin.creator else None,
-        permissions=admin.get_permissions_list(),
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting admin {admin_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get administrator details",
+        )
 
 
 @router.put("/{admin_id}", response_model=AdminResponse)
@@ -284,29 +304,44 @@ async def get_current_admin_profile(
     current_admin: Admin = Depends(verify_token), db: Session = Depends(get_db)
 ):
     """Получение профиля текущего администратора"""
+    try:
+        # Получаем свежую копию админа из базы данных в текущей сессии
+        admin = db.query(Admin).filter(Admin.id == current_admin.id).first()
 
-    # Получаем свежую копию админа из базы данных
-    # чтобы избежать DetachedInstanceError
-    admin = db.query(Admin).filter(Admin.id == current_admin.id).first()
+        if not admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found"
+            )
 
-    if not admin:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Admin not found"
+        # Безопасная загрузка связанных данных
+        permissions_list = []
+        creator_login = None
+
+        try:
+            # Загружаем разрешения
+            permissions_list = admin.get_permissions_list()
+
+            # Загружаем информацию о создателе
+            creator_login = admin.safe_get_creator_login()
+        except Exception as e:
+            logger.warning(f"Could not load admin relations: {e}")
+
+        return AdminResponse(
+            id=admin.id,
+            login=admin.login,
+            role=admin.role,
+            is_active=admin.is_active,
+            created_at=admin.created_at,
+            created_by=admin.created_by,  # ← Правильное поле
+            creator_login=creator_login,
+            permissions=permissions_list,
         )
 
-    # Принудительно загружаем связанные данные
-    permissions_list = admin.get_permissions_list()
-    creator_login = None
-    if admin.creator:
-        creator_login = admin.creator.login
-
-    return AdminResponse(
-        id=admin.id,
-        login=admin.login,
-        role=admin.role,
-        is_active=admin.is_active,
-        created_at=admin.created_at,
-        created_by=admin.created_by,
-        creator_login=creator_login,
-        permissions=permissions_list,
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current admin profile: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get admin profile",
+        )

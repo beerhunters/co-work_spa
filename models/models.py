@@ -230,16 +230,16 @@ class Admin(Base):
         remote_side=[id],
         backref="created_admins",
         foreign_keys=[created_by],
-        lazy="select",  # Явно указываем стратегию загрузки
+        lazy="select",
     )
 
-    # Связь с разрешениями - указываем foreign_keys явно
+    # Связь с разрешениями
     permissions = relationship(
         "AdminPermission",
         back_populates="admin",
         cascade="all, delete-orphan",
         foreign_keys="AdminPermission.admin_id",
-        lazy="select",  # Явно указываем стратегию загрузки
+        lazy="select",
     )
 
     @property
@@ -258,14 +258,34 @@ class Admin(Base):
         if self.role == AdminRole.SUPER_ADMIN:
             return True  # Супер админ имеет все права
 
-        # Безопасная проверка разрешений
         try:
-            return any(
-                ap.permission == permission for ap in self.permissions if ap.granted
+            # Проверяем, есть ли активная сессия
+            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
+                session = self._sa_instance_state.session
+                if session.is_active:
+                    # Используем текущую сессию
+                    return any(
+                        ap.permission == permission and ap.granted
+                        for ap in self.permissions
+                    )
+
+            # Если нет активной сессии, используем безопасную операцию
+            def _check_permission(session):
+                # Получаем свежий объект администратора
+                admin = session.query(Admin).filter(Admin.id == self.id).first()
+                if not admin:
+                    return False
+                return any(
+                    ap.permission == permission and ap.granted
+                    for ap in admin.permissions
+                )
+
+            return DatabaseManager.safe_execute(_check_permission)
+
+        except Exception as e:
+            logger.warning(
+                f"Error checking permission {permission.value} for admin {self.login}: {e}"
             )
-        except Exception:
-            # Если возникла ошибка при загрузке permissions,
-            # считаем что разрешений нет
             return False
 
     def get_permissions_list(self) -> list:
@@ -273,13 +293,58 @@ class Admin(Base):
         if self.role == AdminRole.SUPER_ADMIN:
             return [p.value for p in Permission]
 
-        # Безопасная загрузка разрешений
         try:
-            return [ap.permission.value for ap in self.permissions if ap.granted]
-        except Exception:
-            # Если возникла ошибка при загрузке permissions,
-            # возвращаем пустой список
+            # Проверяем, есть ли активная сессия
+            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
+                session = self._sa_instance_state.session
+                if session.is_active:
+                    # Используем текущую сессию
+                    return [
+                        ap.permission.value for ap in self.permissions if ap.granted
+                    ]
+
+            # Если нет активной сессии, используем безопасную операцию
+            def _get_permissions(session):
+                # Получаем свежий объект администратора
+                admin = session.query(Admin).filter(Admin.id == self.id).first()
+                if not admin:
+                    return []
+                return [ap.permission.value for ap in admin.permissions if ap.granted]
+
+            return DatabaseManager.safe_execute(_get_permissions)
+
+        except Exception as e:
+            logger.warning(f"Error getting permissions for admin {self.login}: {e}")
             return []
+
+    def safe_get_creator_login(self) -> Optional[str]:
+        """Безопасно получает логин создателя"""
+        try:
+            # Проверяем, есть ли активная сессия
+            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
+                session = self._sa_instance_state.session
+                if session.is_active and self.creator:
+                    return self.creator.login
+
+            # Если нет активной сессии, используем безопасную операцию
+            if self.created_by:  # ← Правильное поле
+
+                def _get_creator_login(session):
+                    creator = (
+                        session.query(Admin).filter(Admin.id == self.created_by).first()
+                    )
+                    return creator.login if creator else None
+
+                return DatabaseManager.safe_execute(_get_creator_login)
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error getting creator login for admin {self.login}: {e}")
+            return None
+
+    def __repr__(self):
+        return f"<Admin(id={self.id}, login='{self.login}', role={self.role.value})>"
 
 
 class AdminPermission(Base):
