@@ -996,52 +996,131 @@ export const dashboardApi = {
 
 // --------------------- API: Админы ---------------------
 export const adminApi = {
-  // Получение всех админов
+  // Получение списка всех администраторов
   getAll: async () => {
-    const res = await apiClient.get('/admins');
-    return res.data;
+    try {
+      const res = await apiClient.get('/admins');
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения списка администраторов:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить администраторов');
+    }
+  },
+
+  // Получение информации о конкретном администраторе
+  getById: async (adminId) => {
+    try {
+      const res = await apiClient.get(`/admins/${adminId}`);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения администратора:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Администратор не найден');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить данные администратора');
+    }
+  },
+
+  // Создание нового администратора
+  create: async (adminData) => {
+    try {
+      const res = await apiClient.post('/admins', adminData);
+      console.log('Администратор создан:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка создания администратора:', error);
+
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('уже существует')) {
+        throw new Error('Администратор с таким логином уже существует');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось создать администратора');
+    }
+  },
+
+  // Обновление администратора
+  update: async (adminId, adminData) => {
+    try {
+      const res = await apiClient.put(`/admins/${adminId}`, adminData);
+      console.log('Администратор обновлен:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка обновления администратора:', error);
+
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('уже существует')) {
+        throw new Error('Администратор с таким логином уже существует');
+      } else if (detail?.includes('супер админа')) {
+        throw new Error('Нельзя редактировать главного администратора');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось обновить администратора');
+    }
+  },
+
+  // Удаление администратора
+  delete: async (adminId) => {
+    try {
+      const res = await apiClient.delete(`/admins/${adminId}`);
+      console.log('Администратор удален:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка удаления администратора:', error);
+
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('супер админа')) {
+        throw new Error('Нельзя удалить главного администратора');
+      } else if (detail?.includes('самого себя')) {
+        throw new Error('Нельзя удалить самого себя');
+      } else if (error.response?.status === 404) {
+        throw new Error('Администратор не найден');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось удалить администратора');
+    }
   },
 
   // Получение доступных разрешений
   getAvailablePermissions: async () => {
-    const res = await apiClient.get('/admins/permissions');
-    return res.data;
+    try {
+      const res = await apiClient.get('/admins/permissions');
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения разрешений:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить список разрешений');
+    }
   },
 
-  // Получение профиля текущего админа
-  getCurrentProfile: async () => {
-    const res = await apiClient.get('/admins/current/profile');
-    return res.data;
-  },
-
-  // Получение админа по ID
-  getById: async (adminId) => {
-    const res = await apiClient.get(`/admins/${adminId}`);
-    return res.data;
-  },
-
-  // Создание нового админа
-  create: async (adminData) => {
-    const res = await apiClient.post('/admins', adminData);
-    return res.data;
-  },
-
-  // Обновление админа
-  update: async (adminId, adminData) => {
-    const res = await apiClient.put(`/admins/${adminId}`, adminData);
-    return res.data;
-  },
-
-  // Удаление админа
-  delete: async (adminId) => {
-    const res = await apiClient.delete(`/admins/${adminId}`);
-    return res.data;
-  },
-
-  // Смена пароля
+  // Смена пароля текущего администратора
   changePassword: async (passwordData) => {
-    const res = await apiClient.post('/admins/change-password', passwordData);
-    return res.data;
+    try {
+      const res = await apiClient.post('/admins/change-password', passwordData);
+      console.log('Пароль изменен:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка смены пароля:', error);
+
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('Неверный текущий пароль')) {
+        throw new Error('Неверный текущий пароль');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось изменить пароль');
+    }
+  },
+
+  // Получение текущего профиля
+  getCurrentProfile: async () => {
+    try {
+      const res = await apiClient.get('/admins/current/profile');
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения профиля:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить профиль');
+    }
   }
 };
 

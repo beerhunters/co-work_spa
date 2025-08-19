@@ -25,17 +25,18 @@ import { FiSearch, FiEdit, FiTrash2, FiPlus, FiEye, FiChevronLeft, FiChevronRigh
 import { getStatusColor } from '../styles/styles';
 import AdminDetailModal from '../components/modals/AdminDetailModal';
 
-const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
+const Admins = ({ admins, onUpdate, currentAdmin }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedAdmin, setSelectedAdmin] = useState(null);
 
   const tableBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  // Для модального окна создания админа
-  const { isOpen: isCreateModalOpen, onOpen: onCreateModalOpen, onClose: onCreateModalClose } = useDisclosure();
+  // Для модального окна
+  const { isOpen: isModalOpen, onOpen: onModalOpen, onClose: onModalClose } = useDisclosure();
 
   const filteredAdmins = useMemo(() => {
     let filtered = admins;
@@ -105,9 +106,25 @@ const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
     return true;
   };
 
+  // Обработчики модального окна
+  const handleOpenModal = (admin = null) => {
+    setSelectedAdmin(admin);
+    onModalOpen();
+  };
+
+  const handleCloseModal = () => {
+    setSelectedAdmin(null);
+    onModalClose();
+  };
+
   // Обработчик создания админа
   const handleCreateAdmin = () => {
-    onCreateModalOpen();
+    handleOpenModal(null); // null означает создание нового админа
+  };
+
+  // Обработчик просмотра/редактирования админа
+  const handleViewAdmin = (admin) => {
+    handleOpenModal(admin);
   };
 
   return (
@@ -124,13 +141,15 @@ const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
             </Text>
           </VStack>
 
-          <Button
-            leftIcon={<FiPlus />}
-            colorScheme="purple"
-            onClick={handleCreateAdmin}
-          >
-            Добавить админа
-          </Button>
+          {currentAdmin?.role === 'super_admin' && (
+            <Button
+              leftIcon={<FiPlus />}
+              colorScheme="purple"
+              onClick={handleCreateAdmin}
+            >
+              Добавить админа
+            </Button>
+          )}
         </HStack>
 
         {/* Фильтры */}
@@ -251,10 +270,10 @@ const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
                           variant="ghost"
                           colorScheme="blue"
                           aria-label="Просмотр"
-                          onClick={() => openDetailModal(admin, 'admin')}
+                          onClick={() => handleViewAdmin(admin)}
                         />
 
-                        {canManageAdmin(admin) && (
+                        {canManageAdmin(admin) && currentAdmin?.role === 'super_admin' && (
                           <>
                             <IconButton
                               icon={<FiEdit />}
@@ -262,7 +281,7 @@ const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
                               variant="ghost"
                               colorScheme="orange"
                               aria-label="Редактировать"
-                              onClick={() => openDetailModal(admin, 'admin')}
+                              onClick={() => handleViewAdmin(admin)}
                             />
 
                             <IconButton
@@ -271,7 +290,7 @@ const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
                               variant="ghost"
                               colorScheme="red"
                               aria-label="Удалить"
-                              onClick={() => openDetailModal(admin, 'admin')}
+                              onClick={() => handleViewAdmin(admin)}
                             />
                           </>
                         )}
@@ -354,11 +373,11 @@ const Admins = ({ admins, openDetailModal, onUpdate, currentAdmin }) => {
         )}
       </VStack>
 
-      {/* Модальное окно создания админа */}
+      {/* Модальное окно администратора */}
       <AdminDetailModal
-        isOpen={isCreateModalOpen}
-        onClose={onCreateModalClose}
-        admin={null} // null означает создание нового админа
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        admin={selectedAdmin}
         onUpdate={onUpdate}
         currentAdmin={currentAdmin}
       />
