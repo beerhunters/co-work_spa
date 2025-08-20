@@ -258,20 +258,14 @@ class Admin(Base):
         if self.role == AdminRole.SUPER_ADMIN:
             return True  # Супер админ имеет все права
 
-        try:
-            # Проверяем, есть ли активная сессия
-            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
-                session = self._sa_instance_state.session
-                if session.is_active:
-                    # Используем текущую сессию
-                    return any(
-                        ap.permission == permission and ap.granted
-                        for ap in self.permissions
-                    )
+        # Если есть кешированные разрешения, используем их
+        if hasattr(self, "permissions") and isinstance(self.permissions, list):
+            return permission.value in self.permissions
 
-            # Если нет активной сессии, используем безопасную операцию
+        # Иначе загружаем из БД
+        try:
+
             def _check_permission(session):
-                # Получаем свежий объект администратора
                 admin = session.query(Admin).filter(Admin.id == self.id).first()
                 if not admin:
                     return False
@@ -293,19 +287,14 @@ class Admin(Base):
         if self.role == AdminRole.SUPER_ADMIN:
             return [p.value for p in Permission]
 
-        try:
-            # Проверяем, есть ли активная сессия
-            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
-                session = self._sa_instance_state.session
-                if session.is_active:
-                    # Используем текущую сессию
-                    return [
-                        ap.permission.value for ap in self.permissions if ap.granted
-                    ]
+        # Если есть кешированные разрешения, используем их
+        if hasattr(self, "permissions") and isinstance(self.permissions, list):
+            return self.permissions
 
-            # Если нет активной сессии, используем безопасную операцию
+        # Иначе загружаем из БД
+        try:
+
             def _get_permissions(session):
-                # Получаем свежий объект администратора
                 admin = session.query(Admin).filter(Admin.id == self.id).first()
                 if not admin:
                     return []
@@ -319,15 +308,13 @@ class Admin(Base):
 
     def safe_get_creator_login(self) -> Optional[str]:
         """Безопасно получает логин создателя"""
-        try:
-            # Проверяем, есть ли активная сессия
-            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
-                session = self._sa_instance_state.session
-                if session.is_active and self.creator:
-                    return self.creator.login
+        # Если есть кешированный creator_login, используем его
+        if hasattr(self, "creator_login"):
+            return self.creator_login
 
-            # Если нет активной сессии, используем безопасную операцию
-            if self.created_by:  # ← Правильное поле
+        # Иначе загружаем из БД
+        try:
+            if self.created_by:
 
                 def _get_creator_login(session):
                     creator = (
