@@ -17,17 +17,38 @@ import {
   InputLeftElement,
   Button,
   Flex,
-  Select
+  Select,
+  IconButton,
+  useToast,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  useDisclosure,
+  Tooltip
 } from '@chakra-ui/react';
-import { FiSearch, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2 } from 'react-icons/fi';
+import { userApi } from '../utils/api';
 
-const Users = ({ users, openDetailModal }) => {
+const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const cancelRef = React.useRef();
+  const toast = useToast();
 
   const tableBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
+
+  // Проверка прав на удаление пользователей
+  const canDeleteUsers = currentAdmin?.role === 'super_admin' ||
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('delete_users'));
 
   // Фильтрация пользователей по поиску
   const filteredUsers = useMemo(() => {
@@ -58,6 +79,58 @@ const Users = ({ users, openDetailModal }) => {
 
   const handlePageChange = (newPage) => {
     setCurrentPage(Math.max(1, Math.min(newPage, totalPages)));
+  };
+
+  // Обработчик удаления пользователя
+  const handleDeleteUser = (user) => {
+    setDeleteTarget(user);
+    onDeleteOpen();
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeleting(true);
+    try {
+      await userApi.delete(deleteTarget.id);
+
+      toast({
+        title: 'Пользователь удален',
+        description: `Пользователь ${deleteTarget.full_name || deleteTarget.telegram_id} успешно удален`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем данные в родительском компоненте
+      if (onUpdate) {
+        await onUpdate();
+      }
+
+      // Закрываем диалог
+      onDeleteClose();
+      setDeleteTarget(null);
+
+    } catch (error) {
+      console.error('Ошибка удаления пользователя:', error);
+
+      let errorMessage = 'Не удалось удалить пользователя';
+      if (error.response?.status === 403) {
+        errorMessage = 'У вас нет прав для удаления пользователей';
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+
+      toast({
+        title: 'Ошибка',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -116,6 +189,7 @@ const Users = ({ users, openDetailModal }) => {
                   <Th>Телефон</Th>
                   <Th>Дата регистрации</Th>
                   <Th>Статистика</Th>
+                  {canDeleteUsers && <Th>Действия</Th>}
                 </Tr>
               </Thead>
               <Tbody>
@@ -123,12 +197,13 @@ const Users = ({ users, openDetailModal }) => {
                   <Tr
                     key={user.id}
                     _hover={{
-                      bg: useColorModeValue('gray.50', 'gray.700'),
-                      cursor: 'pointer'
+                      bg: useColorModeValue('gray.50', 'gray.700')
                     }}
-                    onClick={() => openDetailModal(user, 'user')}
                   >
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={() => openDetailModal(user, 'user')}
+                    >
                       <VStack align="start" spacing={1}>
                         <Text fontWeight="semibold">
                           {user.full_name || 'Не указано'}
@@ -139,25 +214,37 @@ const Users = ({ users, openDetailModal }) => {
                       </VStack>
                     </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={() => openDetailModal(user, 'user')}
+                    >
                       <Text color="gray.500">
                         @{user.username || 'Не указано'}
                       </Text>
                     </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={() => openDetailModal(user, 'user')}
+                    >
                       <Text>
                         {user.phone || 'Не указан'}
                       </Text>
                     </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={() => openDetailModal(user, 'user')}
+                    >
                       <Text fontSize="sm">
                         {new Date(user.reg_date || user.first_join_time).toLocaleDateString('ru-RU')}
                       </Text>
                     </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={() => openDetailModal(user, 'user')}
+                    >
                       <HStack spacing={2} wrap="wrap">
                         {user.successful_bookings > 0 && (
                           <Badge colorScheme="green" fontSize="xs">
@@ -178,6 +265,24 @@ const Users = ({ users, openDetailModal }) => {
                         )}
                       </HStack>
                     </Td>
+
+                    {canDeleteUsers && (
+                      <Td>
+                        <Tooltip label="Удалить пользователя">
+                          <IconButton
+                            icon={<FiTrash2 />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="red"
+                            aria-label="Удалить пользователя"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteUser(user);
+                            }}
+                          />
+                        </Tooltip>
+                      </Td>
+                    )}
                   </Tr>
                 ))}
               </Tbody>
@@ -255,6 +360,59 @@ const Users = ({ users, openDetailModal }) => {
           </Flex>
         )}
       </VStack>
+
+      {/* Диалог подтверждения удаления */}
+      <AlertDialog
+        isOpen={isDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onDeleteClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Удалить пользователя
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              Вы уверены, что хотите удалить пользователя{' '}
+              <strong>
+                {deleteTarget?.full_name || `ID: ${deleteTarget?.telegram_id}`}
+              </strong>?
+              <br />
+              <br />
+              Это действие также удалит:
+              <br />
+              • Все бронирования пользователя
+              <br />
+              • Все уведомления
+              <br />
+              • Все тикеты
+              <br />
+              • Аватар пользователя
+              <br />
+              <br />
+              <Text color="red.500" fontWeight="medium">
+                Это действие нельзя отменить!
+              </Text>
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onDeleteClose}>
+                Отмена
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={confirmDeleteUser}
+                ml={3}
+                isLoading={isDeleting}
+                loadingText="Удаление..."
+              >
+                Удалить
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   );
 };

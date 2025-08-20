@@ -8,19 +8,26 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
 
-from models.models import User, DatabaseManager
-from dependencies import get_db, verify_token, get_bot
+from models.models import User, DatabaseManager, Permission
+from dependencies import (
+    get_db,
+    verify_token,
+    verify_token_with_permissions,
+    get_bot,
+    CachedAdmin,
+)
 from schemas.user_schemas import UserBase, UserUpdate, UserCreate
 from config import AVATARS_DIR, MOSCOW_TZ
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
-# router = APIRouter(tags=["users"])
 
 
 @router.get("", response_model=List[UserBase])
-async def get_users(_: str = Depends(verify_token)):
+async def get_users(
+    _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
+):
     """Получение списка всех пользователей."""
 
     def _get_users(session):
@@ -55,7 +62,9 @@ async def get_users(_: str = Depends(verify_token)):
 
 @router.get("/{user_id}", response_model=UserBase)
 async def get_user(
-    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
 ):
     """Получение пользователя по ID."""
     user = db.query(User).get(user_id)
@@ -96,7 +105,7 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
 
 @router.put("/telegram/{telegram_id}")
 async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
-    """Обновление пользователя по telegram_id."""
+    """Обновление пользователя по telegram_id. Используется ботом."""
 
     def _update_user(session):
         user = session.query(User).filter(User.telegram_id == telegram_id).first()
@@ -144,7 +153,7 @@ async def check_and_add_user(
     language_code: str = "ru",
     referrer_id: Optional[int] = None,
 ):
-    """Проверка и добавление пользователя в БД с улучшенной обработкой."""
+    """Проверка и добавление пользователя в БД. Используется ботом."""
 
     def _check_and_add_user(session):
         user = session.query(User).filter_by(telegram_id=telegram_id).first()
@@ -214,7 +223,9 @@ async def update_user(
     user_identifier: str,
     user_data: UserUpdate,
     db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.EDIT_USERS])
+    ),
 ):
     """Обновление пользователя по ID или telegram_id."""
 
@@ -249,6 +260,10 @@ async def update_user(
                 setattr(user, key, value)
 
         session.flush()
+
+        logger.info(
+            f"Пользователь {user.id} обновлен администратором {current_admin.login}"
+        )
         return user
 
     try:
@@ -265,7 +280,9 @@ async def upload_avatar(
     user_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: str = Depends(verify_token),
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.EDIT_USERS])
+    ),
 ):
     """Загрузка аватара пользователя."""
     user = db.query(User).get(user_id)
@@ -291,7 +308,9 @@ async def upload_avatar(
     user.avatar = avatar_filename
     db.commit()
 
-    logger.info(f"Загружен новый аватар для пользователя {user_id}: {avatar_filename}")
+    logger.info(
+        f"Загружен новый аватар для пользователя {user_id} администратором {current_admin.login}"
+    )
 
     timestamp = int(time.time() * 1000)
     return {
@@ -304,7 +323,11 @@ async def upload_avatar(
 
 @router.delete("/{user_id}/avatar")
 async def delete_avatar(
-    user_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.EDIT_USERS])
+    ),
 ):
     """Удаление аватара пользователя."""
     user = db.query(User).get(user_id)
@@ -334,10 +357,12 @@ async def delete_avatar(
         except Exception as e:
             logger.warning(f"Не удалось удалить файл {standard_path.name}: {e}")
 
-    # ИСПРАВЛЕНИЕ: Обновляем пользователя после удаления
     db.refresh(user)
 
-    # Возвращаем полные данные пользователя с avatar: null
+    logger.info(
+        f"Аватар пользователя {user_id} удален администратором {current_admin.login}"
+    )
+
     return {
         "deleted": deleted,
         "message": "Avatar deleted successfully",
@@ -354,7 +379,7 @@ async def delete_avatar(
             "reg_date": user.reg_date,
             "first_join_time": user.first_join_time,
             "agreed_to_terms": user.agreed_to_terms or False,
-            "avatar": None,  # Убираем аватар
+            "avatar": None,
             "referrer_id": user.referrer_id,
         },
     }
@@ -362,7 +387,7 @@ async def delete_avatar(
 
 @router.get("/avatars/{filename}")
 async def get_avatar(filename: str):
-    """Получение аватара по имени файла."""
+    """Получение аватара по имени файла. Публичный доступ."""
     file_path = AVATARS_DIR / filename
 
     if not file_path.exists():
@@ -399,7 +424,9 @@ async def get_avatar(filename: str):
 @router.post("/{user_id}/download-telegram-avatar")
 async def download_telegram_avatar(
     user_id: int,
-    _: str = Depends(verify_token),
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.EDIT_USERS])
+    ),
 ):
     """Скачивание аватара пользователя из Telegram."""
     try:
@@ -434,7 +461,7 @@ async def download_telegram_avatar(
             raise HTTPException(status_code=503, detail="Bot not available")
 
         logger.info(
-            f"Попытка скачать аватар для пользователя {user_data['telegram_id']}"
+            f"Попытка скачать аватар для пользователя {user_data['telegram_id']} администратором {current_admin.login}"
         )
 
         profile_photos = await bot.get_user_profile_photos(
@@ -503,10 +530,17 @@ async def download_telegram_avatar(
 
 
 @router.delete("/{user_id}")
-async def delete_user(user_id: int, _: str = Depends(verify_token)):
+async def delete_user(
+    user_id: int,
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.DELETE_USERS])
+    ),
+):
     """Удаление пользователя и всех связанных данных."""
 
     def _delete_user(session):
+        from models.models import Booking, Notification, Ticket
+
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -514,29 +548,78 @@ async def delete_user(user_id: int, _: str = Depends(verify_token)):
         user_name = user.full_name or f"Пользователь #{user.telegram_id}"
         telegram_id = user.telegram_id
 
-        if user.avatar:
-            try:
-                avatar_path = AVATARS_DIR / user.avatar
-                if avatar_path.exists():
-                    avatar_path.unlink()
-                    logger.info(f"Удален аватар: {avatar_path}")
-            except Exception as e:
-                logger.warning(f"Не удалось удалить аватар: {e}")
-
-        session.delete(user)
+        # Подсчитываем связанные данные для логирования
+        bookings_count = (
+            session.query(Booking).filter(Booking.user_id == user.id).count()
+        )
+        notifications_count = (
+            session.query(Notification).filter(Notification.user_id == user.id).count()
+        )
+        tickets_count = session.query(Ticket).filter(Ticket.user_id == user.id).count()
 
         logger.info(
-            f"Удален пользователь: {user_name} (ID: {user_id}, Telegram ID: {telegram_id})"
+            f"Начинаем удаление пользователя {user_name} (ID: {user_id}). "
+            f"Связанных данных: {bookings_count} броней, {notifications_count} уведомлений, {tickets_count} тикетов"
         )
 
-        return {
-            "message": f"Пользователь {user_name} успешно удален",
-            "deleted_user": {
-                "id": user_id,
-                "telegram_id": telegram_id,
-                "full_name": user_name,
-            },
-        }
+        # Удаляем связанные данные в правильном порядке
+        try:
+            # Удаляем уведомления
+            session.query(Notification).filter(Notification.user_id == user.id).delete(
+                synchronize_session=False
+            )
+            logger.info(f"Удалено {notifications_count} уведомлений")
+
+            # Удаляем тикеты
+            session.query(Ticket).filter(Ticket.user_id == user.id).delete(
+                synchronize_session=False
+            )
+            logger.info(f"Удалено {tickets_count} тикетов")
+
+            # Удаляем бронирования
+            session.query(Booking).filter(Booking.user_id == user.id).delete(
+                synchronize_session=False
+            )
+            logger.info(f"Удалено {bookings_count} бронирований")
+
+            # Удаляем аватар если есть
+            if user.avatar:
+                try:
+                    avatar_path = AVATARS_DIR / user.avatar
+                    if avatar_path.exists():
+                        avatar_path.unlink()
+                        logger.info(f"Удален аватар: {avatar_path}")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить аватар: {e}")
+
+            # Теперь удаляем самого пользователя
+            session.delete(user)
+            session.flush()
+
+            logger.info(
+                f"Успешно удален пользователь: {user_name} (ID: {user_id}, Telegram ID: {telegram_id}) "
+                f"администратором {current_admin.login}"
+            )
+
+            return {
+                "message": f"Пользователь {user_name} успешно удален",
+                "deleted_user": {
+                    "id": user_id,
+                    "telegram_id": telegram_id,
+                    "full_name": user_name,
+                },
+                "deleted_related": {
+                    "bookings": bookings_count,
+                    "notifications": notifications_count,
+                    "tickets": tickets_count,
+                },
+            }
+
+        except Exception as e:
+            logger.error(
+                f"Ошибка при удалении связанных данных пользователя {user_id}: {e}"
+            )
+            raise
 
     try:
         return DatabaseManager.safe_execute(_delete_user)
@@ -544,4 +627,7 @@ async def delete_user(user_id: int, _: str = Depends(verify_token)):
         raise
     except Exception as e:
         logger.error(f"Ошибка удаления пользователя {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка удаления пользователя")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка удаления пользователя: не удалось удалить связанные данные",
+        )
