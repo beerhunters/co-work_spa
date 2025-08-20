@@ -19,7 +19,16 @@ import {
   Button,
   Flex,
   Select,
-  Tooltip
+  Tooltip,
+  IconButton,
+  useToast,
+  AlertDialog,
+  AlertDialogBody,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogContent,
+  AlertDialogOverlay,
+  useDisclosure
 } from '@chakra-ui/react';
 import {
   FiSearch,
@@ -27,25 +36,38 @@ import {
   FiChevronRight,
   FiCheck,
   FiX,
-  FiEye
+  FiEye,
+  FiTrash2
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
+import { bookingApi } from '../utils/api';
 
 const Bookings = ({
   bookings,
   bookingsMeta,
   openDetailModal,
   onRefresh,
-  onFiltersChange, // Новый пропс для передачи фильтров в родительский компонент
-  isLoading = false // Пропс для индикации загрузки
+  onFiltersChange,
+  isLoading = false,
+  currentAdmin // Добавляем текущего администратора
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const cancelRef = React.useRef();
+  const toast = useToast();
 
   const tableBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
+
+  // Проверка прав на удаление бронирований
+  const canDeleteBookings = currentAdmin?.role === 'super_admin' ||
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('delete_bookings'));
 
   // Эффект для отправки фильтров в родительский компонент
   useEffect(() => {
@@ -135,6 +157,60 @@ const Bookings = ({
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     // Поиск будет выполнен через useEffect
+  };
+
+  // Обработчик удаления бронирования
+  const handleDeleteBooking = (booking) => {
+    setDeleteTarget(booking);
+    onDeleteOpen();
+  };
+
+  const confirmDeleteBooking = async () => {
+    if (!deleteTarget) return;
+
+    setIsDeleting(true);
+    try {
+      await bookingApi.delete(deleteTarget.id);
+
+      toast({
+        title: 'Бронирование удалено',
+        description: `Бронирование #${deleteTarget.id} успешно удалено`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем данные
+      if (onRefresh) {
+        await onRefresh();
+      }
+
+      // Закрываем диалог
+      onDeleteClose();
+      setDeleteTarget(null);
+
+    } catch (error) {
+      console.error('Ошибка удаления бронирования:', error);
+
+      let errorMessage = 'Не удалось удалить бронирование';
+      if (error.response?.status === 403) {
+        errorMessage = 'У вас нет прав для удаления бронирований';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Бронирование не найдено';
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      }
+
+      toast({
+        title: 'Ошибка',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // Статистика для отображения
@@ -339,16 +415,34 @@ const Bookings = ({
                     </Td>
 
                     <Td>
-                      <Tooltip label="Подробная информация">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          leftIcon={<FiEye />}
-                          onClick={() => openDetailModal(booking, 'booking')}
-                        >
-                          Детали
-                        </Button>
-                      </Tooltip>
+                      <HStack spacing={2}>
+                        <Tooltip label="Подробная информация">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            leftIcon={<FiEye />}
+                            onClick={() => openDetailModal(booking, 'booking')}
+                          >
+                            Детали
+                          </Button>
+                        </Tooltip>
+
+                        {canDeleteBookings && (
+                          <Tooltip label="Удалить бронирование">
+                            <IconButton
+                              icon={<FiTrash2 />}
+                              size="sm"
+                              variant="ghost"
+                              colorScheme="red"
+                              aria-label="Удалить бронирование"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteBooking(booking);
+                              }}
+                            />
+                          </Tooltip>
+                        )}
+                      </HStack>
                     </Td>
                   </Tr>
                 ))}
@@ -434,6 +528,61 @@ const Bookings = ({
           </Flex>
         )}
       </VStack>
+
+      {/* Диалог подтверждения удаления */}
+      <AlertDialog
+        isOpen={isDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onDeleteClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Удалить бронирование
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              Вы уверены, что хотите удалить бронирование{' '}
+              <strong>#{deleteTarget?.id}</strong>?
+              <br />
+              <br />
+              <VStack align="start" spacing={1} fontSize="sm">
+                <Text>
+                  <strong>Пользователь:</strong> {deleteTarget?.user?.full_name || 'Не указано'}
+                </Text>
+                <Text>
+                  <strong>Тариф:</strong> {deleteTarget?.tariff?.name || 'Не указан'}
+                </Text>
+                <Text>
+                  <strong>Сумма:</strong> {deleteTarget?.amount?.toLocaleString()} ₽
+                </Text>
+                <Text>
+                  <strong>Статус:</strong> {deleteTarget?.paid ? 'Оплачено' : 'Не оплачено'}, {deleteTarget?.confirmed ? 'Подтверждено' : 'Ожидает'}
+                </Text>
+              </VStack>
+              <br />
+              <Text color="red.500" fontWeight="medium">
+                Это действие нельзя отменить!
+              </Text>
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onDeleteClose}>
+                Отмена
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={confirmDeleteBooking}
+                ml={3}
+                isLoading={isDeleting}
+                loadingText="Удаление..."
+              >
+                Удалить
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
     </Box>
   );
 };

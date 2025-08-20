@@ -176,6 +176,7 @@ class Permission(enum.Enum):
 
     # Бронирования
     VIEW_BOOKINGS = "view_bookings"
+    CREATE_BOOKINGS = "create_bookings"
     EDIT_BOOKINGS = "edit_bookings"
     DELETE_BOOKINGS = "delete_bookings"
     CONFIRM_BOOKINGS = "confirm_bookings"
