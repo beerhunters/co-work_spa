@@ -25,7 +25,8 @@ from config import (
     TICKET_PHOTOS_DIR,
     NEWSLETTER_PHOTOS_DIR,
 )
-from dependencies import init_bot, close_bot
+from dependencies import init_bot, close_bot, start_cache_cleanup, stop_cache_cleanup
+from models.models import cleanup_database
 from utils.logger import get_logger
 from utils.database_maintenance import start_maintenance_tasks
 
@@ -52,43 +53,23 @@ async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения."""
     logger.info("Запуск приложения...")
 
-    # Проверяем и создаем директории
-    for directory in [
-        DATA_DIR,
-        AVATARS_DIR,
-        TICKET_PHOTOS_DIR,
-        NEWSLETTER_PHOTOS_DIR,
-    ]:
+    # Создаем необходимые директории
+    directories = [DATA_DIR, AVATARS_DIR, TICKET_PHOTOS_DIR, NEWSLETTER_PHOTOS_DIR]
+
+    for directory in directories:
         try:
             directory.mkdir(exist_ok=True, parents=True)
-            # Проверяем права на запись
-            test_file = directory / "test_write"
-            test_file.touch()
-            test_file.unlink()
             logger.info(f"Директория {directory} готова")
         except Exception as e:
-            logger.error(f"Ошибка с директорией {directory}: {e}")
+            logger.error(f"Ошибка создания директории {directory}: {e}")
 
-    # Инициализируем БД
+    # Инициализируем БД (DatabaseManager делает это автоматически и безопасно)
     try:
         logger.info("Инициализация БД...")
         init_db()
         logger.info("База данных инициализирована успешно")
     except Exception as e:
-        logger.error(f"Критическая ошибка инициализации БД: {e}")
-        # Попытка восстановления
-        try:
-            db_path = DATA_DIR / "coworking.db"
-            if db_path.exists():
-                backup_path = db_path.with_suffix(f".corrupted.{int(time.time())}")
-                db_path.rename(backup_path)
-                logger.info(f"Поврежденная БД перемещена в {backup_path}")
-
-            # Создаем новую БД
-            init_db()
-            logger.info("Создана новая БД")
-        except Exception as recovery_error:
-            logger.error(f"Не удалось восстановить БД: {recovery_error}")
+        logger.error(f"Ошибка инициализации БД: {e}")
 
     # Создаем админа
     try:
@@ -110,12 +91,30 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка запуска планировщиков: {e}")
 
-    logger.info("Приложение запущено успешно")
+    # Запускаем фоновую очистку кэша
+    try:
+        await start_cache_cleanup()
+        logger.info("Кэш-менеджер запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска кэш-менеджера: {e}")
 
     yield
 
     # Shutdown
-    logger.info("Остановка приложения...")
+    logger.info("Завершение приложения...")
+
+    try:
+        await stop_cache_cleanup()
+        logger.info("Кэш-менеджер остановлен")
+    except Exception as e:
+        logger.error(f"Ошибка остановки кэш-менеджера: {e}")
+
+    try:
+        await cleanup_database()
+        logger.info("Connection pool очищен")
+    except Exception as e:
+        logger.error(f"Ошибка очистки connection pool: {e}")
+
     try:
         await close_bot()
         logger.info("Бот закрыт")
@@ -130,8 +129,8 @@ app = FastAPI(
     description="API для управления коворкингом",
     debug=DEBUG,
     lifespan=lifespan,
-    docs_url="/api/docs" if DEBUG else None,
-    redoc_url="/api/redoc" if DEBUG else None,
+    docs_url="/docs",  # Доступны всегда для debugging
+    redoc_url="/redoc",
 )
 
 # Настройка CORS
@@ -155,10 +154,11 @@ async def root():
     }
 
 
-# Подключение статических файлов для аватаров
+# Подключение статических файлов
 try:
     if AVATARS_DIR.exists():
         app.mount("/avatars", StaticFiles(directory=str(AVATARS_DIR)), name="avatars")
+        logger.info("Аватары подключены")
 
     if TICKET_PHOTOS_DIR.exists():
         app.mount(
@@ -166,53 +166,59 @@ try:
             StaticFiles(directory=str(TICKET_PHOTOS_DIR)),
             name="ticket_photos",
         )
+        logger.info("Фото тикетов подключены")
 except Exception as e:
     logger.error(f"Ошибка монтирования статических файлов: {e}")
 
 # Подключение всех роутеров
-try:
-    app.include_router(auth_router)
-    app.include_router(users_router)
-    app.include_router(bookings_router)
-    app.include_router(tariffs_router)
-    app.include_router(promocodes_router)
-    app.include_router(tickets_router)
-    app.include_router(payments_router)
-    app.include_router(notifications_router)
-    app.include_router(newsletters_router)
-    app.include_router(dashboard_router)
-    app.include_router(health_router)
-    app.include_router(rubitime_router)
-    app.include_router(admins.router)
-    logger.info("Все роутеры подключены успешно")
-except Exception as e:
-    logger.error(f"Ошибка подключения роутеров: {e}")
+routers = [
+    (auth_router, "auth"),
+    (users_router, "users"),
+    (bookings_router, "bookings"),
+    (tariffs_router, "tariffs"),
+    (promocodes_router, "promocodes"),
+    (tickets_router, "tickets"),
+    (payments_router, "payments"),
+    (notifications_router, "notifications"),
+    (newsletters_router, "newsletters"),
+    (dashboard_router, "dashboard"),
+    (health_router, "health"),
+    (rubitime_router, "rubitime"),
+    (admins.router, "admins"),
+]
 
-# Дублирующие эндпоинты для совместимости (если фронтенд ожидает их в корне)
-# Эти эндпоинты будут работать как с префиксами, так и без них
-try:
+for router, name in routers:
+    try:
+        app.include_router(router)
+        logger.debug(f"Роутер {name} подключен")
+    except Exception as e:
+        logger.error(f"Ошибка подключения роутера {name}: {e}")
 
-    @app.post("/login")
-    async def login_compat(*args, **kwargs):
-        """Совместимость с фронтендом - дублирование /auth/login."""
-        from routes.auth import login_auth
+logger.info("Все роутеры подключены")
 
-        return await login_auth(*args, **kwargs)
 
-    @app.get("/verify_token")
-    async def verify_token_compat(*args, **kwargs):
-        """Совместимость с фронтендом - дублирование /auth/verify."""
-        from routes.auth import verify_token_endpoint
+# Совместимость с фронтендом - дублирование эндпоинтов
+@app.post("/login")
+async def login_compat(*args, **kwargs):
+    """Совместимость с фронтендом - дублирование /auth/login."""
+    from routes.auth import login_auth
 
-        return await verify_token_endpoint(*args, **kwargs)
+    return await login_auth(*args, **kwargs)
 
-    @app.get("/logout")
-    async def logout_compat():
-        """Совместимость с фронтендом - дублирование /auth/logout."""
-        return {"message": "Logged out successfully"}
 
-except Exception as e:
-    logger.error(f"Ошибка настройки совместимости: {e}")
+@app.get("/verify_token")
+async def verify_token_compat(*args, **kwargs):
+    """Совместимость с фронтендом - дублирование /auth/verify."""
+    from routes.auth import verify_token_endpoint
+
+    return await verify_token_endpoint(*args, **kwargs)
+
+
+@app.get("/logout")
+async def logout_compat():
+    """Совместимость с фронтендом - дублирование /auth/logout."""
+    return {"message": "Logged out successfully"}
+
 
 if __name__ == "__main__":
     import uvicorn

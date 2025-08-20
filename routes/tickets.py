@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 import base64
+import asyncio
 from pathlib import Path
 from fastapi.responses import FileResponse, Response
 from config import TICKET_PHOTOS_DIR
@@ -15,12 +16,26 @@ from dependencies import get_db, verify_token, get_bot
 from config import MOSCOW_TZ, TICKET_PHOTOS_DIR
 from schemas.ticket_schemas import TicketCreate
 from utils.logger import get_logger
+from utils.async_file_utils import AsyncFileManager
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 
-# router = APIRouter(tags=["tickets"])
+async def get_photo_from_telegram(photo_id: str) -> tuple[bytes, str]:
+    """Получаем фото напрямую из Telegram без кэширования"""
+    try:
+        bot = get_bot()
+        if not bot:
+            raise Exception("Telegram bot not available")
+
+        photo_data, mime_type = await _get_telegram_photo_data(photo_id, bot)
+        logger.debug(f"Фото загружено из Telegram: {photo_id}")
+        return photo_data, mime_type
+
+    except Exception as e:
+        logger.error(f"Ошибка получения фото {photo_id}: {e}")
+        raise
 
 
 @router.get("")
@@ -242,7 +257,6 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
     return {"id": ticket.id, "message": "Ticket created successfully"}
 
 
-# ИСПРАВЛЕНО: Правильный эндпоинт для получения тикетов пользователя
 @router.get("/users/telegram/{telegram_id}/tickets")
 async def get_user_tickets_by_telegram_id(
     telegram_id: int, status: Optional[str] = Query(None), db: Session = Depends(get_db)
@@ -368,9 +382,7 @@ async def update_ticket(
                     await send_telegram_notification(bot, user_telegram_id, message)
 
             except Exception as e:
-                logger.error(
-                    f"❌ Ошибка отправки уведомления о тикете #{ticket_id}: {e}"
-                )
+                logger.error(f"Ошибка отправки уведомления о тикете #{ticket_id}: {e}")
 
         # Обновляем тикет в БД через свежий запрос
         fresh_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
@@ -400,7 +412,7 @@ async def update_ticket(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Ошибка обновления тикета {ticket_id}: {e}")
+        logger.error(f"Ошибка обновления тикета {ticket_id}: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -441,7 +453,7 @@ async def _get_telegram_photo_data(photo_id: str, bot) -> tuple[bytes, str]:
 async def get_ticket_photo(
     ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    """Получение фото тикета по ID."""
+    """Получение фото тикета по ID напрямую из Telegram."""
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -452,12 +464,9 @@ async def get_ticket_photo(
                 status_code=404, detail="Photo not found for this ticket"
             )
 
-        bot = get_bot()
-        if not bot:
-            raise HTTPException(status_code=503, detail="Telegram bot not available")
-
         try:
-            photo_data, mime_type = await _get_telegram_photo_data(ticket.photo_id, bot)
+            # Загружаем фото напрямую из Telegram
+            photo_data, mime_type = await get_photo_from_telegram(ticket.photo_id)
 
             return Response(
                 content=photo_data,
@@ -487,7 +496,7 @@ async def get_ticket_photo(
 async def get_ticket_photo_base64(
     ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    """Получение фото тикета в формате base64."""
+    """Получение фото тикета в формате base64 напрямую из Telegram."""
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -498,12 +507,9 @@ async def get_ticket_photo_base64(
                 status_code=404, detail="Photo not found for this ticket"
             )
 
-        bot = get_bot()
-        if not bot:
-            raise HTTPException(status_code=503, detail="Telegram bot not available")
-
         try:
-            photo_data, mime_type = await _get_telegram_photo_data(ticket.photo_id, bot)
+            # Загружаем фото напрямую из Telegram
+            photo_data, mime_type = await get_photo_from_telegram(ticket.photo_id)
 
             # Кодируем в base64
             base64_data = base64.b64encode(photo_data).decode("utf-8")
@@ -535,7 +541,7 @@ async def get_ticket_photo_base64(
 async def get_ticket_response_photo(
     ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
 ):
-    """Получение фото ответа администратора на тикет."""
+    """Получение фото ответа администратора на тикет напрямую из Telegram."""
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
@@ -546,13 +552,10 @@ async def get_ticket_response_photo(
                 status_code=404, detail="Response photo not found for this ticket"
             )
 
-        bot = get_bot()
-        if not bot:
-            raise HTTPException(status_code=503, detail="Telegram bot not available")
-
         try:
-            photo_data, mime_type = await _get_telegram_photo_data(
-                ticket.response_photo_id, bot
+            # Загружаем фото напрямую из Telegram
+            photo_data, mime_type = await get_photo_from_telegram(
+                ticket.response_photo_id
             )
 
             return Response(
@@ -608,7 +611,7 @@ async def send_photo_to_user(
         user_telegram_id = user.telegram_id
         user_id_value = user.id
 
-        # Обработка загружаемого фото
+        # Обработка загружаемого фото с асинхронными операциями
         file_content = None
         if file:
             try:
@@ -703,7 +706,6 @@ async def send_photo_to_user(
                     # Отправляем фото если есть
                     if has_file and file_content:
                         try:
-                            from io import BytesIO
                             from aiogram.types import BufferedInputFile
 
                             # Создаем BufferedInputFile для отправки через aiogram
@@ -723,9 +725,7 @@ async def send_photo_to_user(
 
                             # Получаем file_id отправленного фото для сохранения в БД
                             if sent_message.photo:
-                                response_photo_id = sent_message.photo[
-                                    -1
-                                ].file_id  # Берем самое большое фото
+                                response_photo_id = sent_message.photo[-1].file_id
                                 update_data["response_photo_id"] = response_photo_id
 
                             photo_sent = True
@@ -765,7 +765,7 @@ async def send_photo_to_user(
 
             except Exception as e:
                 logger.error(
-                    f"❌ Ошибка отправки уведомления о тикете #{ticket_id_value}: {e}"
+                    f"Ошибка отправки уведомления о тикете #{ticket_id_value}: {e}"
                 )
 
         # КРИТИЧЕСКИЙ МОМЕНТ: Обновляем тикет в БД ПОСЛЕ отправки через новый запрос
@@ -785,10 +785,10 @@ async def send_photo_to_user(
             db.commit()
             db.refresh(fresh_ticket)
 
-            logger.info(f"✅ Тикет #{ticket_id_value} успешно обновлен в БД")
+            logger.info(f"Тикет #{ticket_id_value} успешно обновлен в БД")
 
         except Exception as db_error:
-            logger.error(f"❌ Ошибка обновления тикета в БД: {db_error}")
+            logger.error(f"Ошибка обновления тикета в БД: {db_error}")
             db.rollback()
             # Даже если БД не обновилась, уведомление уже отправлено
             # Возвращаем частичный успех
@@ -844,7 +844,7 @@ async def send_photo_to_user(
         raise
     except Exception as e:
         logger.error(
-            f"❌ Критическая ошибка в send_photo_to_user для тикета {ticket_id}: {e}"
+            f"Критическая ошибка в send_photo_to_user для тикета {ticket_id}: {e}"
         )
         db.rollback()
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -864,5 +864,5 @@ async def delete_ticket(
     db.delete(ticket)
     db.commit()
 
-    logger.info(f"🗑 Удален тикет #{ticket_id}")
+    logger.info(f"Удален тикет #{ticket_id}")
     return {"message": "Ticket deleted successfully"}

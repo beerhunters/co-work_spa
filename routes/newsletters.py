@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Q
 from pathlib import Path
 import time
 import asyncio
-
+import aiofiles
+from utils.async_file_utils import AsyncFileManager
 from dependencies import verify_token, verify_token_with_permissions, get_bot
 from config import NEWSLETTER_PHOTOS_DIR, MOSCOW_TZ
 from models.models import Newsletter, User, DatabaseManager, Permission
@@ -13,6 +14,34 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/newsletters", tags=["newsletters"])
+
+
+async def save_uploaded_photo_async(photo: UploadFile, idx: int) -> Optional[str]:
+    """Упрощенная версия с AsyncFileManager"""
+    try:
+        if not photo.content_type or not photo.content_type.startswith("image/"):
+            return None
+
+        timestamp = int(time.time())
+        file_ext = Path(photo.filename).suffix if photo.filename else ".jpg"
+        filename = f"newsletter_{timestamp}_{idx}{file_ext}"
+        file_path = NEWSLETTER_PHOTOS_DIR / filename
+
+        contents = await photo.read()
+
+        # Используем AsyncFileManager
+        success = await AsyncFileManager.save_uploaded_file(contents, file_path)
+        return str(file_path) if success else None
+
+    except Exception as e:
+        logger.error(f"Error saving photo {idx}: {e}")
+        return None
+
+
+async def cleanup_photos_async(photo_paths: List[str]):
+    """Упрощенная очистка с AsyncFileManager"""
+    for photo_path in photo_paths:
+        await AsyncFileManager.delete_file_async(Path(photo_path))
 
 
 @router.get("")
@@ -33,7 +62,7 @@ async def send_newsletter(
     photos: Optional[List[UploadFile]] = File(None),
     _: str = Depends(verify_token_with_permissions([Permission.SEND_NEWSLETTERS])),
 ):
-    """Отправка рассылки пользователям через Telegram бота."""
+    """Отправка рассылки пользователям через Telegram бота с асинхронной обработкой файлов."""
     bot = get_bot()
     if not bot:
         raise HTTPException(status_code=503, detail="Bot not available")
@@ -53,28 +82,31 @@ async def send_newsletter(
     if recipient_type == "selected" and not user_ids:
         raise HTTPException(status_code=400, detail="Не выбраны получатели")
 
-    # Валидация и сохранение фотографий
+    # Асинхронная обработка фотографий
     photo_paths = []
     if photos:
         if len(photos) > 10:
             raise HTTPException(
-                status_code=400, detail="Превышено максимальное количество фотографий"
+                status_code=400,
+                detail="Превышено максимальное количество фотографий (максимум 10)",
             )
 
-        NEWSLETTER_PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+        # Обрабатываем все фото параллельно
+        photo_tasks = [
+            save_uploaded_photo_async(photo, idx) for idx, photo in enumerate(photos)
+        ]
 
-        for idx, photo in enumerate(photos):
-            if photo.content_type and photo.content_type.startswith("image/"):
-                timestamp = int(time.time())
-                file_ext = Path(photo.filename).suffix if photo.filename else ".jpg"
-                filename = f"newsletter_{timestamp}_{idx}{file_ext}"
-                file_path = NEWSLETTER_PHOTOS_DIR / filename
+        # Ждем завершения всех задач
+        saved_paths = await asyncio.gather(*photo_tasks, return_exceptions=True)
 
-                contents = await photo.read()
-                with open(file_path, "wb") as f:
-                    f.write(contents)
+        # Фильтруем успешно сохраненные фото
+        for result in saved_paths:
+            if isinstance(result, str):  # Успешно сохранено
+                photo_paths.append(result)
+            elif isinstance(result, Exception):
+                logger.error(f"Photo processing failed: {result}")
 
-                photo_paths.append(str(file_path))
+        logger.info(f"Successfully processed {len(photo_paths)}/{len(photos)} photos")
 
     # Получение получателей
     def _get_recipients(session):
@@ -92,9 +124,16 @@ async def send_newsletter(
             for user in users
         ]
 
-    recipients = DatabaseManager.safe_execute(_get_recipients)
+    try:
+        recipients = DatabaseManager.safe_execute(_get_recipients)
+    except Exception as e:
+        # Очищаем загруженные фото при ошибке
+        await cleanup_photos_async(photo_paths)
+        logger.error(f"Error getting recipients: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get recipients")
 
     if not recipients:
+        await cleanup_photos_async(photo_paths)
         raise HTTPException(status_code=400, detail="Нет получателей для рассылки")
 
     # Отправка сообщений
@@ -105,24 +144,36 @@ async def send_newsletter(
         try:
             if photo_paths:
                 if len(photo_paths) == 1:
-                    # Одно фото - используем FSInputFile
-                    from aiogram.types import FSInputFile
+                    # Одно фото - читаем асинхронно и отправляем
+                    async with aiofiles.open(photo_paths[0], "rb") as photo_file:
+                        photo_content = await photo_file.read()
 
-                    photo_file = FSInputFile(photo_paths[0])
+                    from aiogram.types import BufferedInputFile
+
+                    photo_file_obj = BufferedInputFile(
+                        photo_content, filename=Path(photo_paths[0]).name
+                    )
+
                     await bot.send_photo(
                         chat_id=recipient["telegram_id"],
-                        photo=photo_file,
+                        photo=photo_file_obj,
                         caption=message,
                         parse_mode="HTML",
                     )
                 else:
                     # Несколько фото - отправляем как медиагруппу
-                    from aiogram.types import InputMediaPhoto, FSInputFile
+                    from aiogram.types import InputMediaPhoto, BufferedInputFile
 
                     media_group = []
                     for photo_idx, photo_path in enumerate(photo_paths):
+                        # Асинхронно читаем каждое фото
+                        async with aiofiles.open(photo_path, "rb") as photo_file:
+                            photo_content = await photo_file.read()
+
                         media = InputMediaPhoto(
-                            media=FSInputFile(photo_path),
+                            media=BufferedInputFile(
+                                photo_content, filename=f"photo_{photo_idx}.jpg"
+                            ),
                             caption=message if photo_idx == 0 else None,
                             parse_mode="HTML" if photo_idx == 0 else None,
                         )
@@ -138,7 +189,9 @@ async def send_newsletter(
                 )
 
             success_count += 1
-            await asyncio.sleep(0.05)  # Небольшая задержка
+
+            # Небольшая задержка для избежания rate limiting
+            await asyncio.sleep(0.05)
 
         except Exception as e:
             failed_count += 1
@@ -181,17 +234,23 @@ async def send_newsletter(
             "created_at": newsletter.created_at,
         }
 
-    result = DatabaseManager.safe_execute(_save_newsletter)
+    try:
+        result = DatabaseManager.safe_execute(_save_newsletter)
+    except Exception as e:
+        logger.error(f"Error saving newsletter: {e}")
+        # Продолжаем выполнение, даже если не удалось сохранить в БД
+        result = {
+            "total_count": len(recipients),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "photo_count": len(photo_paths),
+            "status": status,
+        }
 
-    # Удаляем временные файлы
-    for photo_path in photo_paths:
-        try:
-            Path(photo_path).unlink()
-        except Exception as e:
-            logger.warning(f"Failed to delete photo {photo_path}: {e}")
+    # Асинхронно удаляем временные файлы
+    await cleanup_photos_async(photo_paths)
 
     logger.info(f"Newsletter sent: {success_count}/{len(recipients)} delivered")
-
     return result
 
 
@@ -230,9 +289,6 @@ async def get_newsletter_history(
     except Exception as e:
         logger.error(f"Error getting newsletter history: {e}")
         raise HTTPException(status_code=500, detail="Failed to get newsletter history")
-
-
-# ВАЖНО: Специфичные маршруты ДОЛЖНЫ идти ПЕРЕД общими параметризированными!
 
 
 @router.delete("/clear-history")

@@ -1,6 +1,7 @@
-# ================== routes/health.py ==================
 import time
 import sqlite3
+from models.models import get_db_health, ConnectionPoolMonitor
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from datetime import datetime
@@ -126,3 +127,15 @@ async def system_health():
             "error": str(e),
             "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
         }
+
+
+@router.get("/database/pool")
+async def database_pool_health(_: str = Depends(verify_token)):
+    """Статус connection pool"""
+    return get_db_health()
+
+
+@router.get("/database/stats")
+async def database_pool_stats(_: str = Depends(verify_token)):
+    """Детальная статистика пула соединений"""
+    return ConnectionPoolMonitor.get_pool_status()
