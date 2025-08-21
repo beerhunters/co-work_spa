@@ -1,15 +1,65 @@
-FROM python:3.11-slim
-WORKDIR /app
+# Многоступенчатая сборка для оптимизации размера образа
+FROM python:3.11-slim AS base
+
+# Устанавливаем системные зависимости
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Создаем пользователя приложения
 RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN mkdir -p /data && chown -R appuser:appuser /data
-RUN mkdir -p /app/logs && chown -R appuser:appuser /app/logs
-RUN mkdir -p /app/static && chown -R appuser:appuser /app/static
-RUN apt-get update && apt-get install -y curl  # Добавляем curl
+
+# Этап установки зависимостей
+FROM base AS dependencies
+
+# Устанавливаем инструменты сборки для psutil
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /app
+
+# Копируем только requirements.txt для кеширования слоя
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY main.py .
-COPY utils/ ./utils
-COPY models/ ./models
-RUN chown -R appuser:appuser /app
+
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Финальный этап
+FROM base AS production
+
+WORKDIR /app
+
+# Копируем установленные зависимости из предыдущего этапа
+COPY --from=dependencies /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=dependencies /usr/local/bin /usr/local/bin
+
+# Создаем необходимые директории
+RUN mkdir -p /app/data /app/logs /app/avatars /app/ticket_photos /app/newsletter_photos && \
+    chown -R appuser:appuser /app
+
+# Копируем исходный код приложения
+COPY --chown=appuser:appuser main.py .
+COPY --chown=appuser:appuser config.py .
+COPY --chown=appuser:appuser dependencies.py .
+COPY --chown=appuser:appuser utils/ ./utils/
+COPY --chown=appuser:appuser models/ ./models/
+COPY --chown=appuser:appuser routes/ ./routes/
+COPY --chown=appuser:appuser schemas/ ./schemas/
+
+# Переключаемся на непривилегированного пользователя
 USER appuser
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Открываем порт
+EXPOSE 8000
+
+# Настройка health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Команда запуска
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

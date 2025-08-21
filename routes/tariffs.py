@@ -8,12 +8,14 @@ from models.models import Tariff
 from dependencies import get_db, verify_token
 from schemas.tariff_schemas import TariffBase, TariffCreate, TariffUpdate
 from utils.logger import get_logger
+from utils.cache import cache_tariffs
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/tariffs", tags=["tariffs"])
 
 
 @router.get("/active")
+@cache_tariffs(ttl_seconds=600)  # Кэшируем на 10 минут - тарифы меняются редко
 async def get_active_tariffs(db: Session = Depends(get_db)):
     """Получение активных тарифов. Используется ботом."""
     try:

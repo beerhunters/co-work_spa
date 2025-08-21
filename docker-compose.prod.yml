@@ -1,13 +1,17 @@
+# Production версия docker-compose с оптимизированными настройками
+version: '3.8'
+
 services:
   bot:
     build:
       context: .
       dockerfile: Dockerfile.bot
+      target: production
     environment:
       # Основные настройки
-      - DEBUG=${DEBUG:-false}
-      - HOST=${HOST:-localhost}
-      - PORT=${PORT:-8000}
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
 
       # Telegram Bot
       - BOT_TOKEN=${BOT_TOKEN}
@@ -26,19 +30,8 @@ services:
       # API
       - API_BASE_URL=http://web:8000
 
-      # Backup настройки
-      - BACKUP_ENABLED=true
-      - BACKUP_INTERVAL_HOURS=6
-      - BACKUP_DIR=/app/data/backups
-      - COMPRESS_BACKUPS=true
-      - KEEP_HOURLY_BACKUPS=48
-      - KEEP_DAILY_BACKUPS=30
-      - KEEP_WEEKLY_BACKUPS=12
-      - KEEP_MONTHLY_BACKUPS=6
-      - MAX_BACKUP_SIZE_MB=1000
-
       # Логирование
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_LEVEL=INFO
 
       # Внешние URL
       - ADMIN_URL=${ADMIN_URL:-https://t.me/partacoworking}
@@ -54,10 +47,18 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "test", "-f", "/app/data/bot_initialized"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
     networks:
       - coworking_network
 
@@ -65,13 +66,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      target: production
     environment:
       # Основные настройки
-      - DEBUG=${DEBUG:-false}
-      - HOST=${HOST:-localhost}
-      - PORT=${PORT:-8000}
-      - APP_NAME=${APP_NAME:-Coworking API}
-      - APP_VERSION=${APP_VERSION:-1.0.0}
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
+      - APP_NAME=Coworking API
+      - APP_VERSION=1.0.0
 
       # Сетевые настройки
       - API_BASE_URL=${API_BASE_URL}
@@ -81,7 +83,7 @@ services:
       # Безопасность
       - SECRET_KEY=${SECRET_KEY}
       - SECRET_KEY_JWT=${SECRET_KEY_JWT}
-      - ACCESS_TOKEN_EXPIRE_HOURS=${ACCESS_TOKEN_EXPIRE_HOURS:-24}
+      - ACCESS_TOKEN_EXPIRE_HOURS=24
       - ADMIN_LOGIN=${ADMIN_LOGIN}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
 
@@ -104,34 +106,23 @@ services:
       - RUBITIME_COOPERATOR_ID=${RUBITIME_COOPERATOR_ID:-25786}
 
       # База данных
-      - DB_TIMEOUT=${DB_TIMEOUT:-60}
-      - DB_RETRY_ATTEMPTS=${DB_RETRY_ATTEMPTS:-3}
-      - DB_RETRY_DELAY=${DB_RETRY_DELAY:-0.1}
-      - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
-      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-10}
-      - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30}
-      - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
-
-      # Backup настройки
-      - BACKUP_ENABLED=true
-      - BACKUP_INTERVAL_HOURS=6
-      - BACKUP_DIR=/app/data/backups
-      - COMPRESS_BACKUPS=true
-      - KEEP_HOURLY_BACKUPS=48
-      - KEEP_DAILY_BACKUPS=30
-      - KEEP_WEEKLY_BACKUPS=12
-      - KEEP_MONTHLY_BACKUPS=6
-      - MAX_BACKUP_SIZE_MB=1000
+      - DB_TIMEOUT=60
+      - DB_RETRY_ATTEMPTS=3
+      - DB_RETRY_DELAY=0.1
+      - DB_POOL_SIZE=10
+      - DB_MAX_OVERFLOW=20
+      - DB_POOL_TIMEOUT=60
+      - DB_POOL_RECYCLE=3600
 
       # Файлы и лимиты
-      - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-30}
-      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}
-      - NEWSLETTER_MAX_PHOTOS=${NEWSLETTER_MAX_PHOTOS:-10}
-      - NEWSLETTER_MAX_FILE_SIZE_MB=${NEWSLETTER_MAX_FILE_SIZE_MB:-20}
-      - NEWSLETTER_RATE_LIMIT_DELAY=${NEWSLETTER_RATE_LIMIT_DELAY:-0.05}
+      - FILE_RETENTION_DAYS=30
+      - MAX_FILE_SIZE_MB=10
+      - NEWSLETTER_MAX_PHOTOS=10
+      - NEWSLETTER_MAX_FILE_SIZE_MB=20
+      - NEWSLETTER_RATE_LIMIT_DELAY=0.05
 
       # Логирование
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_LEVEL=INFO
 
       # Внешние URL
       - ADMIN_URL=${ADMIN_URL:-https://t.me/partacoworking}
@@ -153,36 +144,52 @@ services:
     working_dir: /app
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
-      interval: 10s
-      timeout: 10s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 15s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
+          cpus: '1.0'
         reservations:
-          memory: 256M
+          memory: 512M
+          cpus: '0.5'
     networks:
       - coworking_network
 
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend.simple
+      dockerfile: Dockerfile.frontend
+      target: production
     environment:
-      - HOST=${HOST:-localhost}
+      - HOST=0.0.0.0
       - API_BASE_URL=${API_BASE_URL}
       - FRONTEND_URL=${FRONTEND_URL}
-      # Логирование
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_LEVEL=INFO
     ports:
       - "80:80"
     restart: unless-stopped
     depends_on:
       web:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
+          cpus: '0.25'
     networks:
       - coworking_network
 
@@ -215,3 +222,6 @@ volumes:
 networks:
   coworking_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

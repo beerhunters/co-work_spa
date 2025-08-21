@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from models.models import Admin
 from config import SECRET_KEY_JWT, ALGORITHM, ACCESS_TOKEN_EXPIRE_HOURS
 from dependencies import get_db
 from utils.logger import get_logger
+from utils.rate_limiter import get_rate_limiter
 
 logger = get_logger(__name__)
 
@@ -55,10 +56,26 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
 
 # Основные эндпоинты аутентификации с префиксом /auth
 @router.post("/auth/login", response_model=TokenResponse)
-async def login_auth(credentials: AdminCredentials, db: Session = Depends(get_db)):
-    """Аутентификация администратора через /auth/login."""
+async def login_auth(credentials: AdminCredentials, request: Request, db: Session = Depends(get_db)):
+    """Аутентификация администратора через /auth/login с защитой от брутфорса."""
+    
+    # Применяем строгий rate limiting для логина
+    rate_limiter = get_rate_limiter()
+    await rate_limiter.check_limit(request, "auth:login")
+    
     admin = db.query(Admin).filter(Admin.login == credentials.login).first()
     if not admin or not check_password_hash(admin.password, credentials.password):
+        # Логируем неудачную попытку входа для мониторинга
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+        logger.warning(
+            f"Неудачная попытка входа",
+            extra={
+                "login": credentials.login,
+                "client_ip": client_ip,
+                "user_agent": request.headers.get("User-Agent", ""),
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     access_token = create_access_token(data={"sub": admin.login})
@@ -97,9 +114,9 @@ async def get_current_user_auth(
 
 # Дублирующие эндпоинты для совместимости с фронтендом (без префикса)
 @router.post("/login", response_model=TokenResponse, include_in_schema=False)
-async def login_root(credentials: AdminCredentials, db: Session = Depends(get_db)):
+async def login_root(credentials: AdminCredentials, request: Request, db: Session = Depends(get_db)):
     """Аутентификация администратора (корневой эндпоинт для совместимости)."""
-    return await login_auth(credentials, db)
+    return await login_auth(credentials, request, db)
 
 
 @router.get("/verify_token", include_in_schema=False)
@@ -114,3 +131,9 @@ async def get_current_user_root(
 ):
     """Получение текущего пользователя (корневой эндпоинт для совместимости)."""
     return await get_current_user_auth(username, db)
+
+
+@router.get("/logout", include_in_schema=False)
+async def logout_root():
+    """Выход из системы (корневой эндпоинт для совместимости)."""
+    return {"message": "Logged out successfully"}

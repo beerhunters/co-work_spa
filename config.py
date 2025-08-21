@@ -40,14 +40,24 @@ DATABASE_RETRY_ATTEMPTS = int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
 DATABASE_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.1"))
 
 # Безопасность
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
-SECRET_KEY_JWT = os.getenv("SECRET_KEY_JWT", "your-jwt-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+SECRET_KEY_JWT = os.getenv("SECRET_KEY_JWT")
+
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY не задан в переменных окружения")
+if not SECRET_KEY_JWT:
+    raise ValueError("SECRET_KEY_JWT не задан в переменных окружения")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
 
 # Администратор
-ADMIN_LOGIN = os.getenv("ADMIN_LOGIN", "admin")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_LOGIN = os.getenv("ADMIN_LOGIN")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+
+if not ADMIN_LOGIN:
+    raise ValueError("ADMIN_LOGIN не задан в переменных окружения")
+if not ADMIN_PASSWORD:
+    raise ValueError("ADMIN_PASSWORD не задан в переменных окружения")
 
 # Telegram Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -102,12 +112,15 @@ import pytz
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 # Валидация обязательных переменных
+import logging
+logger = logging.getLogger(__name__)
+
 required_env_vars = {
     "BOT_TOKEN": BOT_TOKEN,
 }
 
 missing_vars = [key for key, value in required_env_vars.items() if not value]
 if missing_vars:
-    print(
-        f"ПРЕДУПРЕЖДЕНИЕ: Отсутствуют переменные окружения: {', '.join(missing_vars)}"
+    logger.warning(
+        f"Отсутствуют переменные окружения: {', '.join(missing_vars)}"
     )

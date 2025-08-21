@@ -3,7 +3,7 @@ import time
 import hashlib
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from fastapi.responses import FileResponse
@@ -26,12 +26,22 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("", response_model=List[UserBase])
 async def get_users(
+    page: int = Query(1, ge=1, description="Номер страницы"),
+    per_page: int = Query(50, ge=1, le=200, description="Количество пользователей на страницу"),
     _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
 ):
-    """Получение списка всех пользователей."""
+    """Получение списка пользователей с пагинацией."""
 
     def _get_users(session):
-        users = session.query(User).order_by(User.first_join_time.desc()).all()
+        # Добавляем пагинацию для избежания загрузки всех пользователей
+        offset = (page - 1) * per_page
+        users = (
+            session.query(User)
+            .order_by(User.first_join_time.desc())
+            .offset(offset)
+            .limit(per_page)
+            .all()
+        )
         users_data = []
         for user in users:
             user_dict = {

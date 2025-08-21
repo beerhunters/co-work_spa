@@ -24,6 +24,7 @@ from sqlalchemy import (
     Time,
     select,
     Enum,
+    Index,
     event,
     Text,
 )
@@ -51,26 +52,27 @@ MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 DB_DIR = Path("/app/data")
 DB_DIR.mkdir(exist_ok=True)
 
-# Настройки connection pool
-POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
-MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
-POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
-POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # 1 час
+# Настройки connection pool - оптимизированы для production
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))  # Увеличено с 5 до 10
+MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "15"))  # Увеличено с 10 до 15
+POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "45"))  # Увеличено с 30 до 45
+POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))  # Уменьшено до 30 минут
+POOL_PRE_PING = True  # Проверка соединений перед использованием
 
-# Улучшенная конфигурация SQLite с proper connection pooling
+# Улучшенная конфигурация SQLite с optimized connection pooling
 engine = create_engine(
     f"sqlite:///{DB_DIR}/coworking.db",
     echo=False,
-    pool_pre_ping=True,  # Проверка соединения перед использованием
-    pool_size=POOL_SIZE,  # Базовый размер пула (5 соединений)
-    max_overflow=MAX_OVERFLOW,  # Дополнительные соединения при нагрузке (10)
-    pool_timeout=POOL_TIMEOUT,  # Таймаут ожидания соединения (30 сек)
-    pool_recycle=POOL_RECYCLE,  # Время жизни соединения (1 час)
+    pool_pre_ping=POOL_PRE_PING,  # Проверка соединения перед использованием
+    pool_size=POOL_SIZE,  # Базовый размер пула (увеличено до 10)
+    max_overflow=MAX_OVERFLOW,  # Дополнительные соединения при нагрузке (до 15)
+    pool_timeout=POOL_TIMEOUT,  # Таймаут ожидания соединения (45 сек)
+    pool_recycle=POOL_RECYCLE,  # Время жизни соединения (30 мин для быстрого обновления)
     poolclass=QueuePool,  # QueuePool вместо StaticPool для лучшего управления
     connect_args={
         "check_same_thread": False,
         "timeout": 60,  # Таймаут блокировки базы
-        "isolation_level": None,  # Автокоммит для лучшей производительности
+        "isolation_level": "IMMEDIATE",  # Изоляция транзакций для SQLite
     },
 )
 
@@ -572,16 +574,16 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     telegram_id = Column(BigInteger, unique=True, nullable=False)
     first_join_time = Column(
-        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
+        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True
     )
-    full_name = Column(String)
+    full_name = Column(String, index=True)
     phone = Column(String)
     email = Column(String)
     username = Column(String)
     successful_bookings = Column(Integer, default=0)
     language_code = Column(String, default="ru")
     invited_count = Column(Integer, default=0)
-    reg_date = Column(DateTime)
+    reg_date = Column(DateTime, index=True)
     agreed_to_terms = Column(Boolean, default=False)
     avatar = Column(String, nullable=True)
     referrer_id = Column(BigInteger, nullable=True)  # Убрать ForeignKey пока что
@@ -661,18 +663,18 @@ class Booking(Base):
         nullable=False,
         index=True,  # Изменено с BigInteger на Integer
     )
-    tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=False)
-    visit_date = Column(Date, nullable=False)
+    tariff_id = Column(Integer, ForeignKey("tariffs.id"), nullable=False, index=True)
+    visit_date = Column(Date, nullable=False, index=True)
     visit_time = Column(Time, nullable=True)
     duration = Column(Integer, nullable=True)
     promocode_id = Column(Integer, ForeignKey("promocodes.id"), nullable=True)
     amount = Column(Float, nullable=False)
     payment_id = Column(String(100), nullable=True)
-    paid = Column(Boolean, default=False)
+    paid = Column(Boolean, default=False, index=True)
     rubitime_id = Column(String(100), nullable=True)
-    confirmed = Column(Boolean, default=False)
+    confirmed = Column(Boolean, default=False, index=True)
     created_at = Column(
-        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
+        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True
     )
 
     # Связи
@@ -680,6 +682,13 @@ class Booking(Base):
     tariff = relationship("Tariff", backref="bookings")
     promocode = relationship("Promocode", backref="promocodes")
     notifications = relationship("Notification", back_populates="booking")
+
+    # Композитные индексы для часто используемых комбинаций
+    __table_args__ = (
+        Index('idx_bookings_user_paid', 'user_id', 'paid'),
+        Index('idx_bookings_date_status', 'visit_date', 'confirmed', 'paid'),
+        Index('idx_bookings_user_date', 'user_id', 'visit_date'),
+    )
 
 
 class Newsletter(Base):
@@ -718,13 +727,13 @@ class Ticket(Base):
     __tablename__ = "tickets"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     description = Column(String, nullable=False)
     photo_id = Column(String, nullable=True)  # Фото от пользователя
     response_photo_id = Column(String, nullable=True)  # Фото в ответе от администратора
-    status = Column(Enum(TicketStatus), default=TicketStatus.OPEN, nullable=False)
+    status = Column(Enum(TicketStatus), default=TicketStatus.OPEN, nullable=False, index=True)
     comment = Column(String, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ))
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), index=True)
     updated_at = Column(
         DateTime,
         default=lambda: datetime.now(MOSCOW_TZ),
@@ -750,9 +759,9 @@ class Notification(Base):
     )
     message = Column(String, nullable=False)
     target_url = Column(String, nullable=True)
-    is_read = Column(Boolean, default=False, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False, index=True)
     created_at = Column(
-        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False
+        DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True
     )
     booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=True, index=True)
     ticket_id = Column(Integer, ForeignKey("tickets.id"), nullable=True, index=True)
@@ -857,6 +866,9 @@ async def cleanup_database():
     DatabaseManager.cleanup_connections()
     logger.info("Database cleanup completed")
 
+
+# Импорт дополнительных моделей
+from utils.api_keys import APIKey
 
 # Автоматическая инициализация при импорте с обработкой ошибок
 try:

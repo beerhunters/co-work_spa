@@ -24,6 +24,7 @@ import Tickets from './sections/Tickets';
 import Notifications from './sections/Notifications';
 import Newsletters from './sections/Newsletters';
 import Admins from './sections/Admins';
+import Backups from './sections/Backups';
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -941,14 +942,15 @@ function App() {
       tickets: 'view_tickets',
       notifications: 'view_notifications',
       newsletters: 'view_newsletters',
-      admins: 'manage_admins'
+      admins: 'manage_admins',
+      backups: 'manage_backups'
     };
 
     const requiredPermission = sectionPermissions[section];
     const hasAccess = !requiredPermission || hasPermission(requiredPermission);
 
-    // Для админов дополнительная проверка на супер админа
-    if (section === 'admins' && currentAdmin?.role !== 'super_admin') {
+    // Для админов и бэкапов дополнительная проверка на супер админа
+    if ((section === 'admins' || section === 'backups') && currentAdmin?.role !== 'super_admin') {
       return (
         <div style={{ padding: '2rem', textAlign: 'center' }}>
           <h2 style={{ color: '#e53e3e', fontSize: '1.5rem', marginBottom: '1rem' }}>
@@ -1054,6 +1056,8 @@ function App() {
             currentAdmin={currentAdmin}
           />
         );
+      case 'backups':
+        return <Backups currentAdmin={currentAdmin} />;
       default:
         return (
           <Dashboard

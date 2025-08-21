@@ -149,7 +149,7 @@ async def main() -> None:
 
     # Создаем файл-индикатор для healthcheck
     try:
-        with open("/data/bot_initialized", "w") as f:
+        with open("/app/data/bot_initialized", "w") as f:
             f.write("1")
         logger.info("Файл инициализации создан")
     except Exception as e:

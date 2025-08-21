@@ -1,6 +1,6 @@
 import React from 'react';
 import { Box, VStack, Flex, Heading, Button, Icon, Spacer } from '@chakra-ui/react';
-import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield, FiDatabase } from 'react-icons/fi';
 import { colors, sizes, styles } from '../styles/styles';
 
 const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
@@ -15,6 +15,7 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
     { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' },
     { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple', requiresSuperAdmin: true },
+    { icon: FiDatabase, label: 'Бэкапы', section: 'backups', color: 'red', requiresSuperAdmin: true },
   ];
 
   // Теперь фильтруем пункты меню в зависимости от роли

@@ -29,6 +29,7 @@ from dependencies import init_bot, close_bot, start_cache_cleanup, stop_cache_cl
 from models.models import cleanup_database
 from utils.logger import get_logger
 from utils.database_maintenance import start_maintenance_tasks
+from utils.backup_manager import start_backup_scheduler, stop_backup_scheduler
 
 # Импорты всех роутеров
 from routes.auth import router as auth_router
@@ -42,7 +43,10 @@ from routes.notifications import router as notifications_router
 from routes.newsletters import router as newsletters_router
 from routes.dashboard import router as dashboard_router
 from routes.health import router as health_router
+from routes.monitoring import router as monitoring_router
+from routes.api_keys import router as api_keys_router
 from routes.rubitime import router as rubitime_router
+from routes.backups import router as backups_router
 from routes import admins
 
 logger = get_logger(__name__)
@@ -98,6 +102,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка запуска кэш-менеджера: {e}")
 
+    # Запускаем систему автоматических бэкапов
+    try:
+        await start_backup_scheduler()
+        logger.info("Планировщик бэкапов запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска планировщика бэкапов: {e}")
+
     yield
 
     # Shutdown
@@ -108,6 +119,13 @@ async def lifespan(app: FastAPI):
         logger.info("Кэш-менеджер остановлен")
     except Exception as e:
         logger.error(f"Ошибка остановки кэш-менеджера: {e}")
+
+    # Останавливаем планировщик бэкапов
+    try:
+        await stop_backup_scheduler()
+        logger.info("Планировщик бэкапов остановлен")
+    except Exception as e:
+        logger.error(f"Ошибка остановки планировщика бэкапов: {e}")
 
     try:
         await cleanup_database()
@@ -129,17 +147,38 @@ app = FastAPI(
     description="API для управления коворкингом",
     debug=DEBUG,
     lifespan=lifespan,
-    docs_url="/docs",  # Доступны всегда для debugging
-    redoc_url="/redoc",
+    docs_url="/docs" if DEBUG else None,  # Только в debug режиме
+    redoc_url="/redoc" if DEBUG else None,  # Только в debug режиме
 )
 
-# Настройка CORS
+# Подключение middleware
+from utils.middleware import (
+    RateLimitMiddleware,
+    RequestLoggingMiddleware,
+    SecurityHeadersMiddleware,
+    PerformanceMiddleware,
+)
+
+# Порядок middleware важен - добавляем в обратном порядке выполнения
+app.add_middleware(PerformanceMiddleware, enabled=True)
+app.add_middleware(SecurityHeadersMiddleware, enabled=True)
+app.add_middleware(RequestLoggingMiddleware, enabled=True)
+app.add_middleware(RateLimitMiddleware, enabled=True)
+
+# Настройка CORS (должен быть после других middleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "X-Request-ID",  # Для трассировки запросов
+    ],
 )
 
 
@@ -183,6 +222,9 @@ routers = [
     (newsletters_router, "newsletters"),
     (dashboard_router, "dashboard"),
     (health_router, "health"),
+    (monitoring_router, "monitoring"),
+    (api_keys_router, "api_keys"),
+    (backups_router, "backups"),
     (rubitime_router, "rubitime"),
     (admins.router, "admins"),
 ]
@@ -197,27 +239,7 @@ for router, name in routers:
 logger.info("Все роутеры подключены")
 
 
-# Совместимость с фронтендом - дублирование эндпоинтов
-@app.post("/login")
-async def login_compat(*args, **kwargs):
-    """Совместимость с фронтендом - дублирование /auth/login."""
-    from routes.auth import login_auth
-
-    return await login_auth(*args, **kwargs)
-
-
-@app.get("/verify_token")
-async def verify_token_compat(*args, **kwargs):
-    """Совместимость с фронтендом - дублирование /auth/verify."""
-    from routes.auth import verify_token_endpoint
-
-    return await verify_token_endpoint(*args, **kwargs)
-
-
-@app.get("/logout")
-async def logout_compat():
-    """Совместимость с фронтендом - дублирование /auth/logout."""
-    return {"message": "Logged out successfully"}
+# Совместимость с фронтендом обеспечивается через auth.py роутер
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 from datetime import date, time as time_type, datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text
 
 from models.models import (
@@ -607,19 +607,24 @@ async def get_booking_detailed(
         if booking_id_int <= 0:
             raise HTTPException(status_code=400, detail="Booking ID must be positive")
 
-        booking = db.query(Booking).filter(Booking.id == booking_id_int).first()
+        # Используем eager loading для избежания N+1 query проблемы
+        booking = (
+            db.query(Booking)
+            .options(
+                joinedload(Booking.user),
+                joinedload(Booking.tariff),
+                joinedload(Booking.promocode)
+            )
+            .filter(Booking.id == booking_id_int)
+            .first()
+        )
 
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
 
-        user = db.query(User).filter(User.id == booking.user_id).first()
-        tariff = db.query(Tariff).filter(Tariff.id == booking.tariff_id).first()
-        promocode = None
-
-        if booking.promocode_id:
-            promocode = (
-                db.query(Promocode).filter(Promocode.id == booking.promocode_id).first()
-            )
+        user = booking.user
+        tariff = booking.tariff
+        promocode = booking.promocode
 
         booking_detail = {
             "id": booking.id,

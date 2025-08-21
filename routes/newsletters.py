@@ -6,6 +6,7 @@ import time
 import asyncio
 import aiofiles
 from utils.async_file_utils import AsyncFileManager
+from utils.file_validation import FileValidator
 from dependencies import verify_token, verify_token_with_permissions, get_bot
 from config import NEWSLETTER_PHOTOS_DIR, MOSCOW_TZ
 from models.models import Newsletter, User, DatabaseManager, Permission
@@ -17,22 +18,30 @@ router = APIRouter(prefix="/newsletters", tags=["newsletters"])
 
 
 async def save_uploaded_photo_async(photo: UploadFile, idx: int) -> Optional[str]:
-    """Упрощенная версия с AsyncFileManager"""
+    """Безопасное сохранение фотографии с валидацией"""
     try:
-        if not photo.content_type or not photo.content_type.startswith("image/"):
+        # Валидация файла
+        FileValidator.validate_image_file(photo)
+        
+        # Валидация содержимого
+        contents = await photo.read()
+        if not await FileValidator.validate_file_content(contents, 'image'):
+            logger.warning(f"File {photo.filename} failed content validation")
             return None
 
-        timestamp = int(time.time())
-        file_ext = Path(photo.filename).suffix if photo.filename else ".jpg"
-        filename = f"newsletter_{timestamp}_{idx}{file_ext}"
-        file_path = NEWSLETTER_PHOTOS_DIR / filename
-
-        contents = await photo.read()
+        # Генерация безопасного имени файла
+        safe_filename = FileValidator.generate_safe_filename(
+            photo.filename, f"newsletter_{idx}"
+        )
+        file_path = NEWSLETTER_PHOTOS_DIR / safe_filename
 
         # Используем AsyncFileManager
         success = await AsyncFileManager.save_uploaded_file(contents, file_path)
         return str(file_path) if success else None
 
+    except HTTPException:
+        # Пробрасываем HTTP исключения валидации
+        raise
     except Exception as e:
         logger.error(f"Error saving photo {idx}: {e}")
         return None

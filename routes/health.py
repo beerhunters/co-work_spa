@@ -139,3 +139,17 @@ async def database_pool_health(_: str = Depends(verify_token)):
 async def database_pool_stats(_: str = Depends(verify_token)):
     """Детальная статистика пула соединений"""
     return ConnectionPoolMonitor.get_pool_status()
+
+
+@router.get("/")
+async def basic_health_check():
+    """Базовая проверка работоспособности для Docker health check"""
+    try:
+        return {
+            "status": "healthy",
+            "service": "coworking-api",
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        raise HTTPException(status_code=503, detail="Service unhealthy")
