@@ -41,6 +41,9 @@ import {
   adminApi,
 } from './utils/api.js';
 import notificationManager from './utils/notifications';
+import { createLogger } from './utils/logger.js';
+
+const logger = createLogger('App');
 
 function App() {
   // Защита от ошибок рендеринга
@@ -118,7 +121,7 @@ function App() {
     const hasPermission = useCallback((permission) => {
     // Защита от вызова до инициализации
     if (!currentAdmin) {
-      console.log('hasPermission вызван до загрузки currentAdmin');
+      logger.debug('hasPermission вызван до загрузки currentAdmin');
       return false;
     }
 
@@ -129,7 +132,7 @@ function App() {
 
   // Проверяем наличие разрешений и самого разрешения
   if (!currentAdmin.permissions || !Array.isArray(currentAdmin.permissions)) {
-    console.log('permissions не найдены или не являются массивом');
+    logger.debug('permissions не найдены или не являются массивом');
     return false;
   }
 
@@ -141,9 +144,9 @@ function App() {
     try {
       const profile = await adminApi.getCurrentProfile();
       setCurrentAdmin(profile);
-      console.log('Профиль текущего админа загружен:', profile);
+      logger.debug('Профиль текущего админа загружен:', profile);
     } catch (error) {
-      console.error('Ошибка загрузки профиля админа:', error);
+      logger.error('Ошибка загрузки профиля админа:', error);
       if (error.response?.status === 401) {
         removeAuthToken();
         setIsAuthenticated(false);
@@ -166,10 +169,10 @@ function App() {
 
     setIsTicketsLoading(true);
     try {
-      console.log('Загружаем тикеты с фильтрами:', filters);
+      logger.debug('Загружаем тикеты с фильтрами:', filters);
       const response = await ticketApi.getAllDetailed(filters);
 
-      console.log('Получен ответ тикетов:', {
+      logger.debug('Получен ответ тикетов:', {
         ticketsCount: response.tickets?.length || 0,
         totalCount: response.total_count,
         page: response.page,
@@ -185,12 +188,12 @@ function App() {
       });
 
     } catch (error) {
-      console.error('Ошибка загрузки тикетов:', error);
+      logger.error('Ошибка загрузки тикетов:', error);
 
       try {
-        console.log('Пробуем резервный способ загрузки тикетов...');
+        logger.info('Пробуем резервный способ загрузки тикетов...');
         const fallbackData = await ticketApi.getAll(filters);
-        console.log('Резервная загрузка тикетов успешна:', fallbackData.length, 'записей');
+        logger.info('Резервная загрузка тикетов успешна', { count: fallbackData.length });
 
         setTickets(Array.isArray(fallbackData) ? fallbackData : []);
         setTicketsMeta({
@@ -207,7 +210,7 @@ function App() {
           duration: 3000,
         });
       } catch (fallbackError) {
-        console.error('Fallback ошибка тикетов:', fallbackError);
+        logger.error('Fallback ошибка тикетов:', fallbackError);
         setTickets([]);
         setTicketsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
 
@@ -226,7 +229,7 @@ function App() {
 
   // Обработчик изменения фильтров тикетов
   const handleTicketFiltersChange = useCallback((newFilters) => {
-    console.log('Получены новые фильтры тикетов:', newFilters);
+    logger.debug('Получены новые фильтры тикетов:', newFilters);
 
     const isDefaultFilters = (
       newFilters.page === 1 &&
@@ -236,12 +239,12 @@ function App() {
     );
 
     if (isDefaultFilters) {
-      console.log('Обнаружен сброс к дефолтным фильтрам тикетов');
+      logger.debug('Обнаружен сброс к дефолтным фильтрам тикетов');
       setTicketFilters({ page: 1, per_page: 20 });
     } else {
       setTicketFilters(prevFilters => {
         const updatedFilters = { ...prevFilters, ...newFilters };
-        console.log('Обновленные фильтры тикетов:', updatedFilters);
+        logger.debug('Обновленные фильтры тикетов:', updatedFilters);
         return updatedFilters;
       });
     }
@@ -261,10 +264,10 @@ function App() {
 
     setIsBookingsLoading(true);
     try {
-      console.log('Загружаем бронирования с фильтрами:', filters);
+      logger.debug('Загружаем бронирования с фильтрами:', filters);
       const response = await bookingApi.getAllDetailed(filters);
 
-      console.log('Получен ответ:', {
+      logger.debug('Получен ответ:', {
         bookingsCount: response.bookings?.length || 0,
         totalCount: response.total_count,
         page: response.page,
@@ -280,10 +283,10 @@ function App() {
       });
 
     } catch (error) {
-      console.error('Ошибка загрузки бронирований:', error);
+      logger.error('Ошибка загрузки бронирований:', error);
 
       if (error.message?.includes('422')) {
-        console.error('422 ошибка валидации при загрузке бронирований');
+        logger.error('422 ошибка валидации при загрузке бронирований');
         toast({
           title: 'Ошибка валидации',
           description: 'Проблема с параметрами запроса бронирований',
@@ -294,9 +297,9 @@ function App() {
       }
 
       try {
-        console.log('Пробуем резервный способ загрузки...');
+        logger.info('Пробуем резервный способ загрузки...');
         const fallbackData = await bookingApi.getAll(filters);
-        console.log('Резервная загрузка успешна:', fallbackData.length, 'записей');
+        logger.info('Резервная загрузка успешна', { count: fallbackData.length });
 
         setBookings(Array.isArray(fallbackData) ? fallbackData : []);
         setBookingsMeta({
@@ -313,7 +316,7 @@ function App() {
           duration: 3000,
         });
       } catch (fallbackError) {
-        console.error('Fallback ошибка:', fallbackError);
+        logger.error('Fallback ошибка:', fallbackError);
         setBookings([]);
         setBookingsMeta({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
 
@@ -332,7 +335,7 @@ function App() {
 
   // Обработчик изменения фильтров бронирований
   const handleBookingFiltersChange = useCallback((newFilters) => {
-    console.log('Получены новые фильтры бронирований:', newFilters);
+    logger.debug('Получены новые фильтры бронирований:', newFilters);
 
     const isDefaultFilters = (
       newFilters.page === 1 &&
@@ -342,12 +345,12 @@ function App() {
     );
 
     if (isDefaultFilters) {
-      console.log('Обнаружен сброс к дефолтным фильтрам');
+      logger.debug('Обнаружен сброс к дефолтным фильтрам');
       setBookingFilters({ page: 1, per_page: 20 });
     } else {
       setBookingFilters(prevFilters => {
         const updatedFilters = { ...prevFilters, ...newFilters };
-        console.log('Обновленные фильтры бронирований:', updatedFilters);
+        logger.debug('Обновленные фильтры бронирований:', updatedFilters);
         return updatedFilters;
       });
     }
@@ -415,7 +418,7 @@ function App() {
           break;
       }
     } catch (error) {
-      console.error(`Общая ошибка загрузки данных для ${sectionName}:`, error);
+      logger.error(`Общая ошибка загрузки данных для ${sectionName}`, error);
 
       if (error.response?.status === 403) {
         toast({
@@ -440,14 +443,14 @@ function App() {
   // Effects для загрузки данных при изменении фильтров
   useEffect(() => {
     if (isAuthenticated && section === 'tickets' && currentAdmin) {
-      console.log('Фильтры тикетов изменились, загружаем данные:', ticketFilters);
+      logger.debug('Фильтры тикетов изменились, загружаем данные:', ticketFilters);
       loadTicketsWithFilters(ticketFilters);
     }
   }, [ticketFilters, isAuthenticated, section, currentAdmin, loadTicketsWithFilters]);
 
   useEffect(() => {
     if (isAuthenticated && section === 'bookings' && currentAdmin) {
-      console.log('Фильтры бронирований изменились, загружаем данные:', bookingFilters);
+      logger.debug('Фильтры бронирований изменились, загружаем данные:', bookingFilters);
       loadBookingsWithFilters(bookingFilters);
     }
   }, [bookingFilters, isAuthenticated, section, currentAdmin, loadBookingsWithFilters]);
@@ -477,7 +480,7 @@ function App() {
         const savedSoundSetting = localStorage.getItem('notificationSoundEnabled');
         setSoundEnabled(savedSoundSetting !== 'false');
       } catch (error) {
-        console.error('Ошибка инициализации уведомлений:', error);
+        logger.error('Ошибка инициализации уведомлений:', error);
       }
     };
 
@@ -542,7 +545,7 @@ function App() {
           const stats = await dashboardApi.getStats();
           setDashboardStats(stats);
         } catch (err) {
-          console.error('Ошибка получения статистики дашборда:', err);
+          logger.error('Ошибка получения статистики дашборда:', err);
         }
       };
 
@@ -577,7 +580,7 @@ function App() {
             });
           }
         } catch (err) {
-          console.error('Ошибка получения уведомлений:', err);
+          logger.error('Ошибка получения уведомлений:', err);
         }
       };
 
@@ -680,7 +683,7 @@ function App() {
         position: 'top-right',
       });
     } catch (error) {
-      console.error('Ошибка выхода:', error);
+      logger.error('Ошибка выхода:', error);
       toast({
         title: 'Ошибка',
         description: 'Не удалось выйти',
@@ -732,7 +735,7 @@ function App() {
         }
       }
     } catch (error) {
-      console.error('Ошибка при пометке уведомления:', error);
+      logger.error('Ошибка при пометке уведомления:', error);
       toast({
         title: 'Ошибка',
         description: 'Не удалось пометить уведомление как прочитанное',
@@ -760,7 +763,7 @@ function App() {
         position: 'top-right',
       });
     } catch (error) {
-      console.error('Ошибка при пометке всех уведомлений:', error);
+      logger.error('Ошибка при пометке всех уведомлений:', error);
       toast({
         title: 'Ошибка',
         description: 'Не удалось пометить уведомления',
@@ -775,7 +778,7 @@ function App() {
   // Обработчик открытия модального окна
   const openDetailModal = async (item, type) => {
     try {
-      console.log('Открытие модального окна:', type, item.id);
+      logger.debug('Открытие модального окна:', { type, id: item.id });
 
       if (type === 'booking') {
         try {
@@ -790,10 +793,10 @@ function App() {
             return;
           }
 
-          console.log('Валидация пройдена, открываем модальное окно');
+          logger.debug('Валидация пройдена, открываем модальное окно');
           setSelectedItem({ ...item, type });
         } catch (error) {
-          console.error('Ошибка валидации бронирования:', error);
+          logger.error('Ошибка валидации бронирования:', error);
 
           if (error.message?.includes('422')) {
             toast({
@@ -805,7 +808,7 @@ function App() {
             return;
           }
 
-          console.log('Используем fallback для открытия модального окна');
+          logger.info('Используем fallback для открытия модального окна');
           setSelectedItem({ ...item, type });
         }
       } else {
@@ -814,7 +817,7 @@ function App() {
 
       onOpen();
     } catch (error) {
-      console.error('Ошибка открытия модального окна:', error);
+      logger.error('Ошибка открытия модального окна:', error);
       toast({
         title: 'Ошибка',
         description: 'Не удалось открыть детальную информацию',
@@ -827,7 +830,7 @@ function App() {
   // Обработчик обновления данных
   const handleUpdate = async (updatedData = null) => {
     try {
-      console.log('Обновление данных:', selectedItem?.type, updatedData);
+      logger.debug('Обновление данных:', { type: selectedItem?.type, data: updatedData });
 
       if (selectedItem?.type === 'ticket' && updatedData) {
         setSelectedItem(prev => ({ ...updatedData, type: prev.type }));
@@ -841,7 +844,7 @@ function App() {
             const updatedPromocode = await promocodeApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedPromocode, type: prev.type }));
           } catch (error) {
-            console.log('Промокод не найден, возможно был удален');
+            logger.info('Промокод не найден, возможно был удален');
             onClose();
           }
         }
@@ -852,7 +855,7 @@ function App() {
             const updatedTariff = await tariffApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedTariff, type: prev.type }));
           } catch (error) {
-            console.log('Тариф не найден, возможно был удален');
+            logger.info('Тариф не найден, возможно был удален');
             onClose();
           }
         }
@@ -863,12 +866,12 @@ function App() {
             const updatedUser = await userApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedUser, type: prev.type }));
           } catch (error) {
-            console.log('Пользователь не найден');
+            logger.info('Пользователь не найден');
             onClose();
           }
         }
       } else if (selectedItem?.type === 'admin') {
-        console.log('Обновление админов...');
+        logger.debug('Обновление админов...');
         await fetchSectionDataEnhanced('admins');
 
         if (updatedData) {
@@ -878,22 +881,22 @@ function App() {
             const updatedAdmin = await adminApi.getById(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedAdmin, type: prev.type }));
           } catch (error) {
-            console.log('Администратор не найден, возможно был удален');
+            logger.info('Администратор не найден, возможно был удален');
             onClose();
           }
         }
       } else if (selectedItem?.type === 'booking') {
-        console.log('Обновление списка бронирований...');
+        logger.debug('Обновление списка бронирований...');
         await loadBookingsWithFilters(bookingFilters);
 
         if (selectedItem?.id) {
           try {
-            console.log('Обновление детального бронирования:', selectedItem.id);
+            logger.debug('Обновление детального бронирования:', { id: selectedItem.id });
             const updatedBooking = await bookingApi.getByIdDetailed(selectedItem.id);
             setSelectedItem(prev => ({ ...updatedBooking, type: prev.type }));
-            console.log('Детальное бронирование обновлено');
+            logger.debug('Детальное бронирование обновлено');
           } catch (error) {
-            console.error('Ошибка обновления детального бронирования:', error);
+            logger.error('Ошибка обновления детального бронирования:', error);
 
             if (error.message?.includes('422')) {
               toast({
@@ -903,7 +906,7 @@ function App() {
                 duration: 5000,
               });
             } else {
-              console.log('Бронирование не найдено или удалено');
+              logger.info('Бронирование не найдено или удалено');
               onClose();
             }
           }
@@ -912,9 +915,9 @@ function App() {
         await fetchSectionDataEnhanced(section);
       }
 
-      console.log('Обновление завершено успешно');
+      logger.debug('Обновление завершено успешно');
     } catch (error) {
-      console.error('Ошибка обновления:', error);
+      logger.error('Ошибка обновления:', error);
       toast({
         title: 'Ошибка обновления',
         description: 'Не удалось обновить данные. Попробуйте еще раз.',

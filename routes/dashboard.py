@@ -4,6 +4,8 @@ from fastapi import HTTPException
 from models.models import DatabaseManager
 from dependencies import verify_token
 from utils.logger import get_logger
+from utils.sql_optimization import SQLOptimizer
+from utils.cache_manager import cache_manager
 from datetime import datetime, timedelta
 from typing import Optional
 import calendar
@@ -14,27 +16,21 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 async def get_dashboard_stats(_: str = Depends(verify_token)):
-    """Получение общей статистики для дашборда."""
+    """Получение общей статистики для дашборда с кэшированием."""
 
-    def _get_stats(session):
-        total_users = session.execute(text("SELECT COUNT(*) FROM users")).scalar()
-        total_bookings = session.execute(text("SELECT COUNT(*) FROM bookings")).scalar()
-        open_tickets = session.execute(
-            text("SELECT COUNT(*) FROM tickets WHERE status != 'CLOSED'")
-        ).scalar()
-        active_tariffs = session.execute(
-            text("SELECT COUNT(*) FROM tariffs WHERE is_active = 1")
-        ).scalar()
+    cache_key = cache_manager.get_cache_key("dashboard", "stats")
 
-        return {
-            "total_users": total_users,
-            "total_bookings": total_bookings,
-            "open_tickets": open_tickets,
-            "active_tariffs": active_tariffs,
-        }
+    def _get_stats():
+        def _db_query(session):
+            return SQLOptimizer.get_optimized_dashboard_stats(session)
+
+        return DatabaseManager.safe_execute(_db_query)
 
     try:
-        return DatabaseManager.safe_execute(_get_stats)
+        # Используем кэш с TTL для дашборда
+        return await cache_manager.get_or_set(
+            cache_key, _get_stats, ttl=cache_manager.dashboard_ttl
+        )
     except Exception as e:
         logger.error(f"Ошибка в get_dashboard_stats: {e}")
         raise HTTPException(status_code=500, detail="Ошибка получения статистики")
@@ -46,137 +42,147 @@ async def get_chart_data(
     month: int = Query(default_factory=lambda: datetime.now().month),
     _: str = Depends(verify_token),
 ):
-    """Получение данных для графика по дням выбранного месяца."""
+    """Получение данных для графика по дням выбранного месяца с кэшированием."""
 
-    def _get_chart_data(session):
-        try:
-            # Проверяем корректность месяца и года
-            if month < 1 or month > 12:
-                raise ValueError("Month must be between 1 and 12")
+    cache_key = cache_manager.get_cache_key("dashboard", "chart_data", year, month)
 
-            if year < 2020 or year > datetime.now().year + 1:
-                raise ValueError("Invalid year")
+    def _get_chart_data():
+        def _db_query(session):
+            try:
+                # Проверяем корректность месяца и года
+                if month < 1 or month > 12:
+                    raise ValueError("Month must be between 1 and 12")
 
-            # Получаем количество дней в месяце
-            days_in_month = calendar.monthrange(year, month)[1]
+                if year < 2020 or year > datetime.now().year + 1:
+                    raise ValueError("Invalid year")
 
-            # Инициализируем массивы для каждого дня месяца
-            user_registrations = [0] * days_in_month
-            ticket_creations = [0] * days_in_month
-            booking_creations = [0] * days_in_month
+                # Получаем количество дней в месяце
+                days_in_month = calendar.monthrange(year, month)[1]
 
-            # Форматируем параметры для SQLite
-            year_str = str(year)
-            month_str = f"{month:02d}"
+                # Инициализируем массивы для каждого дня месяца
+                user_registrations = [0] * days_in_month
+                ticket_creations = [0] * days_in_month
+                booking_creations = [0] * days_in_month
 
-            # Запрос для регистраций пользователей (SQLite)
-            user_query = text(
-                """
-                SELECT 
-                    CAST(strftime('%d', COALESCE(reg_date, first_join_time)) AS INTEGER) as day,
-                    COUNT(*) as count
-                FROM users 
-                WHERE 
-                    (reg_date IS NOT NULL AND strftime('%Y', reg_date) = :year AND strftime('%m', reg_date) = :month_str)
-                    OR 
-                    (reg_date IS NULL AND first_join_time IS NOT NULL AND strftime('%Y', first_join_time) = :year AND strftime('%m', first_join_time) = :month_str)
-                GROUP BY CAST(strftime('%d', COALESCE(reg_date, first_join_time)) AS INTEGER)
-            """
-            )
+                # Форматируем параметры для SQLite
+                year_str = str(year)
+                month_str = f"{month:02d}"
 
-            user_results = session.execute(
-                user_query, {"year": year_str, "month_str": month_str}
-            ).fetchall()
-            for row in user_results:
-                if row.day and 1 <= row.day <= days_in_month:
-                    user_registrations[row.day - 1] = row.count
+                # Запрос для регистраций пользователей (SQLite)
+                user_query = text(
+                    """
+                    SELECT
+                        CAST(strftime('%d', COALESCE(reg_date, first_join_time)) AS INTEGER) as day,
+                        COUNT(*) as count
+                    FROM users
+                    WHERE
+                        (reg_date IS NOT NULL AND strftime('%Y', reg_date) = :year AND strftime('%m', reg_date) = :month_str)
+                       OR
+                        (reg_date IS NULL AND first_join_time IS NOT NULL AND strftime('%Y', first_join_time) = :year AND strftime('%m', first_join_time) = :month_str)
+                    GROUP BY CAST(strftime('%d', COALESCE(reg_date, first_join_time)) AS INTEGER)
+                    """
+                )
 
-            # Запрос для создания тикетов (SQLite)
-            ticket_query = text(
-                """
-                SELECT 
-                    CAST(strftime('%d', created_at) AS INTEGER) as day,
-                    COUNT(*) as count
-                FROM tickets 
-                WHERE strftime('%Y', created_at) = :year AND strftime('%m', created_at) = :month_str
-                GROUP BY CAST(strftime('%d', created_at) AS INTEGER)
-            """
-            )
+                user_results = session.execute(
+                    user_query, {"year": year_str, "month_str": month_str}
+                ).fetchall()
+                for row in user_results:
+                    if row.day and 1 <= row.day <= days_in_month:
+                        user_registrations[row.day - 1] = row.count
 
-            ticket_results = session.execute(
-                ticket_query, {"year": year_str, "month_str": month_str}
-            ).fetchall()
-            for row in ticket_results:
-                if row.day and 1 <= row.day <= days_in_month:
-                    ticket_creations[row.day - 1] = row.count
+                # Запрос для создания тикетов (SQLite)
+                ticket_query = text(
+                    """
+                    SELECT
+                        CAST(strftime('%d', created_at) AS INTEGER) as day,
+                        COUNT(*) as count
+                    FROM tickets
+                    WHERE strftime('%Y', created_at) = :year AND strftime('%m', created_at) = :month_str
+                    GROUP BY CAST(strftime('%d', created_at) AS INTEGER)
+                    """
+                )
 
-            # Запрос для бронирований (SQLite)
-            booking_query = text(
-                """
-                SELECT 
-                    CAST(strftime('%d', created_at) AS INTEGER) as day,
-                    COUNT(*) as count
-                FROM bookings 
-                WHERE strftime('%Y', created_at) = :year AND strftime('%m', created_at) = :month_str
-                GROUP BY CAST(strftime('%d', created_at) AS INTEGER)
-            """
-            )
+                ticket_results = session.execute(
+                    ticket_query, {"year": year_str, "month_str": month_str}
+                ).fetchall()
+                for row in ticket_results:
+                    if row.day and 1 <= row.day <= days_in_month:
+                        ticket_creations[row.day - 1] = row.count
 
-            booking_results = session.execute(
-                booking_query, {"year": year_str, "month_str": month_str}
-            ).fetchall()
-            for row in booking_results:
-                if row.day and 1 <= row.day <= days_in_month:
-                    booking_creations[row.day - 1] = row.count
+                # Запрос для бронирований (SQLite)
+                booking_query = text(
+                    """
+                    SELECT
+                        CAST(strftime('%d', created_at) AS INTEGER) as day,
+                        COUNT(*) as count
+                    FROM bookings
+                    WHERE strftime('%Y', created_at) = :year AND strftime('%m', created_at) = :month_str
+                    GROUP BY CAST(strftime('%d', created_at) AS INTEGER)
+                    """
+                )
 
-            # Создаем метки для дней месяца
-            day_labels = [str(i) for i in range(1, days_in_month + 1)]
+                booking_results = session.execute(
+                    booking_query, {"year": year_str, "month_str": month_str}
+                ).fetchall()
+                for row in booking_results:
+                    if row.day and 1 <= row.day <= days_in_month:
+                        booking_creations[row.day - 1] = row.count
 
-            # Получаем название месяца на русском
-            month_names = {
-                1: "Январь",
-                2: "Февраль",
-                3: "Март",
-                4: "Апрель",
-                5: "Май",
-                6: "Июнь",
-                7: "Июль",
-                8: "Август",
-                9: "Сентябрь",
-                10: "Октябрь",
-                11: "Ноябрь",
-                12: "Декабрь",
-            }
+                # Создаем метки для дней месяца
+                day_labels = [str(i) for i in range(1, days_in_month + 1)]
 
-            return {
-                "labels": day_labels,
-                "datasets": {
-                    "user_registrations": user_registrations,
-                    "ticket_creations": ticket_creations,
-                    "booking_creations": booking_creations,
-                },
-                "period": {
-                    "year": year,
-                    "month": month,
-                    "month_name": month_names[month],
-                    "days_in_month": days_in_month,
-                },
-                "totals": {
-                    "users": sum(user_registrations),
-                    "tickets": sum(ticket_creations),
-                    "bookings": sum(booking_creations),
-                },
-            }
+                # Получаем название месяца на русском
+                month_names = {
+                    1: "Январь",
+                    2: "Февраль",
+                    3: "Март",
+                    4: "Апрель",
+                    5: "Май",
+                    6: "Июнь",
+                    7: "Июль",
+                    8: "Август",
+                    9: "Сентябрь",
+                    10: "Октябрь",
+                    11: "Ноябрь",
+                    12: "Декабрь",
+                }
 
-        except ValueError as e:
-            logger.error(f"Ошибка валидации параметров: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error(f"Ошибка в запросе данных графика: {e}")
-            raise
+                return {
+                    "labels": day_labels,
+                    "datasets": {
+                        "user_registrations": user_registrations,
+                        "ticket_creations": ticket_creations,
+                        "booking_creations": booking_creations,
+                    },
+                    "period": {
+                        "year": year,
+                        "month": month,
+                        "month_name": month_names[month],
+                        "days_in_month": days_in_month,
+                    },
+                    "totals": {
+                        "users": sum(user_registrations),
+                        "tickets": sum(ticket_creations),
+                        "bookings": sum(booking_creations),
+                    },
+                }
+
+            except ValueError as e:
+                logger.error(f"Ошибка валидации параметров: {e}")
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"Ошибка в запросе данных графика: {e}")
+                raise
+
+        return DatabaseManager.safe_execute(_db_query)
 
     try:
-        return DatabaseManager.safe_execute(_get_chart_data)
+        # Используем кэш с более длинным TTL для исторических данных
+        return await cache_manager.get_or_set(
+            cache_key,
+            _get_chart_data,
+            ttl=cache_manager.static_data_ttl,  # 30 минут для исторических данных
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -186,114 +192,127 @@ async def get_chart_data(
 
 @router.get("/available-periods")
 async def get_available_periods(_: str = Depends(verify_token)):
-    """Получение доступных периодов для выбора (месяцы с данными)."""
+    """Получение доступных периодов для выбора (месяцы с данными) с кэшированием."""
 
-    def _get_periods(session):
-        try:
-            # Получаем диапазон дат с данными (SQLite)
-            date_ranges_query = text(
-                """
-                SELECT 
-                    MIN(date_col) as min_date,
-                    MAX(date_col) as max_date
-                FROM (
-                    SELECT COALESCE(reg_date, first_join_time) as date_col FROM users WHERE COALESCE(reg_date, first_join_time) IS NOT NULL
-                    UNION ALL
-                    SELECT created_at as date_col FROM tickets WHERE created_at IS NOT NULL
-                    UNION ALL
-                    SELECT created_at as date_col FROM bookings WHERE created_at IS NOT NULL
-                ) as all_dates
-            """
-            )
+    cache_key = cache_manager.get_cache_key("dashboard", "available_periods")
 
-            result = session.execute(date_ranges_query).fetchone()
+    def _get_periods():
+        def _db_query(session):
+            try:
+                # Получаем диапазон дат с данными (SQLite)
+                date_ranges_query = text(
+                    """
+                    SELECT
+                        MIN(date_col) as min_date,
+                        MAX(date_col) as max_date
+                    FROM (
+                             SELECT COALESCE(reg_date, first_join_time) as date_col FROM users WHERE COALESCE(reg_date, first_join_time) IS NOT NULL
+                             UNION ALL
+                             SELECT created_at as date_col FROM tickets WHERE created_at IS NOT NULL
+                             UNION ALL
+                             SELECT created_at as date_col FROM bookings WHERE created_at IS NOT NULL
+                         ) as all_dates
+                    """
+                )
 
-            if not result or not result.min_date:
-                # Если нет данных, возвращаем текущий месяц
-                current_date = datetime.now()
-                return {
-                    "periods": [
+                result = session.execute(date_ranges_query).fetchone()
+
+                if not result or not result.min_date:
+                    # Если нет данных, возвращаем текущий месяц
+                    current_date = datetime.now()
+                    return {
+                        "periods": [
+                            {
+                                "year": current_date.year,
+                                "month": current_date.month,
+                                "display": f"Август 2025",  # Жестко кодируем для отладки
+                            }
+                        ],
+                        "current": {
+                            "year": current_date.year,
+                            "month": current_date.month,
+                        },
+                    }
+
+                # В SQLite результат может быть строкой, нужно парсить
+                def parse_date(date_val):
+                    if isinstance(date_val, str):
+                        try:
+                            # Пробуем разные форматы
+                            if "T" in date_val:
+                                return datetime.fromisoformat(
+                                    date_val.replace("Z", "+00:00")
+                                )
+                            else:
+                                return datetime.strptime(
+                                    date_val[:19], "%Y-%m-%d %H:%M:%S"
+                                )
+                        except:
+                            return datetime.now()
+                    return date_val
+
+                min_date = parse_date(result.min_date)
+                max_date = (
+                    parse_date(result.max_date) if result.max_date else datetime.now()
+                )
+
+                # Генерируем список доступных месяцев
+                periods = []
+                current_date = datetime(min_date.year, min_date.month, 1)
+                end_date = datetime(max_date.year, max_date.month, 1)
+
+                month_names = {
+                    1: "Январь",
+                    2: "Февраль",
+                    3: "Март",
+                    4: "Апрель",
+                    5: "Май",
+                    6: "Июнь",
+                    7: "Июль",
+                    8: "Август",
+                    9: "Сентябрь",
+                    10: "Октябрь",
+                    11: "Ноябрь",
+                    12: "Декабрь",
+                }
+
+                while current_date <= end_date:
+                    periods.append(
                         {
                             "year": current_date.year,
                             "month": current_date.month,
-                            "display": f"Август 2025",  # Жестко кодируем для отладки
+                            "display": f"{month_names[current_date.month]} {current_date.year}",
                         }
-                    ],
-                    "current": {"year": current_date.year, "month": current_date.month},
-                }
-
-            # В SQLite результат может быть строкой, нужно парсить
-            def parse_date(date_val):
-                if isinstance(date_val, str):
-                    try:
-                        # Пробуем разные форматы
-                        if "T" in date_val:
-                            return datetime.fromisoformat(
-                                date_val.replace("Z", "+00:00")
-                            )
-                        else:
-                            return datetime.strptime(date_val[:19], "%Y-%m-%d %H:%M:%S")
-                    except:
-                        return datetime.now()
-                return date_val
-
-            min_date = parse_date(result.min_date)
-            max_date = (
-                parse_date(result.max_date) if result.max_date else datetime.now()
-            )
-
-            # Генерируем список доступных месяцев
-            periods = []
-            current_date = datetime(min_date.year, min_date.month, 1)
-            end_date = datetime(max_date.year, max_date.month, 1)
-
-            month_names = {
-                1: "Январь",
-                2: "Февраль",
-                3: "Март",
-                4: "Апрель",
-                5: "Май",
-                6: "Июнь",
-                7: "Июль",
-                8: "Август",
-                9: "Сентябрь",
-                10: "Октябрь",
-                11: "Ноябрь",
-                12: "Декабрь",
-            }
-
-            while current_date <= end_date:
-                periods.append(
-                    {
-                        "year": current_date.year,
-                        "month": current_date.month,
-                        "display": f"{month_names[current_date.month]} {current_date.year}",
-                    }
-                )
-
-                # Переходим к следующему месяцу
-                if current_date.month == 12:
-                    current_date = datetime(current_date.year + 1, 1, 1)
-                else:
-                    current_date = datetime(
-                        current_date.year, current_date.month + 1, 1
                     )
 
-            # Сортируем по убыванию (новые месяцы сверху)
-            periods.reverse()
+                    # Переходим к следующему месяцу
+                    if current_date.month == 12:
+                        current_date = datetime(current_date.year + 1, 1, 1)
+                    else:
+                        current_date = datetime(
+                            current_date.year, current_date.month + 1, 1
+                        )
 
-            # Текущий период
-            now = datetime.now()
-            current_period = {"year": now.year, "month": now.month}
+                # Сортируем по убыванию (новые месяцы сверху)
+                periods.reverse()
 
-            return {"periods": periods, "current": current_period}
+                # Текущий период
+                now = datetime.now()
+                current_period = {"year": now.year, "month": now.month}
 
-        except Exception as e:
-            logger.error(f"Ошибка получения доступных периодов: {e}")
-            raise
+                return {"periods": periods, "current": current_period}
+
+            except Exception as e:
+                logger.error(f"Ошибка получения доступных периодов: {e}")
+                raise
+
+        return DatabaseManager.safe_execute(_db_query)
 
     try:
-        return DatabaseManager.safe_execute(_get_periods)
+        # Периоды меняются редко, кэшируем на 30 минут
+        return await cache_manager.get_or_set(
+            cache_key, _get_periods, ttl=cache_manager.static_data_ttl
+        )
     except Exception as e:
         logger.error(f"Критическая ошибка в get_available_periods: {e}")
         raise HTTPException(

@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { initAuth } from './auth';
+import { createLogger } from './logger.js';
+
+const logger = createLogger('API');
 
 export const API_BASE_URL = 'http://localhost/api';
 
@@ -40,12 +43,12 @@ export const fetchInitialData = async (dataSetters, setLastNotificationId, toast
           const res = await apiClient.get(url);
           setter(res.data);
         } catch (error) {
-          console.error(`Ошибка загрузки ${url}:`, error);
+          logger.apiError(url, 'GET', error.response?.status || 'unknown', error.message, error.response?.data);
         }
       })
     );
   } catch (err) {
-    console.error('Ошибка загрузки данных:', err);
+    logger.error('Ошибка загрузки данных:', err);
     if (toast) {
       toast({
         title: 'Ошибка',
@@ -79,7 +82,7 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
       const res = await apiClient.get(endpoint.url);
       endpoint.setter(res.data);
     } catch (error) {
-      console.error(`Ошибка загрузки данных для ${sectionName}:`, error);
+      logger.apiError(endpoint.url, 'GET', error.response?.status || 'unknown', `Ошибка загрузки данных для ${sectionName}`, error.response?.data);
       throw error;
     }
   }
@@ -94,7 +97,7 @@ export const notificationApi = {
     } catch (error) {
       // Обработка специфичных ошибок БД
       if (error.response?.status === 503) {
-        console.warn('Database temporarily unavailable, retrying...');
+        logger.warn('Database temporarily unavailable, retrying...');
 
         // Ждем и повторяем попытку
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -113,7 +116,7 @@ export const notificationApi = {
       return res.data;
     } catch (error) {
       if (error.response?.status === 503) {
-        console.warn('Database temporarily unavailable for notifications check');
+        logger.warn('Database temporarily unavailable for notifications check');
         return { has_new: false, recent_notifications: [] };
       }
       throw error;
@@ -160,7 +163,7 @@ export const notificationApi = {
       }
       return null;
     } catch (error) {
-      console.warn('Could not fetch related object:', error);
+      logger.warn('Could not fetch related object:', error);
       return null;
     }
   }
@@ -186,14 +189,14 @@ export const userApi = {
 
   delete: async (userId) => {
     try {
-      console.log(`Удаление пользователя ${userId}`);
+      logger.debug(`Удаление пользователя ${userId}`);
 
       const res = await apiClient.delete(`/users/${userId}`);
 
-      console.log('Пользователь успешно удален:', res.data);
+      logger.info('Пользователь успешно удален:', { userId, result: res.data });
       return res.data;
     } catch (error) {
-      console.error('Ошибка удаления пользователя:', error);
+      logger.apiError(`/users/${userId}`, 'DELETE', error.response?.status || 'unknown', 'Ошибка удаления пользователя', error.response?.data);
 
       if (error.response?.status === 404) {
         throw new Error('Пользователь не найден');
@@ -231,7 +234,7 @@ export const userApi = {
           document.body.removeChild(img);
         };
       } catch (e) {
-        console.log('Не удалось предзагрузить аватар:', e);
+        logger.debug('Не удалось предзагрузить аватар:', e);
       }
     }
 
@@ -241,9 +244,9 @@ export const userApi = {
   // Скачивание аватара из Telegram
   downloadTelegramAvatar: async (userId) => {
     try {
-      console.log(`Запрос скачивания аватара из Telegram для пользователя ${userId}`);
+      logger.debug(`Запрос скачивания аватара из Telegram для пользователя ${userId}`);
       const res = await apiClient.post(`/users/${userId}/download-telegram-avatar`);
-      console.log('Аватар успешно скачан:', res.data);
+      logger.info('Аватар успешно скачан', { userId, avatarPath: res.data?.avatar_path });
 
       // Безопасная предзагрузка изображения
       if (res.data.avatar_url) {
@@ -260,13 +263,13 @@ export const userApi = {
             document.body.removeChild(img);
           };
         } catch (e) {
-          console.log('Не удалось предзагрузить аватар:', e);
+          logger.debug('Не удалось предзагрузить аватар:', e);
         }
       }
 
       return res.data;
     } catch (error) {
-      console.error('Ошибка скачивания аватара из Telegram:', error);
+      logger.apiError(`/users/${userId}/download-telegram-avatar`, 'POST', error.response?.status || 'unknown', 'Ошибка скачивания аватара из Telegram', error.response?.data);
 
       // Детальная обработка ошибок
       if (error.response?.status === 404) {

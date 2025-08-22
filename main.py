@@ -27,7 +27,7 @@ from config import (
 )
 from dependencies import init_bot, close_bot, start_cache_cleanup, stop_cache_cleanup
 from models.models import cleanup_database
-from utils.logger import get_logger
+from utils.logger import get_logger, log_startup_info
 from utils.database_maintenance import start_maintenance_tasks
 from utils.backup_manager import start_backup_scheduler, stop_backup_scheduler
 
@@ -48,6 +48,9 @@ from routes.api_keys import router as api_keys_router
 from routes.rubitime import router as rubitime_router
 from routes.backups import router as backups_router
 from routes import admins
+from routes.frontend_logs import router as frontend_logs_router
+from routes.optimization import router as optimization_router
+from routes.cache import router as cache_router
 
 logger = get_logger(__name__)
 
@@ -55,6 +58,9 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Управление жизненным циклом приложения."""
+
+    # Логируем информацию о запуске
+    log_startup_info()
     logger.info("Запуск приложения...")
 
     # Создаем необходимые директории
@@ -227,6 +233,9 @@ routers = [
     (backups_router, "backups"),
     (rubitime_router, "rubitime"),
     (admins.router, "admins"),
+    (frontend_logs_router, "frontend_logs"),
+    (optimization_router, "optimization"),
+    (cache_router, "cache"),
 ]
 
 for router, name in routers:

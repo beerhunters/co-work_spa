@@ -18,9 +18,9 @@ from bot.hndlrs.registration_hndlr import register_reg_handlers
 from bot.hndlrs.ticket_hndlr import register_ticket_handlers
 from utils.api_client import get_api_client, close_api_client
 from utils.bot_instance import get_bot
-from utils.logger import init_simple_logging
+from utils.logger import get_logger
 
-logger = init_simple_logging("CoworkingBot")
+logger = get_logger(__name__)
 LOGS_CHAT_ID = os.getenv("FOR_LOGS")
 
 

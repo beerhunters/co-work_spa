@@ -31,6 +31,9 @@ from config import MOSCOW_TZ
 from utils.logger import get_logger
 from utils.external_api import rubitime
 from utils.helpers import format_phone_for_rubitime
+from utils.cache_manager import cache_manager
+from utils.sql_optimization import SQLOptimizer
+from utils.cache_invalidation import cache_invalidator
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -180,74 +183,22 @@ async def get_bookings_detailed(
 async def get_booking_stats(
     _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_BOOKINGS])),
 ):
-    """Получение статистики по бронированиям."""
+    """Получение статистики по бронированиям с кэшированием."""
 
-    def _get_stats(session):
-        try:
-            total_bookings = session.execute(
-                text("SELECT COUNT(*) FROM bookings")
-            ).scalar()
-            paid_bookings = session.execute(
-                text("SELECT COUNT(*) FROM bookings WHERE paid = 1")
-            ).scalar()
-            confirmed_bookings = session.execute(
-                text("SELECT COUNT(*) FROM bookings WHERE confirmed = 1")
-            ).scalar()
-
-            total_revenue = session.execute(
-                text("SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1")
-            ).scalar()
-
-            current_month_start = (
-                datetime.now(MOSCOW_TZ)
-                .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-                .isoformat()
-            )
-
-            current_month_bookings = session.execute(
-                text("SELECT COUNT(*) FROM bookings WHERE created_at >= :start_date"),
-                {"start_date": current_month_start},
-            ).scalar()
-
-            current_month_revenue = session.execute(
-                text(
-                    "SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE created_at >= :start_date AND paid = 1"
-                ),
-                {"start_date": current_month_start},
-            ).scalar()
-
-            top_tariffs = session.execute(
-                text(
-                    """
-                    SELECT t.name, COUNT(b.id) as booking_count
-                    FROM tariffs t
-                    JOIN bookings b ON t.id = b.tariff_id
-                    GROUP BY t.id, t.name
-                    ORDER BY booking_count DESC
-                    LIMIT 5
-                """
-                )
-            ).fetchall()
-
-            return {
-                "total_bookings": total_bookings,
-                "paid_bookings": paid_bookings,
-                "confirmed_bookings": confirmed_bookings,
-                "total_revenue": float(total_revenue),
-                "current_month_bookings": current_month_bookings,
-                "current_month_revenue": float(current_month_revenue),
-                "top_tariffs": [
-                    {"name": row.name, "count": row.booking_count}
-                    for row in top_tariffs
-                ],
-            }
-
-        except Exception as e:
-            logger.error(f"Ошибка в _get_stats: {e}")
-            raise
+    cache_key = cache_manager.get_cache_key("bookings", "stats")
+    
+    def _get_stats():
+        def _db_query(session):
+            return SQLOptimizer.get_optimized_bookings_stats(session)
+        return DatabaseManager.safe_execute(_db_query)
 
     try:
-        return DatabaseManager.safe_execute(_get_stats)
+        # Используем кэш с TTL для дашборда
+        return await cache_manager.get_or_set(
+            cache_key, 
+            _get_stats, 
+            ttl=cache_manager.dashboard_ttl
+        )
     except Exception as e:
         logger.error(f"Ошибка при получении статистики бронирований: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -413,7 +364,10 @@ async def create_booking_admin(
         return booking_dict
 
     try:
-        return DatabaseManager.safe_execute(_create_booking)
+        result = DatabaseManager.safe_execute(_create_booking)
+        # Инвалидируем связанные кэши после успешного создания
+        await cache_invalidator.invalidate_booking_related_cache()
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -548,7 +502,10 @@ async def create_booking(booking_data: BookingCreate):
         return booking_dict
 
     try:
-        return DatabaseManager.safe_execute(_create_booking)
+        result = DatabaseManager.safe_execute(_create_booking)
+        # Инвалидируем связанные кэши после успешного создания
+        await cache_invalidator.invalidate_booking_related_cache()
+        return result
     except HTTPException:
         raise
     except Exception as e:
@@ -939,6 +896,9 @@ async def update_booking(
             f"Бронирование #{booking_id} обновлено администратором {current_admin.login}"
         )
 
+        # Инвалидируем связанные кэши после успешного обновления
+        await cache_invalidator.invalidate_booking_related_cache()
+
         return {
             "id": booking.id,
             "user_id": booking.user_id,
@@ -1050,6 +1010,9 @@ async def delete_booking(
                     logger.error(
                         f"Не удалось отправить уведомление об удалении брони: {e}"
                     )
+
+        # Инвалидируем связанные кэши после успешного удаления
+        await cache_invalidator.invalidate_booking_related_cache()
 
         return {
             "message": "Booking deleted successfully",

@@ -11,6 +11,7 @@ import asyncio
 from config import SECRET_KEY_JWT, ALGORITHM, BOT_TOKEN
 from models.models import DatabaseManager, Admin, Permission, AdminRole
 from utils.logger import get_logger
+from utils.cache_manager import cache_manager
 from aiogram import Bot
 
 logger = get_logger(__name__)
@@ -446,11 +447,31 @@ class CacheCleanupTask:
 _cleanup_task = CacheCleanupTask()
 
 
+async def init_cache_manager():
+    """Инициализация глобального менеджера кэша"""
+    try:
+        await cache_manager.initialize()
+        logger.info("Cache manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize cache manager: {e}")
+
+
+async def close_cache_manager():
+    """Закрытие соединений менеджера кэша"""
+    try:
+        await cache_manager.close()
+        logger.info("Cache manager closed")
+    except Exception as e:
+        logger.error(f"Error closing cache manager: {e}")
+
+
 async def start_cache_cleanup():
     """Запуск фоновой задачи очистки кэша"""
+    await init_cache_manager()
     await _cleanup_task.start()
 
 
 async def stop_cache_cleanup():
     """Остановка фоновой задачи очистки кэша"""
     await _cleanup_task.stop()
+    await close_cache_manager()

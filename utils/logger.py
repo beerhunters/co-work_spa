@@ -1,307 +1,338 @@
+"""
+Единая система логирования с управлением через .env файл
+Поддерживает JSON и текстовый формат, production и development режимы
+"""
 import os
+import json
+import logging
 import sys
 import time
 from datetime import datetime
-from logging import Logger, getLogger, Formatter, StreamHandler
-from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+from typing import Dict, Any, Optional
 from pathlib import Path
-
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 import pytz
-from dotenv import load_dotenv
+
+# Загружаем настройки из конфигурации
+try:
+    from config import LOG_LEVEL, ENVIRONMENT, LOG_FORMAT, LOG_TO_FILE, LOGS_DIR
+except ImportError:
+    # Fallback для случаев когда config недоступен
+    from dotenv import load_dotenv
+    load_dotenv()
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+    ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+    LOG_FORMAT = os.getenv("LOG_FORMAT", "text")
+    LOG_TO_FILE = os.getenv("LOG_TO_FILE", "true").lower() == "true"
+    LOGS_DIR = Path(os.getenv("LOGS_DIR", "logs"))
+
+MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 # Глобальная переменная для отслеживания настроенных логгеров
 _configured_loggers = set()
 
 
-def setup_logger(
-    name: str,
-    log_dir: str = "logs",
-    max_bytes: int = 10 * 1024 * 1024,  # 10MB
-    backup_count: int = 5,
-    use_timed_rotation: bool = False,
-    rotation_interval: str = "midnight",
-    silent_setup: bool = True,  # Тихая настройка по умолчанию
-) -> Logger:
-    """
-    Настраивает и возвращает логгер с заданным именем, используя часовой пояс UTC+3.
+class JSONFormatter(logging.Formatter):
+    """Форматтер для вывода логов в JSON формате"""
+    
+    def __init__(self, include_extra: bool = True):
+        super().__init__()
+        self.include_extra = include_extra
+        self.hostname = os.uname().nodename if hasattr(os, 'uname') else 'unknown'
+        self.service_name = os.getenv('SERVICE_NAME', 'coworking-api')
+        
+    def format(self, record):
+        # Базовая информация о логе
+        log_entry = {
+            "@timestamp": self._format_time(record.created),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "service": self.service_name,
+            "hostname": self.hostname,
+        }
+        
+        # Добавляем информацию о местоположении для WARNING и выше
+        if record.levelno >= logging.WARNING:
+            log_entry.update({
+                "file": record.filename,
+                "line": record.lineno,
+                "function": record.funcName,
+                "path": record.pathname
+            })
+        
+        # Добавляем информацию об исключении если есть
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        
+        # Добавляем дополнительные поля
+        if self.include_extra:
+            for key, value in record.__dict__.items():
+                if key not in ['name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 
+                              'filename', 'module', 'lineno', 'funcName', 'created', 
+                              'msecs', 'relativeCreated', 'thread', 'threadName', 
+                              'processName', 'process', 'getMessage', 'exc_info', 
+                              'exc_text', 'stack_info']:
+                    log_entry[f"extra_{key}"] = value
+        
+        return json.dumps(log_entry, ensure_ascii=False, default=str)
+    
+    def _format_time(self, timestamp: float) -> str:
+        """Форматирует время в ISO формате с московской временной зоной"""
+        dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
+        dt_moscow = dt.astimezone(MOSCOW_TZ)
+        return dt_moscow.isoformat()
 
-    Args:
-        name: Имя логгера (обычно __name__ модуля).
-        log_dir: Директория для логов (по умолчанию "logs").
-        max_bytes: Максимальный размер файла лога в байтах (по умолчанию 10MB).
-        backup_count: Количество резервных копий логов (по умолчанию 5).
-        use_timed_rotation: Использовать ротацию по времени вместо размера.
-        rotation_interval: Интервал ротации по времени ('midnight', 'H', 'D').
-        silent_setup: Не выводить информацию о настройке логгера.
 
-    Returns:
-        Logger: Настроенный объект логгера.
-    """
-    # Загружаем переменные окружения из .env
-    load_dotenv()
-
-    # Получаем уровень логирования из .env или устанавливаем INFO по умолчанию
-    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
-    log_levels = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
-
-    # Проверяем валидность уровня логирования
-    if log_level_str not in log_levels:
-        default_level = "INFO"
-        # Создаём временный логгер для вывода предупреждения
-        temp_logger = getLogger(name)
-        temp_logger.warning(
-            f"Недопустимый уровень логирования '{log_level_str}' в LOG_LEVEL. "
-            f"Используется уровень по умолчанию: {default_level}"
-        )
-        log_level_str = default_level
-
-    log_level = log_levels[log_level_str]
-
-    # Создаём логгер
-    logger = getLogger(name)
-    logger.setLevel(log_level)
-
-    # Проверяем, не добавлены ли уже обработчики, чтобы избежать дублирования
-    if not logger.handlers:
-        # Форматтер для логов с часовым поясом UTC+3 (Europe/Moscow)
-        class MoscowFormatter(Formatter):
-            def converter(self, timestamp: float) -> time.struct_time:
-                """
-                Преобразует временную метку в struct_time с учётом часового пояса UTC+3.
-
-                Args:
-                    timestamp: Временная метка в секундах (Unix timestamp).
-
-                Returns:
-                    time.struct_time: Объект struct_time в часовом поясе Europe/Moscow.
-                """
-                moscow_tz = pytz.timezone("Europe/Moscow")
-                dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
-                dt_moscow = dt.astimezone(moscow_tz)
-                return dt_moscow.timetuple()
-
-            def format(self, record):
-                """
-                Расширенное форматирование с добавлением информации о файле и строке.
-                """
-                # Добавляем информацию о файле и строке для уровней WARNING и выше
-                if record.levelno >= 30:  # WARNING и выше
-                    record.location = f"{record.filename}:{record.lineno}"
-                else:
-                    record.location = ""
-                # Добавляем информацию о функции для ERROR и CRITICAL
-                if record.levelno >= 40:  # ERROR и CRITICAL
-                    record.func_info = f" in {record.funcName}()"
-                else:
-                    record.func_info = ""
-                return super().format(record)
-
-        # Форматы для разных уровней логирования
-        detailed_format = "[%(asctime)s] [%(levelname)s] [%(name)s] [%(location)s%(func_info)s] %(message)s"
-        simple_format = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
-
-        # Консольный форматтер (упрощённый для читаемости)
-        console_formatter = MoscowFormatter(simple_format, datefmt="%Y-%m-%d %H:%M:%S")
-        # Файловый форматтер (детальный)
-        file_formatter = MoscowFormatter(detailed_format, datefmt="%Y-%m-%d %H:%M:%S")
-
-        # Обработчик для консоли
-        console_handler = StreamHandler(sys.stdout)
-        console_handler.setLevel(log_level)
-        console_handler.setFormatter(console_formatter)
-
-        # Создаём директорию logs, если не существует
-        log_path = Path(log_dir)
-        log_path.mkdir(exist_ok=True)
-
-        # Выбираем тип ротации
-        log_file_path = log_path / "app.log"
-        if use_timed_rotation:
-            # Ротация по времени
-            file_handler = TimedRotatingFileHandler(
-                log_file_path,
-                when=rotation_interval,
-                interval=1,
-                backupCount=backup_count,
-                encoding="utf-8",
-                utc=False,  # Используем местное время
-            )
-            file_handler.suffix = "%Y-%m-%d"  # Формат суффикса для архивных файлов
+class TextFormatter(logging.Formatter):
+    """Форматтер для текстового вывода с поддержкой московского времени"""
+    
+    def converter(self, timestamp: float) -> time.struct_time:
+        """Преобразует временную метку в struct_time с учётом московского времени"""
+        dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
+        dt_moscow = dt.astimezone(MOSCOW_TZ)
+        return dt_moscow.timetuple()
+    
+    def format(self, record):
+        # Добавляем информацию о местоположении для WARNING и выше
+        if record.levelno >= logging.WARNING:
+            record.location = f" [{record.filename}:{record.lineno}]"
+            if record.levelno >= logging.ERROR:
+                record.location += f" in {record.funcName}()"
         else:
-            # Ротация по размеру
+            record.location = ""
+        
+        return super().format(record)
+
+
+class UnifiedLogger:
+    """Единая система логирования с поддержкой JSON и текстового формата"""
+    
+    def __init__(self, name: str = "app"):
+        self.name = name
+        self.environment = ENVIRONMENT.lower()
+        self.log_level = LOG_LEVEL.upper()
+        self.log_format = LOG_FORMAT.lower()
+        self.log_to_file = LOG_TO_FILE
+        
+        # Определяем эффективный уровень логирования для production
+        self.effective_log_level = self._get_effective_log_level()
+        
+        # Создаем логгер
+        self.logger = logging.getLogger(name)
+        if not self.logger.handlers:  # Настраиваем только если еще не настроен
+            self._setup_logger()
+    
+    def _get_effective_log_level(self) -> str:
+        """Определяет эффективный уровень логирования в зависимости от среды"""
+        if self.environment == "production":
+            # В продакшене по умолчанию только WARNING и выше
+            if self.log_level in ["DEBUG", "INFO"]:
+                return "WARNING"
+            return self.log_level
+        else:
+            # В development - используем настройки как есть
+            return self.log_level
+    
+    def _setup_logger(self):
+        """Настройка логгера с обработчиками"""
+        # Устанавливаем уровень
+        level = getattr(logging, self.effective_log_level)
+        self.logger.setLevel(level)
+        
+        # Создаем форматтеры
+        if self.log_format == "json":
+            formatter = JSONFormatter()
+            console_formatter = JSONFormatter()
+        else:
+            # Текстовый формат
+            detailed_format = "[%(asctime)s] [%(levelname)s] [%(name)s]%(location)s %(message)s"
+            simple_format = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
+            
+            formatter = TextFormatter(detailed_format, datefmt="%Y-%m-%d %H:%M:%S")
+            console_formatter = TextFormatter(simple_format, datefmt="%Y-%m-%d %H:%M:%S")
+        
+        # Консольный обработчик
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(level)
+        console_handler.setFormatter(console_formatter)
+        self.logger.addHandler(console_handler)
+        
+        # Файловый обработчик
+        if self.log_to_file:
+            self._add_file_handler(formatter, level)
+    
+    def _add_file_handler(self, formatter, level):
+        """Добавляет файловый обработчик"""
+        # Создаем директорию для логов
+        LOGS_DIR.mkdir(exist_ok=True, parents=True)
+        
+        # Выбираем тип ротации в зависимости от среды
+        log_file = LOGS_DIR / "app.log"
+        
+        if self.environment == "production":
+            # В продакшене используем ротацию по времени
+            file_handler = TimedRotatingFileHandler(
+                log_file,
+                when='midnight',
+                interval=1,
+                backupCount=30,  # Храним 30 дней
+                encoding='utf-8'
+            )
+            file_handler.suffix = "%Y-%m-%d"
+        else:
+            # В development используем ротацию по размеру
             file_handler = RotatingFileHandler(
-                log_file_path,
-                maxBytes=max_bytes,
-                backupCount=backup_count,
-                encoding="utf-8",
+                log_file,
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=5,
+                encoding='utf-8'
             )
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(file_formatter)
-
-        # Добавляем обработчики к логгеру
-        logger.addHandler(console_handler)
-        logger.addHandler(file_handler)
-
-        # Определяем, нужно ли логировать настройку
-        logger_key = f"{name}_{log_level_str}_{log_dir}"
-        is_first_setup = logger_key not in _configured_loggers
-        # Логируем информацию о настройке только если:
-        # 1. Не тихий режим И
-        # 2. (Это главный модуль ИЛИ первая настройка этого логгера)
-        should_log_setup = not silent_setup and (
-            name == "__main__" or "main" in name.lower() or is_first_setup
-        )
-        if should_log_setup:
-            logger.info(
-                f"Logging system initialized for '{name}' (level: {log_level_str})"
-            )
-            if is_first_setup:
-                logger.info(f"Log directory: {log_path.absolute()}")
-                if use_timed_rotation:
-                    logger.info(
-                        f"Rotation: {rotation_interval} (keep {backup_count} files)"
-                    )
-                else:
-                    logger.info(
-                        f"Rotation: {max_bytes / 1024 / 1024:.0f}MB files (keep {backup_count})"
-                    )
-            # Помечаем логгер как настроенный
-            _configured_loggers.add(logger_key)
-
-    return logger
+        
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
+    
+    def debug(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        self.logger.debug(message, extra=extra or {}, **kwargs)
+    
+    def info(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        self.logger.info(message, extra=extra or {}, **kwargs)
+    
+    def warning(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        self.logger.warning(message, extra=extra or {}, **kwargs)
+    
+    def error(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        self.logger.error(message, extra=extra or {}, **kwargs)
+    
+    def critical(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        self.logger.critical(message, extra=extra or {}, **kwargs)
+    
+    def exception(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
+        self.logger.exception(message, extra=extra or {}, **kwargs)
 
 
-def get_caller_info():
+# Глобальный кэш логгеров
+_logger_cache: Dict[str, UnifiedLogger] = {}
+
+
+def get_logger(name: str = None) -> UnifiedLogger:
     """
-    Вспомогательная функция для получения информации о вызывающем коде.
-    Полезна для ручного добавления контекста в логи.
-
+    Получить логгер для модуля
+    
+    Args:
+        name: Имя логгера, если None - используется __name__ вызывающего модуля
+    
     Returns:
-        tuple: (filename, line_number, function_name)
+        UnifiedLogger: Настроенный логгер
     """
-    import inspect
-
-    frame = inspect.currentframe().f_back.f_back
-    return frame.f_code.co_filename, frame.f_lineno, frame.f_code.co_name
+    if name is None:
+        import inspect
+        frame = inspect.currentframe().f_back
+        name = frame.f_globals.get('__name__', 'unknown')
+    
+    if name not in _logger_cache:
+        _logger_cache[name] = UnifiedLogger(name)
+        
+        # Логируем создание только для основных модулей
+        if name in ['__main__', 'main'] or 'main' in name.lower():
+            logger_key = f"{name}_{LOG_LEVEL}_{ENVIRONMENT}"
+            if logger_key not in _configured_loggers:
+                _logger_cache[name].info(f"Logger initialized for {name} (level: {LOG_LEVEL}, env: {ENVIRONMENT})")
+                _configured_loggers.add(logger_key)
+    
+    return _logger_cache[name]
 
 
 def setup_application_logging(
     app_name: str = "Application",
-    log_level: str = None,
-    log_dir: str = "logs",
-    max_bytes: int = 10 * 1024 * 1024,
-    backup_count: int = 5,
-    use_timed_rotation: bool = False,
-    rotation_interval: str = "midnight",
-    verbose: bool = False,  # Подробный вывод настроек
-) -> Logger:
+    log_level: Optional[str] = None,
+    environment: Optional[str] = None,
+    log_format: Optional[str] = None
+) -> UnifiedLogger:
     """
-    Централизованная настройка логирования для всего приложения.
-    Выводит минимум информации о настройке.
-
+    Централизованная настройка логирования для приложения
+    
     Args:
-        app_name: Имя приложения для основного логгера.
-        log_level: Уровень логирования (если None, берется из .env).
-        log_dir: Директория для логов.
-        max_bytes: Максимальный размер файла лога.
-        backup_count: Количество резервных копий.
-        use_timed_rotation: Использовать ротацию по времени.
-        rotation_interval: Интервал ротации по времени.
-        verbose: Показывать подробную информацию о настройке.
-
+        app_name: Имя приложения
+        log_level: Уровень логирования (переопределяет .env)
+        environment: Среда выполнения (переопределяет .env)
+        log_format: Формат логов (переопределяет .env)
+    
     Returns:
-        Logger: Основной логгер приложения.
+        UnifiedLogger: Основной логгер приложения
     """
-    # Если передан log_level, устанавливаем его в окружение
+    # Переопределяем настройки если переданы
     if log_level:
-        log_level = log_level.upper()
-        log_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-        if log_level not in log_levels:
-            temp_logger = getLogger(app_name)
-            temp_logger.warning(
-                f"Недопустимый уровень логирования '{log_level}'. "
-                f"Используется уровень из окружения или INFO"
-            )
-            log_level = None
-        else:
-            os.environ["LOG_LEVEL"] = log_level
-
-    # Создаем основной логгер приложения
-    main_logger = setup_logger(
-        app_name,
-        log_dir=log_dir,
-        max_bytes=max_bytes,
-        backup_count=backup_count,
-        use_timed_rotation=use_timed_rotation,
-        rotation_interval=rotation_interval,
-        silent_setup=not verbose,  # Показываем детали только если verbose=True
-    )
-
-    # Простое сообщение о готовности
-    main_logger.info(f"{app_name} started")
+        os.environ["LOG_LEVEL"] = log_level.upper()
+    if environment:
+        os.environ["ENVIRONMENT"] = environment.lower()
+    if log_format:
+        os.environ["LOG_FORMAT"] = log_format.lower()
+    
+    # Создаем и возвращаем главный логгер
+    main_logger = get_logger(app_name)
+    main_logger.info(f"{app_name} logging initialized")
     return main_logger
 
 
-def get_logger(name: str) -> Logger:
-    """
-    Получение логгера для модуля с тихой настройкой.
-
-    Args:
-        name: Имя логгера (обычно __name__ модуля).
-
-    Returns:
-        Logger: Настроенный логгер.
-    """
-    return setup_logger(name, silent_setup=True)
-
-
-def init_simple_logging(app_name: str = "App", log_level: str = None) -> Logger:
-    """
-    Максимально простая инициализация логирования без лишнего вывода.
-    Показывает только одно сообщение о старте приложения.
-
-    Args:
-        app_name: Имя приложения.
-        log_level: Уровень логирования (если None, берется из .env).
-
-    Returns:
-        Logger: Основной логгер приложения.
-    """
-    # Если передан log_level, устанавливаем его в окружение
-    if log_level:
-        log_level = log_level.upper()
-        log_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-        if log_level not in log_levels:
-            temp_logger = getLogger(app_name)
-            temp_logger.warning(
-                f"Недопустимый уровень логирования '{log_level}'. "
-                f"Используется уровень из окружения или INFO"
-            )
-            log_level = None
-        else:
-            os.environ["LOG_LEVEL"] = log_level
-
-    # Создаем логгер полностью тихо
-    main_logger = setup_logger(app_name, silent_setup=True)
-    main_logger.info(f"{app_name} started")
-    return main_logger
+def log_startup_info():
+    """Логирует информацию о запуске приложения"""
+    logger = get_logger("startup")
+    
+    logger.info("=" * 50)
+    logger.info(f"Environment: {ENVIRONMENT}")
+    logger.info(f"Log Level: {LOG_LEVEL}")
+    logger.info(f"Log Format: {LOG_FORMAT}")
+    logger.info(f"Log to File: {LOG_TO_FILE}")
+    if LOG_TO_FILE:
+        logger.info(f"Logs Directory: {LOGS_DIR}")
+    logger.info("=" * 50)
 
 
 class LoggerContext:
-    """
-    Контекстный менеджер для автоматического логирования исключений.
-    """
-
-    def __init__(self, logger: Logger, message: str = "Operation failed"):
+    """Контекстный менеджер для автоматического логирования операций"""
+    
+    def __init__(self, logger: UnifiedLogger, operation: str = "Operation", level: str = "INFO"):
         self.logger = logger
-        self.message = message
-
+        self.operation = operation
+        self.level = level.lower()
+        self.start_time = None
+    
     def __enter__(self):
+        self.start_time = time.time()
+        getattr(self.logger, self.level)(f"{self.operation} started")
         return self
-
+    
     def __exit__(self, exc_type, exc_val, exc_tb):
+        duration = time.time() - self.start_time
+        
         if exc_type:
             self.logger.error(
-                f"{self.message}: {exc_type.__name__}: {exc_val}", exc_info=True
+                f"{self.operation} failed after {duration:.2f}s: {exc_type.__name__}: {exc_val}",
+                extra={"operation": self.operation, "duration": duration, "error": str(exc_val)}
             )
+        else:
+            getattr(self.logger, self.level)(
+                f"{self.operation} completed in {duration:.2f}s",
+                extra={"operation": self.operation, "duration": duration}
+            )
+        
         return False  # Не подавляем исключение
+
+
+def log_function_call(func_name: str = None, level: str = "DEBUG"):
+    """Декоратор для логирования вызовов функций"""
+    def decorator(func):
+        import functools
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            name = func_name or func.__name__
+            logger = get_logger(func.__module__)
+            
+            with LoggerContext(logger, f"Function {name}", level):
+                return func(*args, **kwargs)
+        
+        return wrapper
+    return decorator

@@ -7,6 +7,9 @@ import {
 import { FiUsers, FiShoppingBag, FiMessageCircle, FiTrendingUp, FiCalendar } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
 import { colors, sizes, styles } from '../styles/styles';
+import { createLogger } from '../utils/logger.js';
+
+const logger = createLogger('Dashboard');
 
 const Dashboard = ({
   stats,
@@ -32,7 +35,7 @@ const Dashboard = ({
       document.cookie.match(/token=([^;]+)/)?.[1]
     ];
 
-    console.log('Поиск токена в источниках:', {
+    logger.debug('Поиск токена в источниках:', {
       localStorage_token: localStorage.getItem('token'),
       localStorage_authToken: localStorage.getItem('authToken'),
       localStorage_access_token: localStorage.getItem('access_token'),
@@ -46,12 +49,12 @@ const Dashboard = ({
     // Возвращаем первый найденный токен
     for (const token of tokenSources) {
       if (token && token.trim()) {
-        console.log('Найден токен:', token.substring(0, 20) + '...');
+        logger.debug('Найден токен:', token.substring(0, 20) + '...');
         return token;
       }
     }
 
-    console.error('Токен не найден ни в одном из источников');
+    logger.warn('Токен не найден ни в одном из источников');
     return null;
   };
 
@@ -60,7 +63,7 @@ const Dashboard = ({
     try {
       const token = getAuthToken();
       if (!token) {
-        console.error('Токен авторизации не найден');
+        logger.warn('Токен авторизации не найден');
         setChartError('Ошибка авторизации. Пожалуйста, войдите в систему.');
         return;
       }
@@ -75,7 +78,7 @@ const Dashboard = ({
 
       if (!response.ok) {
         if (response.status === 401) {
-          console.error('Токен недействителен, требуется повторная авторизация');
+          logger.warn('Токен недействителен, требуется повторная авторизация');
           setChartError('Сессия истекла. Пожалуйста, войдите в систему заново.');
           return;
         }
@@ -90,7 +93,7 @@ const Dashboard = ({
         setSelectedPeriod(data.current);
       }
     } catch (error) {
-      console.error('Ошибка загрузки доступных периодов:', error);
+      logger.error('Ошибка загрузки доступных периодов:', error);
       setChartError(`Ошибка загрузки периодов: ${error.message}`);
     }
   }, []);
@@ -125,7 +128,7 @@ const Dashboard = ({
       const data = await response.json();
       setChartData(data);
     } catch (error) {
-      console.error('Ошибка загрузки данных графика:', error);
+      logger.error('Ошибка загрузки данных графика:', error);
       setChartError(error.message);
     } finally {
       setIsLoadingChart(false);

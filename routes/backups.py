@@ -16,9 +16,9 @@ from utils.backup_manager import (
     cleanup_backups,
     backup_manager
 )
-from utils.structured_logging import get_structured_logger, log_application_event
+from utils.logger import get_logger
 
-logger = get_structured_logger(__name__)
+logger = get_logger(__name__)
 router = APIRouter(prefix="/backups", tags=["backups"])
 
 
@@ -101,12 +101,15 @@ async def create_backup(
         if not backup_info:
             raise HTTPException(status_code=500, detail="Failed to create backup")
         
-        log_application_event(
-            "backup",
+        logger.info(
             f"Manual backup created by admin: {current_admin.login}",
-            backup_filename=backup_info["filename"],
-            backup_type=request.backup_type,
-            size_mb=backup_info["size_mb"]
+            extra={
+                "event_type": "backup",
+                "backup_filename": backup_info["filename"],
+                "backup_type": request.backup_type,
+                "size_mb": backup_info["size_mb"],
+                "admin": current_admin.login
+            }
         )
         
         return BackupInfo(**backup_info)
@@ -162,11 +165,13 @@ async def restore_backup(
         if not success:
             raise HTTPException(status_code=500, detail="Database restore failed")
         
-        log_application_event(
-            "backup",
+        logger.info(
             f"Database restored from backup by admin: {current_admin.login}",
-            backup_filename=request.backup_filename,
-            admin=current_admin.login
+            extra={
+                "event_type": "backup",
+                "backup_filename": request.backup_filename,
+                "admin": current_admin.login
+            }
         )
         
         return {
@@ -188,18 +193,28 @@ async def cleanup_old_backups(
     current_admin: str = Depends(verify_token)
 ):
     """
-    Очистка старых бэкапов согласно политике ротации
+    Очистка старых бэкапов согласно политике ротации (только для суперадмина)
     """
     try:
+        # Проверяем права суперадмина
+        if not hasattr(current_admin, 'role') or current_admin.role.value != "super_admin":
+            raise HTTPException(
+                status_code=403, 
+                detail="Only super admin can cleanup backups"
+            )
+        
         logger.info(f"Backup cleanup initiated by {current_admin.login}")
         
         cleanup_stats = cleanup_backups()
         
-        log_application_event(
-            "backup",
+        logger.info(
             f"Backup cleanup completed by admin: {current_admin.login}",
-            deleted_count=cleanup_stats["deleted_count"],
-            deleted_size_mb=cleanup_stats["deleted_size_mb"]
+            extra={
+                "event_type": "backup",
+                "deleted_count": cleanup_stats["deleted_count"],
+                "deleted_size_mb": cleanup_stats["deleted_size_mb"],
+                "admin": current_admin.login
+            }
         )
         
         return {
@@ -252,10 +267,13 @@ async def delete_backup_file(
             backup_path.unlink()
             logger.info(f"Backup file deleted: {filename} by {current_admin.login}")
             
-            log_application_event(
-                "backup",
+            logger.info(
                 f"Backup file deleted by super admin: {current_admin.login}",
-                backup_filename=filename
+                extra={
+                    "event_type": "backup",
+                    "backup_filename": filename,
+                    "admin": current_admin.login
+                }
             )
             
             return {
@@ -570,10 +588,13 @@ async def update_backup_settings(
             updated_settings["MAX_BACKUP_SIZE_MB"] = str(settings.max_backup_size_mb)
         
         # Логируем изменения
-        log_application_event(
-            "backup",
+        logger.info(
             f"Backup settings updated by super admin: {current_admin.login}",
-            updated_settings=updated_settings
+            extra={
+                "event_type": "backup",
+                "updated_settings": updated_settings,
+                "admin": current_admin.login
+            }
         )
         
         logger.info(
@@ -647,11 +668,14 @@ async def test_backup_restore(
                 detail=f"Backup file appears to be corrupted: {e}"
             )
         
-        log_application_event(
-            "backup",
+        logger.info(
             f"Backup integrity test performed by admin: {current_admin.login}",
-            backup_filename=request.backup_filename,
-            test_result="passed"
+            extra={
+                "event_type": "backup",
+                "backup_filename": request.backup_filename,
+                "test_result": "passed",
+                "admin": current_admin.login
+            }
         )
         
         return {

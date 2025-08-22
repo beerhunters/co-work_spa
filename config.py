@@ -81,9 +81,6 @@ RUBITIME_COOPERATOR_ID = int(os.getenv("RUBITIME_COOPERATOR_ID", "25786"))
 FILE_RETENTION_DAYS = int(os.getenv("FILE_RETENTION_DAYS", "30"))
 MAX_FILE_SIZE_MB = int(os.getenv("MAX_FILE_SIZE_MB", "10"))
 
-# Логирование
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-
 # Фронтенд
 FRONTEND_URL = os.getenv("FRONTEND_URL", f"http://{HOST}")
 ADMIN_URL = os.getenv("ADMIN_URL", "https://t.me/partacoworking")
@@ -105,6 +102,20 @@ EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
 NEWSLETTER_MAX_PHOTOS = int(os.getenv("NEWSLETTER_MAX_PHOTOS", "10"))
 NEWSLETTER_MAX_FILE_SIZE_MB = int(os.getenv("NEWSLETTER_MAX_FILE_SIZE_MB", "20"))
 NEWSLETTER_RATE_LIMIT_DELAY = float(os.getenv("NEWSLETTER_RATE_LIMIT_DELAY", "0.05"))
+
+# Redis и кэширование
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+CACHE_DEFAULT_TTL = int(os.getenv("CACHE_DEFAULT_TTL", "300"))  # 5 минут
+CACHE_DASHBOARD_TTL = int(os.getenv("CACHE_DASHBOARD_TTL", "60"))  # 1 минута
+CACHE_USER_DATA_TTL = int(os.getenv("CACHE_USER_DATA_TTL", "600"))  # 10 минут
+CACHE_STATIC_DATA_TTL = int(os.getenv("CACHE_STATIC_DATA_TTL", "1800"))  # 30 минут
+
+# Логирование
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()  
+LOG_FORMAT = os.getenv("LOG_FORMAT", "text").lower()  # "text" или "json"
+LOG_TO_FILE = os.getenv("LOG_TO_FILE", "true").lower() == "true"
+LOGS_DIR = Path(os.getenv("LOGS_DIR", "logs"))
 
 # Настройки временной зоны
 import pytz

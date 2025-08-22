@@ -13,10 +13,10 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text
 from sqlalchemy.ext.declarative import declarative_base
 
-from utils.structured_logging import get_structured_logger, log_application_event
+from utils.logger import get_logger
 from models.models import Base, DatabaseManager
 
-logger = get_structured_logger(__name__)
+logger = get_logger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
@@ -105,13 +105,12 @@ class APIKeyManager:
             session.add(api_key)
             session.commit()
             
-            log_application_event(
-                "security",
-                f"API key created: {name}",
-                key_id=api_key.id,
-                scopes=scopes_json,
-                created_by=created_by
-            )
+            logger.info(f"API key created: {name}", extra={
+                "key_id": api_key.id,
+                "scopes": scopes_json,
+                "created_by": created_by,
+                "event_type": "security"
+            })
             
             return {"key": raw_key, "key_id": str(api_key.id)}
         
@@ -193,12 +192,11 @@ class APIKeyManager:
             api_key.is_active = False
             session.commit()
             
-            log_application_event(
-                "security",
-                f"API key revoked: {api_key.name}",
-                key_id=key_id,
-                revoked_by=revoked_by
-            )
+            logger.info(f"API key revoked: {api_key.name}", extra={
+                "key_id": key_id,
+                "revoked_by": revoked_by,
+                "event_type": "security"
+            })
             return True
         
         return DatabaseManager.safe_execute(_revoke)

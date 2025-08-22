@@ -17,6 +17,8 @@ from config import MOSCOW_TZ, TICKET_PHOTOS_DIR
 from schemas.ticket_schemas import TicketCreate
 from utils.logger import get_logger
 from utils.async_file_utils import AsyncFileManager
+from utils.file_security import validate_upload_file, create_safe_file_path
+from utils.sql_optimization import SQLOptimizer
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -63,72 +65,10 @@ async def get_tickets_detailed(
 
     def _get_tickets(session):
         try:
-            base_query = """
-                SELECT 
-                    t.id, t.user_id, t.description, t.photo_id, t.response_photo_id,
-                    t.status, t.comment, t.created_at, t.updated_at,
-                    u.telegram_id, u.full_name, u.username, u.phone, u.email
-                FROM tickets t
-                LEFT JOIN users u ON t.user_id = u.id
-            """
-
-            where_conditions = []
-            params = {}
-
-            if user_query and user_query.strip():
-                where_conditions.append("u.full_name LIKE :user_query")
-                params["user_query"] = f"%{user_query.strip()}%"
-
-            if status and status.strip():
-                where_conditions.append("t.status = :status")
-                params["status"] = status.strip()
-
-            if where_conditions:
-                base_query += " WHERE " + " AND ".join(where_conditions)
-
-            count_query = f"SELECT COUNT(*) FROM ({base_query}) as counted"
-            total_count = session.execute(text(count_query), params).scalar()
-
-            final_query = (
-                base_query + " ORDER BY t.created_at DESC LIMIT :limit OFFSET :offset"
+            # Используем оптимизированный запрос с индексами
+            return SQLOptimizer.get_optimized_tickets_with_users(
+                session, page, per_page, status, user_query
             )
-            params["limit"] = per_page
-            params["offset"] = (page - 1) * per_page
-
-            result = session.execute(text(final_query), params).fetchall()
-
-            enriched_tickets = []
-            for row in result:
-                ticket_item = {
-                    "id": int(row.id),
-                    "user_id": int(row.user_id),
-                    "description": row.description,
-                    "photo_id": row.photo_id,
-                    "response_photo_id": row.response_photo_id,
-                    "status": row.status,
-                    "comment": row.comment,
-                    "created_at": row.created_at,
-                    "updated_at": row.updated_at,
-                    "user": {
-                        "id": row.user_id,
-                        "telegram_id": row.telegram_id,
-                        "full_name": row.full_name or "Имя не указано",
-                        "username": row.username,
-                        "phone": row.phone,
-                        "email": row.email,
-                    },
-                }
-                enriched_tickets.append(ticket_item)
-
-            total_pages = (total_count + per_page - 1) // per_page
-
-            return {
-                "tickets": enriched_tickets,
-                "total_count": int(total_count),
-                "page": int(page),
-                "per_page": int(per_page),
-                "total_pages": int(total_pages),
-            }
 
         except Exception as e:
             logger.error(f"Ошибка в _get_tickets: {e}")
@@ -611,34 +551,23 @@ async def send_photo_to_user(
         user_telegram_id = user.telegram_id
         user_id_value = user.id
 
-        # Обработка загружаемого фото с асинхронными операциями
+        # Обработка загружаемого фото с комплексной валидацией безопасности
         file_content = None
         if file:
             try:
-                # Проверяем размер файла (максимум 10MB)
-                if file.size and file.size > 10 * 1024 * 1024:
-                    raise HTTPException(
-                        status_code=400, detail="File too large. Maximum size is 10MB"
-                    )
-
-                # Проверяем тип файла
-                allowed_types = [
-                    "image/jpeg",
-                    "image/jpg",
-                    "image/png",
-                    "image/gif",
-                    "image/webp",
-                ]
-                if file.content_type and file.content_type not in allowed_types:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Invalid file type. Only images are allowed",
-                    )
-
+                # Комплексная валидация файла с проверкой безопасности
+                file_info = await validate_upload_file(
+                    file, 
+                    file_type='image',
+                    check_content=True  # Проверяем реальное содержимое
+                )
+                
                 # Читаем содержимое файла
                 file_content = await file.read()
+                
                 logger.info(
-                    f"Получено фото для отправки пользователю тикета {ticket_id}, размер: {len(file_content)} байт"
+                    f"Получено и валидировано фото для отправки пользователю тикета {ticket_id}: "
+                    f"{file_info['filename']} ({file_info['size']} байт, {file_info.get('width', '?')}x{file_info.get('height', '?')})"
                 )
 
             except HTTPException:
