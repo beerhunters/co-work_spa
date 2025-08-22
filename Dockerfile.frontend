@@ -34,19 +34,7 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Копируем конфигурацию Nginx
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Создаем непривилегированного пользователя для Nginx
-RUN addgroup -g 1001 -S nginx && \
-    adduser -S -D -H -u 1001 -h /var/cache/nginx -s /sbin/nologin -G nginx -g nginx nginx
-
-# Настраиваем права доступа
-RUN chown -R nginx:nginx /usr/share/nginx/html && \
-    chown -R nginx:nginx /var/cache/nginx && \
-    chown -R nginx:nginx /var/log/nginx && \
-    chown -R nginx:nginx /etc/nginx/conf.d
-
-# Создаем директории для PID файлов
-RUN touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid
+# Используем существующего пользователя nginx (он уже есть в nginx:alpine)
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -55,8 +43,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Открываем порт
 EXPOSE 80
 
-# Переключаемся на непривилегированного пользователя
-USER nginx
-
-# Команда запуска
+# Команда запуска (nginx автоматически переключится на пользователя nginx согласно конфигурации)
 CMD ["nginx", "-g", "daemon off;"]

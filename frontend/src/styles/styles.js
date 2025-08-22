@@ -2,6 +2,18 @@
 // Все визуальные настройки в одном месте
 
 export const colors = {
+  // Общие цвета для всего приложения
+  background: 'gray.50',
+  text: {
+    primary: 'gray.800',
+    muted: 'gray.500',
+    light: 'gray.400'
+  },
+  card: {
+    bg: 'white',
+    border: 'gray.200',
+    shadow: 'lg'
+  },
   sidebar: {
     bg: 'gray.900',
     borderColor: 'gray.700',

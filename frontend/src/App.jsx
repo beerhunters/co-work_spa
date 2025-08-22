@@ -25,6 +25,8 @@ import Notifications from './sections/Notifications';
 import Newsletters from './sections/Newsletters';
 import Admins from './sections/Admins';
 import Backups from './sections/Backups';
+import SystemMonitor from './sections/SystemMonitor';
+import CacheManager from './sections/CacheManager';
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -1059,6 +1061,10 @@ function App() {
             currentAdmin={currentAdmin}
           />
         );
+      case 'monitoring':
+        return <SystemMonitor currentAdmin={currentAdmin} />;
+      case 'cache':
+        return <CacheManager currentAdmin={currentAdmin} />;
       case 'backups':
         return <Backups currentAdmin={currentAdmin} />;
       default:

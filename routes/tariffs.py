@@ -8,36 +8,40 @@ from models.models import Tariff
 from dependencies import get_db, verify_token
 from schemas.tariff_schemas import TariffBase, TariffCreate, TariffUpdate
 from utils.logger import get_logger
-from utils.cache import cache_tariffs
+from utils.cache_manager import cache_manager
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/tariffs", tags=["tariffs"])
 
 
 @router.get("/active")
-@cache_tariffs(ttl_seconds=600)  # Кэшируем на 10 минут - тарифы меняются редко
 async def get_active_tariffs(db: Session = Depends(get_db)):
     """Получение активных тарифов. Используется ботом."""
-    try:
-        tariffs = db.query(Tariff).filter_by(is_active=True).all()
-        return [
-            {
-                "id": t.id,
-                "name": t.name,
-                "description": t.description,
-                "price": t.price,
-                "purpose": t.purpose,
-                "service_id": t.service_id if t.service_id is not None else 0,
-                "is_active": t.is_active,
-            }
-            for t in tariffs
-        ]
-    except SQLAlchemyError as e:
-        logger.error(f"Ошибка базы данных при получении активных тарифов: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка базы данных")
-    except Exception as e:
-        logger.error(f"Неожиданная ошибка при получении активных тарифов: {e}")
-        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    cache_key = cache_manager.get_cache_key("tariffs", "active")
+    
+    async def fetch_tariffs():
+        try:
+            tariffs = db.query(Tariff).filter_by(is_active=True).all()
+            return [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "price": t.price,
+                    "purpose": t.purpose,
+                    "service_id": t.service_id if t.service_id is not None else 0,
+                    "is_active": t.is_active,
+                }
+                for t in tariffs
+            ]
+        except SQLAlchemyError as e:
+            logger.error(f"Ошибка базы данных при получении активных тарифов: {e}")
+            raise HTTPException(status_code=500, detail="Ошибка базы данных")
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при получении активных тарифов: {e}")
+            raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+    
+    return await cache_manager.get_or_set(cache_key, fetch_tariffs, ttl=600)
 
 
 @router.get("", response_model=List[TariffBase])

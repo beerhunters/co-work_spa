@@ -195,7 +195,7 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile.frontend.simple
+      dockerfile: Dockerfile.frontend
     environment:
       - HOST=${HOST:-localhost}
       - API_BASE_URL=${API_BASE_URL}

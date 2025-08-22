@@ -1,8 +1,5 @@
-import os
-import pytz
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 from aiogram import Bot
 from aiogram.types import (
@@ -12,13 +9,10 @@ from aiogram.types import (
     File,
 )
 
+from config import ADMIN_URL, RULES_URL
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-MOSCOW_TZ = pytz.timezone("Europe/Moscow")
-ADMIN_URL = "https://t.me/partacoworking"
-RULES = "https://parta-works.ru/main_rules"
 
 
 def create_user_keyboard() -> InlineKeyboardMarkup:
@@ -38,7 +32,7 @@ def create_user_keyboard() -> InlineKeyboardMarkup:
                     text="📱 Связаться с администратором", url=ADMIN_URL
                 )
             ],
-            [InlineKeyboardButton(text="📋 Правила коворкинга", url=RULES)],
+            [InlineKeyboardButton(text="📋 Правила коворкинга", url=RULES_URL)],
         ]
     )
     return keyboard

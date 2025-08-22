@@ -22,6 +22,63 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
+# Простая система метрик (заглушка для работы мониторинга)
+class SimpleMetrics:
+    """Простая система сбора метрик"""
+    
+    def __init__(self):
+        self.metrics = {
+            "requests_total": 0,
+            "errors_total": 0,
+            "requests_by_endpoint": {},
+            "requests_by_status": {},
+            "response_times": [],
+            "auth_failures": 0,
+            "rate_limits_exceeded": 0,
+            "active_sessions": 0,
+        }
+    
+    def get_metrics_summary(self):
+        """Возвращает сводку метрик"""
+        avg_response_time = (
+            sum(self.metrics["response_times"]) / len(self.metrics["response_times"])
+            if self.metrics["response_times"] else 0
+        )
+        
+        return {
+            "counters": {
+                "requests_total": self.metrics["requests_total"],
+                "errors_total": self.metrics["errors_total"],
+                "auth_failures": self.metrics["auth_failures"],
+                "rate_limits_exceeded": self.metrics["rate_limits_exceeded"],
+                "active_sessions": self.metrics["active_sessions"],
+            },
+            "histograms": {
+                "response_times_histogram": {
+                    "count": len(self.metrics["response_times"]),
+                    "mean": avg_response_time,
+                    "max": max(self.metrics["response_times"]) if self.metrics["response_times"] else 0,
+                    "min": min(self.metrics["response_times"]) if self.metrics["response_times"] else 0,
+                }
+            },
+            "by_endpoint": self.metrics["requests_by_endpoint"],
+            "by_status": self.metrics["requests_by_status"],
+        }
+    
+    def get_metrics(self):
+        """Возвращает полные метрики"""
+        return self.metrics
+
+
+# Глобальный экземпляр метрик
+_metrics = SimpleMetrics()
+
+
+def get_metrics():
+    """Получить экземпляр метрик"""
+    return _metrics
+
+
 @router.get("/health/detailed")
 async def detailed_health_check():
     """Детальная проверка здоровья системы"""
