@@ -27,6 +27,8 @@ import Admins from './sections/Admins';
 import Backups from './sections/Backups';
 import SystemMonitor from './sections/SystemMonitor';
 import CacheManager from './sections/CacheManager';
+import Performance from './sections/Performance';
+import ApiKeys from './sections/ApiKeys';
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -1065,6 +1067,10 @@ function App() {
         return <SystemMonitor currentAdmin={currentAdmin} />;
       case 'cache':
         return <CacheManager currentAdmin={currentAdmin} />;
+      case 'performance':
+        return <Performance currentAdmin={currentAdmin} />;
+      case 'api-keys':
+        return <ApiKeys currentAdmin={currentAdmin} />;
       case 'backups':
         return <Backups currentAdmin={currentAdmin} />;
       default:
