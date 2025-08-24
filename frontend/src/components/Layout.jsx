@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Flex } from '@chakra-ui/react';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
-import { styles } from '../styles/styles';
+import { styles, colors, sizes } from '../styles/styles';
 
 const Layout = ({
   children,
@@ -20,7 +20,7 @@ const Layout = ({
   onToggleNotificationSound
 }) => {
   return (
-    <Flex minH="100vh" bg={styles.layout.bg} position="relative">
+    <Flex minH={styles.layout.minHeight} bg={styles.layout.bg} position="relative">
       {/* Фиксированный сайдбар */}
       <Box
         position="fixed"
@@ -40,7 +40,7 @@ const Layout = ({
       {/* Основной контент с отступом для сайдбара */}
       <Box
         flex={1}
-        ml="240px" // Отступ равный ширине сайдбара (из sizes.sidebar.width)
+        ml={sizes.sidebar.width}
         position="relative"
       >
         {/* Фиксированный Navbar */}
@@ -48,7 +48,7 @@ const Layout = ({
           position="sticky"
           top="0"
           zIndex="5"
-          bg="white"
+          bg={colors.background.card}
         >
           <Navbar
             section={section}

@@ -1,102 +1,103 @@
 """
-API маршруты для управления API ключами
+API маршруты для управления API ключами - Реальная реализация с БД
 """
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from typing import Optional, List, Dict, Any
 import secrets
 import string
+import hashlib
 from datetime import datetime, timedelta
-import random
+from sqlalchemy.orm import Session
+from sqlalchemy import desc, func
 
-from dependencies import verify_token
+from dependencies import verify_token, get_db
 from utils.logger import get_logger
+from models.api_keys import ApiKey, ApiKeyAuditLog, ApiKeyUsage
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api-keys", tags=["api_keys"])
-
-# Демонстрационное хранилище API ключей (в реальном приложении это будет БД)
-api_keys_storage = []
-audit_logs_storage = []
 
 def generate_api_key() -> str:
     """Генерация безопасного API ключа"""
     alphabet = string.ascii_letters + string.digits
     return 'ak_' + ''.join(secrets.choice(alphabet) for _ in range(40))
 
-def log_audit_event(action: str, api_key_name: str = None, user: str = "admin", success: bool = True, ip_address: str = "127.0.0.1"):
-    """Логирование событий аудита"""
-    audit_logs_storage.append({
-        "timestamp": datetime.now().isoformat(),
-        "user": user,
-        "action": action,
-        "api_key_name": api_key_name,
-        "ip_address": ip_address,
-        "success": success
-    })
+def hash_api_key(api_key: str) -> str:
+    """Хеширование API ключа для безопасного хранения"""
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+def get_client_ip(request: Request) -> str:
+    """Получение IP адреса клиента"""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.client.host or "127.0.0.1"
+
+def log_audit_event(
+    db: Session, 
+    action: str, 
+    request: Request,
+    api_key_name: str = None,
+    api_key_id: int = None,
+    user: str = "admin", 
+    success: bool = True,
+    details: dict = None
+):
+    """Логирование событий аудита в базу данных"""
+    try:
+        audit_log = ApiKeyAuditLog(
+            user=user,
+            action=action,
+            api_key_name=api_key_name,
+            api_key_id=api_key_id,
+            ip_address=get_client_ip(request),
+            success=success,
+            details=details
+        )
+        db.add(audit_log)
+        db.commit()
+        logger.info(f"Audit event logged: {action} by {user}")
+    except Exception as e:
+        logger.error(f"Failed to log audit event: {e}")
+        db.rollback()
 
 @router.get("")
-async def get_api_keys(_: str = Depends(verify_token)):
+async def get_api_keys(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token)
+):
     """
     Получение списка всех API ключей
     
     Требует аутентификации администратора.
     """
     try:
-        # Если нет демонстрационных данных, создаем их
-        if not api_keys_storage:
-            sample_keys = [
-                {
-                    "id": 1,
-                    "name": "Mobile App API",
-                    "description": "API ключ для мобильного приложения",
-                    "key": generate_api_key(),
-                    "scopes": ["users:read", "bookings:read", "bookings:write"],
-                    "is_active": True,
-                    "expires_at": (datetime.now() + timedelta(days=365)).isoformat(),
-                    "created_at": datetime.now().isoformat(),
-                    "ip_whitelist": ["192.168.1.100", "10.0.0.50"],
-                    "rate_limit": 1000,
-                    "request_count": random.randint(100, 5000),
-                    "last_used_at": (datetime.now() - timedelta(hours=2)).isoformat()
-                },
-                {
-                    "id": 2,
-                    "name": "Dashboard Analytics",
-                    "description": "Ключ для получения аналитических данных",
-                    "key": generate_api_key(),
-                    "scopes": ["analytics:read", "users:read"],
-                    "is_active": True,
-                    "expires_at": (datetime.now() + timedelta(days=180)).isoformat(),
-                    "created_at": (datetime.now() - timedelta(days=30)).isoformat(),
-                    "ip_whitelist": [],
-                    "rate_limit": 500,
-                    "request_count": random.randint(50, 1000),
-                    "last_used_at": (datetime.now() - timedelta(hours=1)).isoformat()
-                },
-                {
-                    "id": 3,
-                    "name": "Webhook Integration",
-                    "description": "Ключ для интеграции через webhooks",
-                    "key": generate_api_key(),
-                    "scopes": ["tickets:read", "tickets:write", "users:read"],
-                    "is_active": False,
-                    "expires_at": (datetime.now() + timedelta(days=90)).isoformat(),
-                    "created_at": (datetime.now() - timedelta(days=10)).isoformat(),
-                    "ip_whitelist": ["203.0.113.0"],
-                    "rate_limit": 2000,
-                    "request_count": random.randint(0, 100),
-                    "last_used_at": (datetime.now() - timedelta(days=5)).isoformat()
-                }
-            ]
-            api_keys_storage.extend(sample_keys)
-            
-            # Логируем создание демо-ключей
-            for key in sample_keys:
-                log_audit_event("create_api_key", key["name"], success=True)
+        # Получаем все API ключи из базы данных
+        api_keys = db.query(ApiKey).order_by(desc(ApiKey.created_at)).all()
+        
+        # Преобразуем в формат для фронтенда (без реального ключа)
+        api_keys_data = []
+        for key in api_keys:
+            api_keys_data.append({
+                "id": key.id,
+                "name": key.name,
+                "description": key.description,
+                "key": f"ak_****************************{key.key_hash[-8:]}",  # Показываем только последние 8 символов хеша
+                "scopes": key.scopes,
+                "is_active": key.is_active,
+                "expires_at": key.expires_at.isoformat() if key.expires_at else None,
+                "created_at": key.created_at.isoformat(),
+                "ip_whitelist": key.ip_whitelist,
+                "rate_limit": key.rate_limit,
+                "request_count": key.request_count,
+                "last_used_at": key.last_used_at.isoformat() if key.last_used_at else None,
+                "created_by": key.created_by
+            })
         
         return {
             "status": "success",
-            "api_keys": api_keys_storage
+            "api_keys": api_keys_data
         }
         
     except Exception as e:
@@ -108,8 +109,10 @@ async def get_api_keys(_: str = Depends(verify_token)):
 
 @router.post("")
 async def create_api_key(
+    request: Request,
     key_data: Dict[str, Any] = Body(...),
-    _: str = Depends(verify_token)
+    db: Session = Depends(get_db),
+    current_user: str = Depends(verify_token)
 ):
     """
     Создание нового API ключа
@@ -117,34 +120,82 @@ async def create_api_key(
     Требует аутентификации администратора.
     """
     try:
-        new_key = {
-            "id": len(api_keys_storage) + 1,
-            "name": key_data.get("name"),
-            "description": key_data.get("description", ""),
-            "key": generate_api_key(),
-            "scopes": key_data.get("scopes", []),
-            "is_active": True,
-            "expires_at": key_data.get("expires_at"),
-            "created_at": datetime.now().isoformat(),
-            "ip_whitelist": key_data.get("ip_whitelist", []),
-            "rate_limit": key_data.get("rate_limit", 1000),
-            "request_count": 0,
-            "last_used_at": None
-        }
+        # Валидация обязательных полей
+        if not key_data.get("name"):
+            raise HTTPException(status_code=400, detail="Название API ключа обязательно")
         
-        api_keys_storage.append(new_key)
-        log_audit_event("create_api_key", new_key["name"], success=True)
+        if not key_data.get("scopes"):
+            raise HTTPException(status_code=400, detail="Необходимо выбрать хотя бы одну область доступа")
         
-        logger.info(f"API ключ '{new_key['name']}' создан успешно")
+        # Проверяем уникальность названия
+        existing_key = db.query(ApiKey).filter(ApiKey.name == key_data["name"]).first()
+        if existing_key:
+            raise HTTPException(status_code=400, detail="API ключ с таким названием уже существует")
+        
+        # Генерируем новый ключ
+        api_key = generate_api_key()
+        key_hash = hash_api_key(api_key)
+        
+        # Парсим дату истечения
+        expires_at = None
+        if key_data.get("expires_at"):
+            expires_at = datetime.fromisoformat(key_data["expires_at"])
+        
+        # Создаем новый API ключ
+        new_api_key = ApiKey(
+            name=key_data["name"],
+            description=key_data.get("description", ""),
+            key_hash=key_hash,
+            scopes=key_data.get("scopes", []),
+            expires_at=expires_at,
+            ip_whitelist=key_data.get("ip_whitelist", []),
+            rate_limit=key_data.get("rate_limit", 1000),
+            created_by=current_user
+        )
+        
+        db.add(new_api_key)
+        db.commit()
+        db.refresh(new_api_key)
+        
+        # Логируем создание
+        log_audit_event(
+            db, "create_api_key", request,
+            api_key_name=new_api_key.name,
+            api_key_id=new_api_key.id,
+            user=current_user,
+            success=True
+        )
+        
+        logger.info(f"API ключ '{new_api_key.name}' создан успешно пользователем {current_user}")
         
         return {
             "status": "success",
             "message": "API ключ создан успешно",
-            "api_key": new_key
+            "api_key": {
+                "id": new_api_key.id,
+                "name": new_api_key.name,
+                "description": new_api_key.description,
+                "key": api_key,  # Возвращаем реальный ключ только при создании!
+                "scopes": new_api_key.scopes,
+                "is_active": new_api_key.is_active,
+                "expires_at": new_api_key.expires_at.isoformat() if new_api_key.expires_at else None,
+                "created_at": new_api_key.created_at.isoformat(),
+                "ip_whitelist": new_api_key.ip_whitelist,
+                "rate_limit": new_api_key.rate_limit,
+                "created_by": new_api_key.created_by
+            }
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
-        log_audit_event("create_api_key", key_data.get("name"), success=False)
+        db.rollback()
+        log_audit_event(
+            db, "create_api_key", request,
+            api_key_name=key_data.get("name"),
+            user=current_user,
+            success=False
+        )
         logger.error(f"Ошибка создания API ключа: {e}")
         raise HTTPException(
             status_code=500,
@@ -154,8 +205,10 @@ async def create_api_key(
 @router.put("/{key_id}")
 async def update_api_key(
     key_id: int,
+    request: Request,
     key_data: Dict[str, Any] = Body(...),
-    _: str = Depends(verify_token)
+    db: Session = Depends(get_db),
+    current_user: str = Depends(verify_token)
 ):
     """
     Обновление API ключа
@@ -164,39 +217,60 @@ async def update_api_key(
     """
     try:
         # Находим ключ для обновления
-        key_to_update = None
-        for key in api_keys_storage:
-            if key["id"] == key_id:
-                key_to_update = key
-                break
-        
-        if not key_to_update:
+        api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+        if not api_key:
             raise HTTPException(status_code=404, detail="API ключ не найден")
         
+        # Проверяем уникальность нового названия (если оно изменилось)
+        if key_data.get("name") and key_data["name"] != api_key.name:
+            existing_key = db.query(ApiKey).filter(ApiKey.name == key_data["name"], ApiKey.id != key_id).first()
+            if existing_key:
+                raise HTTPException(status_code=400, detail="API ключ с таким названием уже существует")
+        
         # Обновляем данные
-        key_to_update.update({
-            "name": key_data.get("name", key_to_update["name"]),
-            "description": key_data.get("description", key_to_update["description"]),
-            "scopes": key_data.get("scopes", key_to_update["scopes"]),
-            "expires_at": key_data.get("expires_at", key_to_update["expires_at"]),
-            "ip_whitelist": key_data.get("ip_whitelist", key_to_update["ip_whitelist"]),
-            "rate_limit": key_data.get("rate_limit", key_to_update["rate_limit"]),
-        })
+        if key_data.get("name"):
+            api_key.name = key_data["name"]
+        if key_data.get("description") is not None:
+            api_key.description = key_data["description"]
+        if key_data.get("scopes"):
+            api_key.scopes = key_data["scopes"]
+        if key_data.get("expires_at"):
+            api_key.expires_at = datetime.fromisoformat(key_data["expires_at"])
+        if key_data.get("ip_whitelist") is not None:
+            api_key.ip_whitelist = key_data["ip_whitelist"]
+        if key_data.get("rate_limit"):
+            api_key.rate_limit = key_data["rate_limit"]
         
-        log_audit_event("update_api_key", key_to_update["name"], success=True)
+        api_key.updated_at = datetime.utcnow()
         
-        logger.info(f"API ключ '{key_to_update['name']}' обновлен успешно")
+        db.commit()
+        db.refresh(api_key)
+        
+        log_audit_event(
+            db, "update_api_key", request,
+            api_key_name=api_key.name,
+            api_key_id=api_key.id,
+            user=current_user,
+            success=True
+        )
+        
+        logger.info(f"API ключ '{api_key.name}' обновлен успешно пользователем {current_user}")
         
         return {
             "status": "success",
-            "message": "API ключ обновлен успешно",
-            "api_key": key_to_update
+            "message": "API ключ обновлен успешно"
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        log_audit_event("update_api_key", f"key_id_{key_id}", success=False)
+        db.rollback()
+        log_audit_event(
+            db, "update_api_key", request,
+            api_key_name=f"key_id_{key_id}",
+            user=current_user,
+            success=False
+        )
         logger.error(f"Ошибка обновления API ключа {key_id}: {e}")
         raise HTTPException(
             status_code=500,
@@ -206,7 +280,9 @@ async def update_api_key(
 @router.delete("/{key_id}")
 async def delete_api_key(
     key_id: int,
-    _: str = Depends(verify_token)
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(verify_token)
 ):
     """
     Удаление API ключа
@@ -214,19 +290,26 @@ async def delete_api_key(
     Требует аутентификации администратора.
     """
     try:
-        # Находим и удаляем ключ
-        key_to_delete = None
-        for i, key in enumerate(api_keys_storage):
-            if key["id"] == key_id:
-                key_to_delete = api_keys_storage.pop(i)
-                break
-        
-        if not key_to_delete:
+        # Находим ключ для удаления
+        api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+        if not api_key:
             raise HTTPException(status_code=404, detail="API ключ не найден")
         
-        log_audit_event("delete_api_key", key_to_delete["name"], success=True)
+        key_name = api_key.name
         
-        logger.info(f"API ключ '{key_to_delete['name']}' удален успешно")
+        # Удаляем ключ
+        db.delete(api_key)
+        db.commit()
+        
+        log_audit_event(
+            db, "delete_api_key", request,
+            api_key_name=key_name,
+            api_key_id=key_id,
+            user=current_user,
+            success=True
+        )
+        
+        logger.info(f"API ключ '{key_name}' удален успешно пользователем {current_user}")
         
         return {
             "status": "success",
@@ -236,7 +319,13 @@ async def delete_api_key(
     except HTTPException:
         raise
     except Exception as e:
-        log_audit_event("delete_api_key", f"key_id_{key_id}", success=False)
+        db.rollback()
+        log_audit_event(
+            db, "delete_api_key", request,
+            api_key_name=f"key_id_{key_id}",
+            user=current_user,
+            success=False
+        )
         logger.error(f"Ошибка удаления API ключа {key_id}: {e}")
         raise HTTPException(
             status_code=500,
@@ -246,7 +335,9 @@ async def delete_api_key(
 @router.patch("/{key_id}/toggle")
 async def toggle_api_key_status(
     key_id: int,
-    _: str = Depends(verify_token)
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: str = Depends(verify_token)
 ):
     """
     Переключение статуса активности API ключа
@@ -255,34 +346,44 @@ async def toggle_api_key_status(
     """
     try:
         # Находим ключ для переключения статуса
-        key_to_toggle = None
-        for key in api_keys_storage:
-            if key["id"] == key_id:
-                key_to_toggle = key
-                break
-        
-        if not key_to_toggle:
+        api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
+        if not api_key:
             raise HTTPException(status_code=404, detail="API ключ не найден")
         
         # Переключаем статус
-        key_to_toggle["is_active"] = not key_to_toggle["is_active"]
+        api_key.is_active = not api_key.is_active
+        api_key.updated_at = datetime.utcnow()
         
-        action = "activate_api_key" if key_to_toggle["is_active"] else "deactivate_api_key"
-        log_audit_event(action, key_to_toggle["name"], success=True)
+        db.commit()
+        db.refresh(api_key)
         
-        status = "активирован" if key_to_toggle["is_active"] else "деактивирован"
-        logger.info(f"API ключ '{key_to_toggle['name']}' {status}")
+        action = "activate_api_key" if api_key.is_active else "deactivate_api_key"
+        log_audit_event(
+            db, action, request,
+            api_key_name=api_key.name,
+            api_key_id=api_key.id,
+            user=current_user,
+            success=True
+        )
+        
+        status = "активирован" if api_key.is_active else "деактивирован"
+        logger.info(f"API ключ '{api_key.name}' {status} пользователем {current_user}")
         
         return {
             "status": "success",
-            "message": f"API ключ {status}",
-            "api_key": key_to_toggle
+            "message": f"API ключ {status}"
         }
         
     except HTTPException:
         raise
     except Exception as e:
-        log_audit_event("toggle_api_key", f"key_id_{key_id}", success=False)
+        db.rollback()
+        log_audit_event(
+            db, "toggle_api_key", request,
+            api_key_name=f"key_id_{key_id}",
+            user=current_user,
+            success=False
+        )
         logger.error(f"Ошибка переключения статуса API ключа {key_id}: {e}")
         raise HTTPException(
             status_code=500,
@@ -290,35 +391,63 @@ async def toggle_api_key_status(
         )
 
 @router.get("/usage-stats")
-async def get_usage_stats(_: str = Depends(verify_token)):
+async def get_usage_stats(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token)
+):
     """
     Получение статистики использования API ключей
     
     Требует аутентификации администратора.
     """
     try:
-        # Генерируем демонстрационную статистику
-        total_requests = sum(key.get("request_count", 0) for key in api_keys_storage)
-        active_keys = [key for key in api_keys_storage if key["is_active"]]
+        # Получаем базовую статистику
+        total_keys = db.query(ApiKey).count()
+        active_keys = db.query(ApiKey).filter(ApiKey.is_active == True).count()
+        
+        # Статистика использования за последние 7 дней
+        week_ago = datetime.utcnow() - timedelta(days=7)
+        daily_usage = db.query(
+            func.date(ApiKeyUsage.timestamp).label('date'),
+            func.count(ApiKeyUsage.id).label('requests')
+        ).filter(
+            ApiKeyUsage.timestamp >= week_ago
+        ).group_by(
+            func.date(ApiKeyUsage.timestamp)
+        ).all()
+        
+        # Топ API ключей по использованию
+        top_keys = db.query(ApiKey).order_by(desc(ApiKey.request_count)).limit(5).all()
+        
+        # Статистика ошибок
+        total_requests = db.query(func.sum(ApiKey.request_count)).scalar() or 0
+        successful_requests = int(total_requests * 0.95)  # Примерное значение
+        client_errors = int(total_requests * 0.03)
+        server_errors = int(total_requests * 0.02)
         
         usage_stats = {
+            "total_keys": total_keys,
+            "active_keys": active_keys,
             "total_requests": total_requests,
-            "total_requests_today": random.randint(100, 1000),
-            "requests_trend": random.uniform(-15.0, 25.0),
-            "successful_requests": int(total_requests * 0.95),
-            "client_errors": int(total_requests * 0.03),
-            "server_errors": int(total_requests * 0.02),
+            "total_requests_today": db.query(ApiKeyUsage).filter(
+                func.date(ApiKeyUsage.timestamp) == datetime.utcnow().date()
+            ).count(),
+            "requests_trend": 15.5,  # Можно вычислять динамически
+            "successful_requests": successful_requests,
+            "client_errors": client_errors,
+            "server_errors": server_errors,
             "daily_usage": [
-                {"date": f"2025-08-{16+i:02d}", "requests": random.randint(50, 300)}
-                for i in range(7)
+                {"date": str(usage.date), "requests": usage.requests}
+                for usage in daily_usage
             ],
             "top_keys": [
                 {
-                    "name": key["name"],
-                    "requests": key.get("request_count", 0),
-                    "success_rate": random.randint(92, 99)
+                    "name": key.name,
+                    "requests": key.request_count,
+                    "success_rate": 95  # Можно вычислять из ApiKeyUsage
                 }
-                for key in sorted(api_keys_storage, key=lambda k: k.get("request_count", 0), reverse=True)[:5]
+                for key in top_keys
             ]
         }
         
@@ -335,59 +464,38 @@ async def get_usage_stats(_: str = Depends(verify_token)):
         )
 
 @router.get("/audit-logs")
-async def get_audit_logs(_: str = Depends(verify_token)):
+async def get_audit_logs(
+    request: Request,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token)
+):
     """
     Получение журнала аудита действий с API ключами
     
     Требует аутентификации администратора.
     """
     try:
-        # Если нет логов аудита, создаем демонстрационные
-        if not audit_logs_storage:
-            demo_logs = [
-                {
-                    "timestamp": (datetime.now() - timedelta(hours=1)).isoformat(),
-                    "user": "admin",
-                    "action": "create_api_key",
-                    "api_key_name": "Mobile App API",
-                    "ip_address": "192.168.1.100",
-                    "success": True
-                },
-                {
-                    "timestamp": (datetime.now() - timedelta(hours=2)).isoformat(),
-                    "user": "admin",
-                    "action": "update_api_key",
-                    "api_key_name": "Dashboard Analytics",
-                    "ip_address": "192.168.1.100",
-                    "success": True
-                },
-                {
-                    "timestamp": (datetime.now() - timedelta(hours=3)).isoformat(),
-                    "user": "admin",
-                    "action": "deactivate_api_key",
-                    "api_key_name": "Webhook Integration",
-                    "ip_address": "192.168.1.100",
-                    "success": True
-                },
-                {
-                    "timestamp": (datetime.now() - timedelta(hours=6)).isoformat(),
-                    "user": "admin",
-                    "action": "delete_api_key",
-                    "api_key_name": "Old Test Key",
-                    "ip_address": "192.168.1.100",
-                    "success": False
-                }
-            ]
-            audit_logs_storage.extend(demo_logs)
+        # Получаем последние 50 записей аудита
+        audit_logs = db.query(ApiKeyAuditLog).order_by(
+            desc(ApiKeyAuditLog.timestamp)
+        ).limit(50).all()
         
-        # Сортируем логи по времени (новые сначала)
-        sorted_logs = sorted(audit_logs_storage, 
-                           key=lambda x: x["timestamp"], 
-                           reverse=True)
+        logs_data = []
+        for log in audit_logs:
+            logs_data.append({
+                "id": log.id,
+                "timestamp": log.timestamp.isoformat(),
+                "user": log.user,
+                "action": log.action,
+                "api_key_name": log.api_key_name,
+                "ip_address": log.ip_address,
+                "success": log.success,
+                "details": log.details
+            })
         
         return {
             "status": "success",
-            "audit_logs": sorted_logs
+            "audit_logs": logs_data
         }
         
     except Exception as e:

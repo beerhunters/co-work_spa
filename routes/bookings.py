@@ -74,8 +74,16 @@ async def get_bookings_detailed(
             params = {}
 
             if user_query and user_query.strip():
-                where_conditions.append("u.full_name LIKE :user_query")
-                params["user_query"] = f"%{user_query.strip()}%"
+                # Проверяем, является ли запрос числом (ID бронирования)
+                query_stripped = user_query.strip()
+                if query_stripped.isdigit():
+                    # Поиск по ID бронирования
+                    where_conditions.append("b.id = :booking_id")
+                    params["booking_id"] = int(query_stripped)
+                else:
+                    # Поиск по имени пользователя
+                    where_conditions.append("u.full_name LIKE :user_query")
+                    params["user_query"] = f"%{query_stripped}%"
 
             if date_query and date_query.strip():
                 try:

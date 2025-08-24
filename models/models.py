@@ -868,7 +868,7 @@ async def cleanup_database():
 
 
 # Импорт дополнительных моделей
-from utils.api_keys import APIKey
+from models.api_keys import ApiKey, ApiKeyAuditLog, ApiKeyUsage
 
 # Автоматическая инициализация при импорте с обработкой ошибок
 try:

@@ -42,7 +42,7 @@ import {
   FiMessageSquare,
   FiExternalLink
 } from 'react-icons/fi';
-import { sizes, styles, colors, getStatusColor } from '../styles/styles';
+import { sizes, styles, colors, getStatusColor, spacing, typography } from '../styles/styles';
 import { notificationApi } from '../utils/api';
 
 const Notifications = ({
@@ -230,7 +230,7 @@ const Notifications = ({
   return (
     <>
       <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
-        <Card borderRadius={styles.card.borderRadius} boxShadow={styles.card.boxShadow}>
+        <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
           <CardHeader>
             <VStack align="stretch" spacing={4}>
               <HStack justify="space-between">

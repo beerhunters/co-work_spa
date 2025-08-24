@@ -996,6 +996,7 @@ function App() {
             isChartInitialized={isChartInitialized}
             setIsChartInitialized={setIsChartInitialized}
             section={section}
+            setSection={setSection}
           />
         );
       case 'users':
@@ -1085,6 +1086,7 @@ function App() {
             isChartInitialized={isChartInitialized}
             setIsChartInitialized={setIsChartInitialized}
             section={section}
+            setSection={setSection}
           />
         );
     }

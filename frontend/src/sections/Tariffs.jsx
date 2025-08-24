@@ -37,7 +37,7 @@ import {
   AlertDescription
 } from '@chakra-ui/react';
 import { FiEye, FiPlus, FiSave, FiX } from 'react-icons/fi';
-import { sizes, styles, getStatusColor } from '../styles/styles';
+import { sizes, styles, getStatusColor, colors, spacing, typography } from '../styles/styles';
 import { tariffApi } from '../utils/api';
 
 const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
@@ -311,7 +311,7 @@ const Tariffs = ({ tariffs, openDetailModal, onUpdate }) => {
   return (
     <>
       <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
-        <Card borderRadius={styles.card.borderRadius} boxShadow={styles.card.boxShadow}>
+        <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
           <CardHeader>
             <HStack justify="space-between">
               <Heading size="md">Тарифы</Heading>

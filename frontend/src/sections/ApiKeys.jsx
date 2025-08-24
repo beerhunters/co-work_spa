@@ -91,7 +91,7 @@ import {
   FiFilter,
   FiSearch
 } from 'react-icons/fi';
-import { colors, sizes } from '../styles/styles';
+import { colors, sizes, styles, spacing, typography } from '../styles/styles';
 import api from '../utils/api';
 
 const ApiKeys = ({ currentAdmin }) => {
@@ -119,16 +119,80 @@ const ApiKeys = ({ currentAdmin }) => {
 
   // Доступные области (scopes) для API ключей
   const availableScopes = [
-    { id: 'users:read', name: 'Чтение пользователей', description: 'Доступ к информации о пользователях' },
-    { id: 'users:write', name: 'Управление пользователями', description: 'Создание и изменение пользователей' },
-    { id: 'bookings:read', name: 'Чтение бронирований', description: 'Просмотр бронирований' },
-    { id: 'bookings:write', name: 'Управление бронированиями', description: 'Создание и изменение бронирований' },
-    { id: 'tickets:read', name: 'Чтение заявок', description: 'Просмотр заявок поддержки' },
-    { id: 'tickets:write', name: 'Управление заявками', description: 'Обработка заявок поддержки' },
-    { id: 'analytics:read', name: 'Аналитика', description: 'Доступ к отчетам и статистике' },
-    { id: 'admin:read', name: 'Административное чтение', description: 'Чтение административных данных' },
-    { id: 'admin:write', name: 'Административное управление', description: 'Полный административный доступ' }
+    { 
+      id: 'users:read', 
+      name: 'Чтение пользователей', 
+      description: 'Просмотр списка пользователей, их профилей и статистики',
+      endpoints: ['GET /api/users', 'GET /api/users/{id}'],
+      risk: 'low'
+    },
+    { 
+      id: 'users:write', 
+      name: 'Управление пользователями', 
+      description: 'Создание, изменение и удаление пользователей',
+      endpoints: ['POST /api/users', 'PUT /api/users/{id}', 'DELETE /api/users/{id}'],
+      risk: 'high'
+    },
+    { 
+      id: 'bookings:read', 
+      name: 'Чтение бронирований', 
+      description: 'Просмотр бронирований и их статусов',
+      endpoints: ['GET /api/bookings', 'GET /api/bookings/{id}'],
+      risk: 'low'
+    },
+    { 
+      id: 'bookings:write', 
+      name: 'Управление бронированиями', 
+      description: 'Создание, изменение и отмена бронирований',
+      endpoints: ['POST /api/bookings', 'PUT /api/bookings/{id}', 'DELETE /api/bookings/{id}'],
+      risk: 'medium'
+    },
+    { 
+      id: 'tickets:read', 
+      name: 'Чтение заявок', 
+      description: 'Просмотр заявок поддержки и их содержимого',
+      endpoints: ['GET /api/tickets', 'GET /api/tickets/{id}'],
+      risk: 'low'
+    },
+    { 
+      id: 'tickets:write', 
+      name: 'Управление заявками', 
+      description: 'Создание, обновление статуса и ответы на заявки',
+      endpoints: ['POST /api/tickets', 'PUT /api/tickets/{id}', 'POST /api/tickets/{id}/reply'],
+      risk: 'medium'
+    },
+    { 
+      id: 'analytics:read', 
+      name: 'Аналитика', 
+      description: 'Доступ к отчетам, статистике и метрикам системы',
+      endpoints: ['GET /api/analytics/*', 'GET /api/reports/*'],
+      risk: 'medium'
+    },
+    { 
+      id: 'admin:read', 
+      name: 'Административное чтение', 
+      description: 'Чтение системных настроек и конфигураций',
+      endpoints: ['GET /api/admin/*'],
+      risk: 'high'
+    },
+    { 
+      id: 'admin:write', 
+      name: 'Административное управление', 
+      description: 'ПОЛНЫЙ административный доступ - изменение системных настроек',
+      endpoints: ['POST /api/admin/*', 'PUT /api/admin/*', 'DELETE /api/admin/*'],
+      risk: 'critical'
+    }
   ];
+
+  const getScopeColor = (risk) => {
+    switch (risk) {
+      case 'low': return 'green';
+      case 'medium': return 'yellow';
+      case 'high': return 'orange';
+      case 'critical': return 'red';
+      default: return 'gray';
+    }
+  };
 
   useEffect(() => {
     fetchApiKeys();
@@ -384,7 +448,7 @@ const ApiKeys = ({ currentAdmin }) => {
   if (loading) {
     return (
       <Box p={6} textAlign="center">
-        <Spinner size="xl" color={colors.primary} />
+        <Spinner size="xl" color={colors.primary[600]} />
         <Text mt={4} color={colors.text.muted}>Загрузка API ключей...</Text>
       </Box>
     );
@@ -405,6 +469,69 @@ const ApiKeys = ({ currentAdmin }) => {
           Создать API ключ
         </Button>
       </Flex>
+
+      {/* Информационная карточка о назначении */}
+      <Card mb={6} borderLeft="4px" borderColor="blue.500">
+        <CardBody>
+          <VStack align="stretch" spacing={3}>
+            <HStack>
+              <Icon as={FiShield} color="blue.500" boxSize={5} />
+              <Heading size="md" color={colors.text.primary}>
+                Что такое API ключи и зачем они нужны?
+              </Heading>
+            </HStack>
+            
+            <Text color={colors.text.secondary} fontSize="sm">
+              API ключи обеспечивают безопасный доступ к API вашего приложения для внешних сервисов, 
+              мобильных приложений и интеграций. Каждый ключ имеет ограниченные права доступа и может быть 
+              отозван в любой момент.
+            </Text>
+
+            <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+              <VStack align="start" spacing={2}>
+                <HStack>
+                  <Icon as={FiUser} color="green.500" />
+                  <Text fontWeight="medium" fontSize="sm">Контроль доступа</Text>
+                </HStack>
+                <Text fontSize="xs" color={colors.text.muted}>
+                  Настраивайте точные права для каждого ключа - от чтения пользователей до управления бронированиями
+                </Text>
+              </VStack>
+              
+              <VStack align="start" spacing={2}>
+                <HStack>
+                  <Icon as={FiActivity} color="purple.500" />
+                  <Text fontWeight="medium" fontSize="sm">Мониторинг использования</Text>
+                </HStack>
+                <Text fontSize="xs" color={colors.text.muted}>
+                  Отслеживайте количество запросов, успешность операций и выявляйте аномальную активность
+                </Text>
+              </VStack>
+              
+              <VStack align="start" spacing={2}>
+                <HStack>
+                  <Icon as={FiSettings} color="orange.500" />
+                  <Text fontWeight="medium" fontSize="sm">Гибкие настройки</Text>
+                </HStack>
+                <Text fontSize="xs" color={colors.text.muted}>
+                  Устанавливайте лимиты запросов, IP-фильтры и сроки действия для максимальной безопасности
+                </Text>
+              </VStack>
+            </SimpleGrid>
+
+            <Alert status="info" borderRadius="md">
+              <AlertIcon />
+              <Box>
+                <AlertTitle fontSize="sm">Важно!</AlertTitle>
+                <AlertDescription fontSize="xs">
+                  API ключ показывается полностью только при создании. После этого вы увидите только маскированную версию.
+                  Обязательно сохраните ключ в безопасном месте сразу после создания!
+                </AlertDescription>
+              </Box>
+            </Alert>
+          </VStack>
+        </CardBody>
+      </Card>
 
       <Tabs index={activeTab} onChange={setActiveTab}>
         <TabList>
@@ -783,14 +910,31 @@ const ApiKeys = ({ currentAdmin }) => {
                         <AccordionIcon />
                       </AccordionButton>
                       <AccordionPanel>
-                        <Stack spacing={2}>
+                        <Stack spacing={3}>
                           {availableScopes.filter(s => s.id.startsWith('users')).map(scope => (
-                            <Checkbox key={scope.id} value={scope.id}>
-                              <VStack align="start" spacing={0}>
-                                <Text>{scope.name}</Text>
-                                <Text fontSize="xs" color={colors.text.muted}>{scope.description}</Text>
-                              </VStack>
-                            </Checkbox>
+                            <Card key={scope.id} variant="outline" size="sm" p={3}>
+                              <Checkbox value={scope.id}>
+                                <VStack align="start" spacing={2}>
+                                  <HStack>
+                                    <Text fontWeight="medium">{scope.name}</Text>
+                                    <Badge size="sm" colorScheme={getScopeColor(scope.risk)}>
+                                      {scope.risk}
+                                    </Badge>
+                                  </HStack>
+                                  <Text fontSize="xs" color={colors.text.muted}>{scope.description}</Text>
+                                  <Box>
+                                    <Text fontSize="xs" fontWeight="medium" color={colors.text.secondary} mb={1}>
+                                      Эндпоинты:
+                                    </Text>
+                                    {scope.endpoints.map((endpoint, idx) => (
+                                      <Code key={idx} fontSize="xs" mr={2} mb={1}>
+                                        {endpoint}
+                                      </Code>
+                                    ))}
+                                  </Box>
+                                </VStack>
+                              </Checkbox>
+                            </Card>
                           ))}
                         </Stack>
                       </AccordionPanel>

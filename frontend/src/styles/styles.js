@@ -2,24 +2,60 @@
 // Все визуальные настройки в одном месте
 
 export const colors = {
+  // Основная цветовая палитра
+  primary: {
+    50: 'purple.50',
+    100: 'purple.100',
+    200: 'purple.200',
+    300: 'purple.300',
+    400: 'purple.400',
+    500: 'purple.500',
+    600: 'purple.600',
+    700: 'purple.700',
+    800: 'purple.800',
+    900: 'purple.900'
+  },
+  secondary: {
+    50: 'blue.50',
+    500: 'blue.500',
+    600: 'blue.600',
+    700: 'blue.700'
+  },
+  accent: {
+    500: 'orange.500',
+    600: 'orange.600'
+  },
+  
   // Общие цвета для всего приложения
-  background: 'gray.50',
+  background: {
+    main: 'gray.50',
+    card: 'white',
+    overlay: 'blackAlpha.600'
+  },
   text: {
     primary: 'gray.800',
+    secondary: 'gray.600',
     muted: 'gray.500',
-    light: 'gray.400'
+    light: 'gray.400',
+    inverse: 'white',
+    brand: 'purple.600'
   },
-  card: {
-    bg: 'white',
-    border: 'gray.200',
-    shadow: 'lg'
+  border: {
+    light: 'gray.100',
+    medium: 'gray.200',
+    dark: 'gray.300'
   },
   sidebar: {
     bg: 'gray.900',
+    bgLight: 'gray.800',
     borderColor: 'gray.700',
     text: 'white',
+    textSecondary: 'gray.300',
     textMuted: 'gray.400',
-    hoverBg: 'gray.800'
+    textBright: 'gray.100',
+    hoverBg: 'gray.800',
+    activeBg: 'purple.600',
+    accordionText: 'gray.100'
   },
   navbar: {
     bg: 'white',
@@ -65,37 +101,138 @@ export const colors = {
   }
 };
 
+export const spacing = {
+  xs: 2,
+  sm: 4,
+  md: 6,
+  lg: 8,
+  xl: 12,
+  xxl: 16
+};
+
 export const sizes = {
   sidebar: {
-    width: '260px',
-    padding: 6,
-    buttonPadding: { x: 4, y: 6 }
+    width: '280px',
+    padding: spacing.md,
+    buttonPadding: { x: spacing.sm, y: spacing.md }
   },
   navbar: {
-    padding: { x: 8, y: 4 }
+    height: '70px',
+    padding: { x: spacing.lg, y: spacing.sm }
   },
   content: {
-    padding: 8,
-    minHeight: 'calc(100vh - 80px)'
+    padding: spacing.lg,
+    minHeight: 'calc(100vh - 70px)'
+  },
+  card: {
+    borderRadius: 'xl',
+    padding: spacing.md
+  },
+  button: {
+    height: {
+      sm: '32px',
+      md: '40px',
+      lg: '48px'
+    },
+    borderRadius: 'lg'
+  }
+};
+
+export const typography = {
+  fontSizes: {
+    xs: '12px',
+    sm: '14px',
+    md: '16px',
+    lg: '18px',
+    xl: '20px',
+    '2xl': '24px',
+    '3xl': '30px'
+  },
+  fontWeights: {
+    normal: 400,
+    medium: 500,
+    semibold: 600,
+    bold: 700
+  },
+  lineHeights: {
+    normal: 1.5,
+    relaxed: 1.625,
+    loose: 2
   }
 };
 
 export const styles = {
   layout: {
     minHeight: '100vh',
-    bg: 'gray.50'
+    bg: colors.background.main
   },
   card: {
+    bg: colors.background.card,
     borderRadius: 'xl',
-    boxShadow: 'xl',
-    transition: 'all 0.3s',
-    hoverTransform: 'translateY(-4px)',
-    hoverShadow: '2xl'
+    border: '1px solid',
+    borderColor: colors.border.light,
+    boxShadow: 'lg',
+    p: spacing.md,
+    transition: 'all 0.3s ease',
+    _hover: {
+      transform: 'translateY(-2px)',
+      boxShadow: 'xl',
+      borderColor: colors.border.medium
+    },
+    // Backward compatibility
+    hoverTransform: 'translateY(-2px)',
+    hoverShadow: 'xl'
   },
   button: {
-    borderRadius: 'lg',
-    fontSize: 'md',
-    transition: 'all 0.2s'
+    primary: {
+      bg: colors.primary[600],
+      color: colors.text.inverse,
+      borderRadius: sizes.button.borderRadius,
+      fontSize: typography.fontSizes.md,
+      fontWeight: typography.fontWeights.medium,
+      h: sizes.button.height.md,
+      px: spacing.md,
+      transition: 'all 0.2s ease',
+      _hover: {
+        bg: colors.primary[700],
+        transform: 'translateY(-1px)',
+        boxShadow: 'md'
+      },
+      _active: {
+        transform: 'translateY(0)'
+      }
+    },
+    secondary: {
+      bg: 'transparent',
+      color: colors.text.primary,
+      border: '1px solid',
+      borderColor: colors.border.medium,
+      borderRadius: sizes.button.borderRadius,
+      fontSize: typography.fontSizes.md,
+      fontWeight: typography.fontWeights.medium,
+      h: sizes.button.height.md,
+      px: spacing.md,
+      transition: 'all 0.2s ease',
+      _hover: {
+        bg: colors.background.main,
+        borderColor: colors.primary[600],
+        color: colors.primary[600]
+      }
+    },
+    ghost: {
+      bg: 'transparent',
+      color: colors.text.secondary,
+      borderRadius: sizes.button.borderRadius,
+      fontSize: typography.fontSizes.md,
+      fontWeight: typography.fontWeights.medium,
+      h: sizes.button.height.md,
+      px: spacing.md,
+      transition: 'all 0.2s ease',
+      _hover: {
+        bg: colors.background.main,
+        color: colors.text.primary
+      }
+    }
   },
   listItem: {
     padding: 4,
@@ -148,19 +285,39 @@ export const styles = {
 };
 
 export const animations = {
-  transition: 'all 0.2s',
-  transitionSlow: 'all 0.3s',
-  hoverLift: {
-    transform: 'translateY(-4px)',
-    boxShadow: '2xl'
+  transitions: {
+    fast: 'all 0.15s ease',
+    normal: 'all 0.2s ease',
+    slow: 'all 0.3s ease'
   },
-  hoverSlide: {
-    transform: 'translateX(4px)'
-  },
-  hoverButton: {
-    transform: 'translateY(-2px)',
-    boxShadow: 'lg'
+  effects: {
+    hoverLift: {
+      transform: 'translateY(-2px)',
+      boxShadow: 'xl'
+    },
+    hoverSlide: {
+      transform: 'translateX(4px)'
+    },
+    hoverButton: {
+      transform: 'translateY(-1px)',
+      boxShadow: 'md'
+    },
+    fadeIn: {
+      opacity: 1,
+      transition: 'opacity 0.3s ease'
+    },
+    slideIn: {
+      transform: 'translateX(0)',
+      transition: 'transform 0.3s ease'
+    }
   }
+};
+
+export const shadows = {
+  card: 'rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.06) 0px 1px 2px 0px',
+  cardHover: 'rgba(0, 0, 0, 0.15) 0px 4px 12px 0px, rgba(0, 0, 0, 0.1) 0px 2px 4px 0px',
+  button: 'rgba(0, 0, 0, 0.1) 0px 2px 4px 0px',
+  modal: 'rgba(0, 0, 0, 0.25) 0px 8px 32px 0px'
 };
 
 export const getStatusColor = (status, type = 'badge') => {

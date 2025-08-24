@@ -43,7 +43,7 @@ import {
   FiZap,
   FiClock
 } from 'react-icons/fi';
-import { colors, sizes } from '../styles/styles';
+import { colors, sizes, styles, spacing, typography } from '../styles/styles';
 import { createLogger } from '../utils/logger';
 import api from '../utils/api';
 
@@ -157,7 +157,7 @@ const HealthStatusCard = ({ title, icon: IconComponent, status, details, lastUpd
   const formattedDetails = formatDetails(component, details, status);
   
   return (
-    <Card bg={colors.card.bg} borderColor={`${color}.200`} borderWidth="2px" h="180px">
+    <Card bg={colors.background.card} borderColor={`${color}.200`} borderWidth="2px" h="180px">
       <CardHeader pb={2}>
         <HStack spacing={3}>
           <Icon as={IconComponent} boxSize={5} color={`${color}.500`} />
@@ -202,7 +202,7 @@ const SystemMetricsCard = ({ title, icon: IconComponent, value, unit, percentage
   };
 
   return (
-    <Card bg={colors.card.bg} h="140px">
+    <Card bg={colors.background.card} h="140px">
       <CardBody>
         <Stat>
           <HStack mb={2}>
@@ -389,7 +389,7 @@ const SystemMonitor = () => {
 
         {/* Общий статус */}
         {healthData && (
-          <Card bg={colors.card.bg}>
+          <Card bg={colors.background.card}>
             <CardBody>
               <HStack spacing={4}>
                 <Icon

@@ -62,7 +62,7 @@ import {
   FiLayers,
   FiHardDrive
 } from 'react-icons/fi';
-import { colors, sizes } from '../styles/styles';
+import { colors, sizes, styles, spacing, typography } from '../styles/styles';
 import { createLogger } from '../utils/logger';
 import api from '../utils/api';
 
@@ -92,7 +92,7 @@ const formatDuration = (seconds) => {
 // Компонент статистики кэша
 const CacheStatsCard = ({ title, icon: IconComponent, stats, color = 'blue' }) => {
   return (
-    <Card bg={colors.card.bg} borderColor={`${color}.200`} borderWidth="1px">
+    <Card bg={colors.background.card} borderColor={`${color}.200`} borderWidth="1px">
       <CardHeader pb={2}>
         <HStack spacing={3}>
           <Icon as={IconComponent} boxSize={5} color={`${color}.500`} />
@@ -130,7 +130,7 @@ const HitMissChart = ({ hitRate, missRate, title }) => {
   };
 
   return (
-    <Card bg={colors.card.bg}>
+    <Card bg={colors.background.card}>
       <CardHeader>
         <HStack spacing={3}>
           <Icon as={FiBarChart} boxSize={5} color="purple.500" />
@@ -214,7 +214,7 @@ const CacheControlPanel = ({ onClearCache, loading }) => {
 
   return (
     <>
-      <Card bg={colors.card.bg}>
+      <Card bg={colors.background.card}>
         <CardHeader>
           <HStack spacing={3}>
             <Icon as={FiSettings} boxSize={5} color="orange.500" />
@@ -574,7 +574,7 @@ const CacheManager = () => {
 
               {/* Детальная статистика по типам */}
               {cacheStats.stats_by_type && (
-                <Card bg={colors.card.bg}>
+                <Card bg={colors.background.card}>
                   <CardHeader>
                     <HStack spacing={3}>
                       <Icon as={FiLayers} boxSize={5} color="teal.500" />

@@ -8,15 +8,16 @@ import {
   Icon, 
   Spacer,
   Collapse,
-  Badge,
   Text
 } from '@chakra-ui/react';
 import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronDown, FiChevronRight } from 'react-icons/fi';
-import { colors, sizes, styles } from '../styles/styles';
+import { colors, sizes, styles, typography, spacing, animations } from '../styles/styles';
 
 const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
-  // Сначала объявляем menuItems
-  const menuItems = [
+  const [isAdminAccordionOpen, setIsAdminAccordionOpen] = useState(false);
+
+  // Основные пункты меню
+  const mainMenuItems = [
     { icon: FiTrendingUp, label: 'Дашборд', section: 'dashboard', color: 'purple' },
     { icon: FiUser, label: 'Пользователи', section: 'users', color: 'blue' },
     { icon: FiCalendar, label: 'Бронирования', section: 'bookings', color: 'green' },
@@ -25,25 +26,33 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
     { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
     { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' },
-    { icon: FiActivity, label: 'Мониторинг', section: 'monitoring', color: 'green', requiresSuperAdmin: true },
-    { icon: FiLayers, label: 'Кэш', section: 'cache', color: 'blue', requiresSuperAdmin: true },
-    { icon: FiCpu, label: 'Производительность', section: 'performance', color: 'purple', requiresSuperAdmin: true },
-    { icon: FiKey, label: 'API ключи', section: 'api-keys', color: 'orange', requiresSuperAdmin: true },
-    { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple', requiresSuperAdmin: true },
-    { icon: FiDatabase, label: 'Бэкапы', section: 'backups', color: 'red', requiresSuperAdmin: true },
   ];
 
-  // Теперь фильтруем пункты меню в зависимости от роли
-  const filteredMenuItems = menuItems.filter(item => {
-    if (item.requiresSuperAdmin) {
-      return currentAdmin?.role === 'super_admin';
+  // Административные функции для super_admin
+  const adminMenuItems = [
+    { icon: FiActivity, label: 'Мониторинг', section: 'monitoring', color: 'green' },
+    { icon: FiLayers, label: 'Кэш', section: 'cache', color: 'blue' },
+    { icon: FiCpu, label: 'Производительность', section: 'performance', color: 'purple' },
+    { icon: FiKey, label: 'API ключи', section: 'api-keys', color: 'orange' },
+    { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple' },
+    { icon: FiDatabase, label: 'Бэкапы', section: 'backups', color: 'red' },
+  ];
+
+  // Проверяем, выбран ли какой-либо административный раздел
+  const isAdminSectionActive = adminMenuItems.some(item => item.section === section);
+  
+  // Если выбран административный раздел, открываем аккордеон автоматически
+  React.useEffect(() => {
+    if (isAdminSectionActive) {
+      setIsAdminAccordionOpen(true);
     }
-    return true;
-  });
+  }, [isAdminSectionActive]);
 
   return (
     <Box
       w={sizes.sidebar.width}
+      minW={sizes.sidebar.width}
+      maxW={sizes.sidebar.width}
       bg={colors.sidebar.bg}
       color={colors.sidebar.text}
       h="100vh"
@@ -67,16 +76,22 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
         },
       }}
     >
-      <Box p={sizes.sidebar.padding}>
+      <Box p={spacing.md}>
         <VStack align="stretch" spacing={1}>
           <Flex align="center" mb={6}>
             <Icon as={FiHome} boxSize={6} color="purple.400" mr={3} />
-            <Heading size="md" fontWeight="bold">
+            <Heading 
+              size="md" 
+              fontWeight={typography.fontWeights.bold}
+              color={colors.sidebar.text}
+              fontSize={typography.fontSizes.lg}
+            >
               Админ панель
             </Heading>
           </Flex>
 
-          {filteredMenuItems.map(({ icon: ItemIcon, label, section: sec, color }) => (
+          {/* Основные пункты меню */}
+          {mainMenuItems.map(({ icon: ItemIcon, label, section: sec, color }) => (
             <Button
               key={sec}
               leftIcon={<ItemIcon />}
@@ -85,25 +100,97 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
               color={section === sec ? colors.sidebar.text : colors.sidebar.textMuted}
               justifyContent="flex-start"
               onClick={() => setSection(sec)}
+              borderRadius={sizes.button.borderRadius}
+              px={sizes.sidebar.buttonPadding.x}
+              py={sizes.sidebar.buttonPadding.y}
+              fontSize={typography.fontSizes.md}
+              fontWeight={typography.fontWeights.medium}
+              h={sizes.button.height.md}
+              transition={animations.transitions.normal}
               _hover={{
                 bg: section === sec ? `${color}.700` : colors.sidebar.hoverBg,
                 color: colors.sidebar.text,
+                transform: 'translateX(2px)'
               }}
-              borderRadius={styles.button.borderRadius}
-              px={sizes.sidebar.buttonPadding.x}
-              py={sizes.sidebar.buttonPadding.y}
-              fontSize={styles.button.fontSize}
-              transition={styles.button.transition}
             >
               {label}
             </Button>
           ))}
+
+          {/* Административный аккордеон для super_admin */}
+          {currentAdmin?.role === 'super_admin' && (
+            <Box mt={4}>
+              {/* Заголовок аккордеона */}
+              <Button
+                variant="ghost"
+                justifyContent="flex-start"
+                onClick={() => setIsAdminAccordionOpen(!isAdminAccordionOpen)}
+                _hover={{
+                  bg: colors.sidebar.hoverBg,
+                  color: colors.sidebar.text,
+                }}
+                borderRadius={sizes.button.borderRadius}
+                px={sizes.sidebar.buttonPadding.x}
+                py={sizes.sidebar.buttonPadding.y}
+                fontSize={typography.fontSizes.md}
+                fontWeight={typography.fontWeights.medium}
+                h={sizes.button.height.md}
+                transition={animations.transitions.normal}
+                w="full"
+                leftIcon={<Icon as={FiSettings} color={colors.sidebar.accordionText} />}
+                rightIcon={
+                  <Icon 
+                    as={FiChevronRight} 
+                    color={colors.sidebar.accordionText}
+                    transition={animations.transitions.normal}
+                    transform={isAdminAccordionOpen ? 'rotate(90deg)' : 'rotate(0deg)'}
+                  />
+                }
+              >
+                <Text color={colors.sidebar.accordionText} fontSize={typography.fontSizes.md} fontWeight={typography.fontWeights.medium}>
+                  Администрирование
+                </Text>
+              </Button>
+
+              {/* Содержимое аккордеона */}
+              <Collapse in={isAdminAccordionOpen} animateOpacity>
+                <VStack align="stretch" spacing={1} mt={2} pl={4}>
+                  {adminMenuItems.map(({ icon: ItemIcon, label, section: sec, color }) => (
+                    <Button
+                      key={sec}
+                      leftIcon={<ItemIcon />}
+                      variant={section === sec ? 'solid' : 'ghost'}
+                      bg={section === sec ? `${color}.600` : 'transparent'}
+                      color={section === sec ? colors.sidebar.text : colors.sidebar.textMuted}
+                      justifyContent="flex-start"
+                      onClick={() => setSection(sec)}
+                      _hover={{
+                        bg: section === sec ? `${color}.700` : colors.sidebar.hoverBg,
+                        color: colors.sidebar.text,
+                        transform: 'translateX(2px)'
+                      }}
+                      borderRadius={sizes.button.borderRadius}
+                      px={sizes.sidebar.buttonPadding.x}
+                      py={sizes.sidebar.buttonPadding.y}
+                      fontSize={typography.fontSizes.sm}
+                      fontWeight={typography.fontWeights.medium}
+                      h={sizes.button.height.sm}
+                      transition={animations.transitions.normal}
+                      size="sm"
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </VStack>
+              </Collapse>
+            </Box>
+          )}
         </VStack>
       </Box>
 
       <Spacer />
 
-      <Box p={sizes.sidebar.padding} borderTop="1px" borderColor={colors.sidebar.borderColor}>
+      <Box p={spacing.md} borderTop="1px" borderColor={colors.sidebar.borderColor}>
         <Button
           leftIcon={<FiLogOut />}
           variant="ghost"
@@ -113,13 +200,16 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
           _hover={{
             bg: 'red.900',
             color: 'red.300',
+            transform: 'translateX(2px)'
           }}
-          borderRadius={styles.button.borderRadius}
+          borderRadius={sizes.button.borderRadius}
           px={sizes.sidebar.buttonPadding.x}
           py={sizes.sidebar.buttonPadding.y}
           w="full"
-          fontSize={styles.button.fontSize}
-          transition={styles.button.transition}
+          fontSize={typography.fontSizes.md}
+          fontWeight={typography.fontWeights.medium}
+          h={sizes.button.height.md}
+          transition={animations.transitions.normal}
         >
           Выйти из системы
         </Button>

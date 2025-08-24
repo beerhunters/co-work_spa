@@ -67,7 +67,7 @@ import {
   FiHardDrive,
   FiSearch
 } from 'react-icons/fi';
-import { colors, sizes } from '../styles/styles';
+import { colors, sizes, styles, spacing, typography } from '../styles/styles';
 import api from '../utils/api';
 
 const Performance = () => {
@@ -205,7 +205,7 @@ const Performance = () => {
   if (loading) {
     return (
       <Box p={6} textAlign="center">
-        <Spinner size="xl" color={colors.primary} />
+        <Spinner size="xl" color={colors.primary[600]} />
         <Text mt={4} color={colors.text.muted}>Загрузка данных производительности...</Text>
       </Box>
     );
@@ -337,7 +337,7 @@ const Performance = () => {
                               fontSize="xs" 
                               cursor="pointer"
                               onClick={() => openQueryDetails(query)}
-                              _hover={{ bg: colors.card.border }}
+                              _hover={{ bg: colors.border.medium }}
                             >
                               {query.query_text?.substring(0, 50)}...
                             </Code>

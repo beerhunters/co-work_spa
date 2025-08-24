@@ -69,6 +69,24 @@ const Bookings = ({
   const canDeleteBookings = currentAdmin?.role === 'super_admin' ||
     (currentAdmin?.permissions && currentAdmin.permissions.includes('delete_bookings'));
 
+  // Проверяем сохраненный ID бронирования при инициализации
+  useEffect(() => {
+    const savedBookingId = localStorage.getItem('bookings_filter_id');
+    if (savedBookingId) {
+      setSearchQuery(savedBookingId);
+      localStorage.removeItem('bookings_filter_id'); // Очищаем после использования
+      
+      // Ищем бронирование в текущем списке
+      const booking = bookings.find(b => b.id.toString() === savedBookingId);
+      if (booking) {
+        // Небольшая задержка для того чтобы фильтр сработал
+        setTimeout(() => {
+          openDetailModal(booking, 'booking');
+        }, 100);
+      }
+    }
+  }, [bookings, openDetailModal]);
+
   // Эффект для отправки фильтров в родительский компонент
   useEffect(() => {
     const params = {
@@ -267,7 +285,7 @@ const Bookings = ({
                   <Icon as={FiSearch} color="gray.400" />
                 </InputLeftElement>
                 <Input
-                  placeholder="Поиск по ФИО пользователя..."
+                  placeholder="Поиск по ID или ФИО пользователя..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />

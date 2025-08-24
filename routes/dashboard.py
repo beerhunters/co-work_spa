@@ -318,3 +318,99 @@ async def get_available_periods(_: str = Depends(verify_token)):
         raise HTTPException(
             status_code=500, detail="Ошибка получения доступных периодов"
         )
+
+
+@router.get("/bookings-calendar")
+async def get_bookings_calendar(
+    year: int = Query(default_factory=lambda: datetime.now().year),
+    month: int = Query(default_factory=lambda: datetime.now().month),
+    _: str = Depends(verify_token),
+):
+    """Получение данных бронирований для календаря."""
+
+    cache_key = cache_manager.get_cache_key("dashboard", "bookings_calendar", year, month)
+
+    def _get_bookings_data():
+        def _db_query(session):
+            try:
+                # Валидация входных параметров
+                if not (1 <= month <= 12):
+                    raise ValueError(f"Недопустимый месяц: {month}")
+                if not (2000 <= year <= 9999):
+                    raise ValueError(f"Недопустимый год: {year}")
+
+                year_str = str(year).zfill(4)
+                month_str = str(month).zfill(2)
+
+                # Запрос бронирований за месяц с данными пользователя
+                bookings_query = text(
+                    """
+                    SELECT 
+                        b.id,
+                        b.visit_date,
+                        b.visit_time,
+                        b.confirmed,
+                        b.paid,
+                        b.amount,
+                        u.full_name as user_name,
+                        u.telegram_id,
+                        t.name as tariff_name
+                    FROM bookings b
+                    LEFT JOIN users u ON b.user_id = u.id
+                    LEFT JOIN tariffs t ON b.tariff_id = t.id
+                    WHERE strftime('%Y', b.visit_date) = :year 
+                      AND strftime('%m', b.visit_date) = :month_str
+                    ORDER BY b.visit_date, b.visit_time
+                    """
+                )
+
+                results = session.execute(
+                    bookings_query, {"year": year_str, "month_str": month_str}
+                ).fetchall()
+
+                bookings = []
+                for row in results:
+                    # Форматируем данные бронирования
+                    booking = {
+                        "id": row.id,
+                        "visit_date": row.visit_date.isoformat() if hasattr(row.visit_date, 'isoformat') else str(row.visit_date),
+                        "visit_time": str(row.visit_time) if row.visit_time else None,
+                        "confirmed": bool(row.confirmed),
+                        "paid": bool(row.paid),
+                        "amount": float(row.amount) if row.amount else 0,
+                        "user_name": row.user_name,
+                        "telegram_id": row.telegram_id,
+                        "tariff_name": row.tariff_name
+                    }
+                    bookings.append(booking)
+
+                return {
+                    "bookings": bookings,
+                    "period": {
+                        "year": year,
+                        "month": month,
+                        "total_bookings": len(bookings)
+                    }
+                }
+
+            except ValueError as e:
+                logger.error(f"Ошибка валидации параметров календаря: {e}")
+                raise HTTPException(status_code=400, detail=str(e))
+            except Exception as e:
+                logger.error(f"Ошибка в запросе данных календаря: {e}")
+                raise
+
+        return DatabaseManager.safe_execute(_db_query)
+
+    try:
+        # Кэшируем данные календаря
+        return await cache_manager.get_or_set(
+            cache_key,
+            _get_bookings_data,
+            ttl=cache_manager.dashboard_ttl,  # 5 минут
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Критическая ошибка в get_bookings_calendar: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка получения данных календаря")
