@@ -366,15 +366,12 @@ def init_bot():
 
 async def close_bot():
     """Закрытие сессии бота"""
-    global _bot
-    if _bot:
-        try:
-            await _bot.session.close()
-            logger.info("Bot session closed")
-        except Exception as e:
-            logger.error(f"Error closing bot session: {e}")
-        finally:
-            _bot = None
+    try:
+        from utils.bot_instance import close_bot as close_bot_instance
+        await close_bot_instance()
+        logger.info("Bot session closed")
+    except Exception as e:
+        logger.error(f"Error closing bot session: {e}")
 
 
 def clear_admin_cache():

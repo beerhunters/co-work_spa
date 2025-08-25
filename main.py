@@ -71,6 +71,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Не удалось отправить уведомление о запуске: {e}")
 
+    # Загружаем сохраненную конфигурацию логирования
+    try:
+        from pathlib import Path
+        import json
+        config_file = Path("logging_config.json")
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                saved_config = json.load(f)
+            
+            # Применяем сохраненные настройки к переменным окружения
+            for key, value in saved_config.items():
+                os.environ[key] = value
+                logger.info(f"Загружена настройка {key}={value}")
+            
+            logger.info("Конфигурация логирования загружена из файла")
+    except Exception as e:
+        logger.warning(f"Не удалось загрузить конфигурацию логирования: {e}")
+
     # Создаем необходимые директории
     directories = [DATA_DIR, AVATARS_DIR, TICKET_PHOTOS_DIR, NEWSLETTER_PHOTOS_DIR]
 

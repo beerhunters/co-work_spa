@@ -48,3 +48,18 @@ def get_bot() -> Bot:
     if _bot is None:
         return init_bot()
     return _bot
+
+
+async def close_bot():
+    """
+    Корректно закрывает экземпляр бота и его сессию.
+    """
+    global _bot
+    if _bot is not None:
+        try:
+            await _bot.session.close()
+            logger.info("Bot session закрыта корректно")
+        except Exception as e:
+            logger.error(f"Ошибка при закрытии bot session: {e}")
+        finally:
+            _bot = None

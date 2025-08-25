@@ -951,22 +951,22 @@ function App() {
       notifications: 'view_notifications',
       newsletters: 'view_newsletters',
       admins: 'manage_admins',
-      logging: 'manage_logging',
+      logging: 'view_logs',
       backups: 'manage_backups'
     };
 
     const requiredPermission = sectionPermissions[section];
     const hasAccess = !requiredPermission || hasPermission(requiredPermission);
 
-    // Для админов, логирования и бэкапов дополнительная проверка на супер админа
-    if ((section === 'admins' || section === 'logging' || section === 'backups') && currentAdmin?.role !== 'super_admin') {
+    // Для админов и бэкапов дополнительная проверка на супер админа
+    if ((section === 'admins' || section === 'backups') && currentAdmin?.role !== 'super_admin') {
       return (
         <div style={{ padding: '2rem', textAlign: 'center' }}>
           <h2 style={{ color: '#e53e3e', fontSize: '1.5rem', marginBottom: '1rem' }}>
             Доступ запрещен
           </h2>
           <p style={{ color: '#666', fontSize: '1rem' }}>
-            Только главный администратор может управлять администраторами.
+            Только главный администратор может управлять администраторами и бэкапами.
           </p>
         </div>
       );

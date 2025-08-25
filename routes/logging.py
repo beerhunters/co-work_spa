@@ -34,11 +34,11 @@ async def get_logging_config(current_admin: CachedAdmin = Depends(verify_token))
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
     try:
-        # Получаем текущие настройки из переменных окружения
+        # Получаем текущие настройки из переменных окружения (актуальные)
         config = LoggingConfig(
-            log_level=LOG_LEVEL,
-            log_format=LOG_FORMAT,
-            log_to_file=LOG_TO_FILE,
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
+            log_format=os.getenv("LOG_FORMAT", "detailed"),
+            log_to_file=os.getenv("LOG_TO_FILE", "true").lower() == "true",
             environment=ENVIRONMENT,
             logs_directory=str(LOGS_DIR),
             telegram_notifications=await _get_telegram_config(),
@@ -386,26 +386,80 @@ async def test_telegram_notification(current_admin: CachedAdmin = Depends(verify
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
     try:
-        from utils.telegram_logger import send_critical_alert
+        from utils.telegram_logger import send_test_notification, _is_telegram_logging_enabled
         
-        result = await send_critical_alert(
-            "Тестовое уведомление от системы логирования",
-            {
-                "level": "TEST",
-                "admin": current_admin.login,
-                "timestamp": datetime.now().isoformat()
+        # Проверяем конфигурацию Telegram
+        if not _is_telegram_logging_enabled():
+            logger.warning("Telegram уведомления отключены в конфигурации")
+            return {
+                "success": False, 
+                "message": "Telegram уведомления отключены. Проверьте настройки TELEGRAM_LOGGING_ENABLED, FOR_LOGS и BOT_TOKEN"
             }
-        )
+        
+        # Получаем минимальный уровень из настроек Telegram уведомлений для тестового сообщения
+        telegram_min_level = os.getenv("TELEGRAM_LOG_MIN_LEVEL", "ERROR")
+        result = await send_test_notification(telegram_min_level, current_admin.login)
         
         if result:
             logger.info(f"Тестовое уведомление отправлено администратором {current_admin.login}")
             return {"success": True, "message": "Тестовое уведомление отправлено"}
         else:
-            return {"success": False, "message": "Не удалось отправить уведомление"}
+            logger.error("Не удалось отправить тестовое уведомление")
+            return {"success": False, "message": "Не удалось отправить уведомление. Проверьте настройки Telegram"}
             
     except Exception as e:
         logger.error(f"Ошибка отправки тестового уведомления: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка отправки уведомления")
+        return {"success": False, "message": f"Ошибка: {str(e)}"}
+
+
+@router.post("/clear-logs")
+async def clear_logs(current_admin: CachedAdmin = Depends(verify_token)):
+    """Очистить все файлы логов"""
+    if not current_admin.has_permission(Permission.MANAGE_LOGGING):
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    
+    try:
+        deleted_files = []
+        errors = []
+        
+        # Ищем все файлы логов
+        log_patterns = [
+            str(LOGS_DIR / "*.log"),
+            str(LOGS_DIR / "app.log.*"),
+        ]
+        
+        for pattern in log_patterns:
+            for filepath in glob.glob(pattern):
+                try:
+                    file_path = Path(filepath)
+                    if file_path.exists():
+                        # Для текущего лога просто очищаем его содержимое
+                        if file_path.name == "app.log":
+                            file_path.write_text("", encoding="utf-8")
+                            deleted_files.append(f"{file_path.name} (очищен)")
+                        else:
+                            # Остальные файлы удаляем
+                            file_path.unlink()
+                            deleted_files.append(f"{file_path.name} (удален)")
+                except Exception as e:
+                    errors.append(f"{Path(filepath).name}: {str(e)}")
+        
+        logger.info(f"Логи очищены администратором {current_admin.login}, файлов обработано: {len(deleted_files)}")
+        
+        result = {
+            "success": len(deleted_files) > 0,
+            "files_processed": len(deleted_files),
+            "files": deleted_files
+        }
+        
+        if errors:
+            result["errors"] = errors
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Ошибка очистки логов: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка очистки логов")
 
 
 # Вспомогательные функции

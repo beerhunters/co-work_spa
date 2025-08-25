@@ -28,22 +28,10 @@ import {
   Th,
   Td,
   Code,
-  Alert,
-  AlertIcon,
-  AlertDescription,
   Spinner,
   useToast,
-  Modal,
-  ModalOverlay,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalCloseButton,
-  useDisclosure,
   FormControl,
   FormLabel,
-  Textarea,
-  Progress,
   Stat,
   StatLabel,
   StatNumber,
@@ -55,38 +43,32 @@ import {
   FiSettings,
   FiFileText,
   FiDownload,
-  FiPlay,
-  FiPause,
   FiRefreshCw,
   FiSearch,
-  FiFilter,
   FiEye,
-  FiSend,
-  FiActivity,
-  FiAlertCircle,
-  FiInfo,
-  FiAlertTriangle
+  FiSend
 } from 'react-icons/fi';
 import { createLogger } from '../utils/logger.js';
+import { getAuthToken } from '../utils/auth.js';
 
 const logger = createLogger('Logging');
 
 const Logging = ({ currentAdmin }) => {
   // Состояния
-  const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [logFiles, setLogFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [logContent, setLogContent] = useState([]);
-  const [liveLogsEnabled, setLiveLogsEnabled] = useState(false);
   const [statistics, setStatistics] = useState(null);
-  
+  const [config, setConfig] = useState(null);
+
   // Фильтры
   const [searchTerm, setSearchTerm] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
   const [linesCount, setLinesCount] = useState(100);
-  
+
   // Настройки формы
   const [formData, setFormData] = useState({
     log_level: 'INFO',
@@ -101,11 +83,8 @@ const Logging = ({ currentAdmin }) => {
       rate_limit_minutes: 5
     }
   });
-  
+
   const toast = useToast();
-  const { isOpen, onOpen, onClose } = useDisclosure();
-  const liveLogsRef = useRef(null);
-  const eventSourceRef = useRef(null);
 
   // Загрузка конфигурации при монтировании
   useEffect(() => {
@@ -114,30 +93,65 @@ const Logging = ({ currentAdmin }) => {
     loadStatistics();
   }, []);
 
-  // Cleanup при размонтировании
-  useEffect(() => {
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-    };
-  }, []);
+  const refreshData = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        loadConfig(),
+        loadLogFiles(),
+        loadStatistics()
+      ]);
+      
+      toast({
+        title: 'Обновлено',
+        description: 'Данные успешно обновлены',
+        status: 'success',
+        duration: 2000
+      });
+    } catch (error) {
+      logger.error('Ошибка обновления данных:', error);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось обновить данные',
+        status: 'error',
+        duration: 3000
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   const loadConfig = async () => {
     try {
       const response = await fetch('/api/logging/config', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error('Ошибка загрузки конфигурации');
       }
-      
+
       const data = await response.json();
       setConfig(data);
-      setFormData(data);
+      
+      // Правильно устанавливаем форму с нужной структурой
+      setFormData({
+        log_level: data.log_level,
+        log_format: data.log_format,
+        log_to_file: data.log_to_file,
+        log_retention_days: data.log_retention_days,
+        max_log_file_size_mb: data.max_log_file_size_mb,
+        telegram_notifications: {
+          enabled: data.telegram_notifications.enabled,
+          chat_id: data.telegram_notifications.chat_id || '',
+          min_level: data.telegram_notifications.min_level,
+          rate_limit_minutes: data.telegram_notifications.rate_limit_minutes
+        }
+      });
+      
       logger.debug('Конфигурация логирования загружена', data);
     } catch (error) {
       logger.error('Ошибка загрузки конфигурации логирования:', error);
@@ -156,14 +170,14 @@ const Logging = ({ currentAdmin }) => {
     try {
       const response = await fetch('/api/logging/files', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error('Ошибка загрузки файлов логов');
       }
-      
+
       const data = await response.json();
       setLogFiles(data);
       logger.debug('Файлы логов загружены', { count: data.length });
@@ -182,14 +196,14 @@ const Logging = ({ currentAdmin }) => {
     try {
       const response = await fetch('/api/logging/statistics?hours=24', {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error('Ошибка загрузки статистики');
       }
-      
+
       const data = await response.json();
       setStatistics(data);
       logger.debug('Статистика логов загружена', data);
@@ -201,30 +215,61 @@ const Logging = ({ currentAdmin }) => {
   const saveConfig = async () => {
     setSaving(true);
     try {
+      // Подготавливаем данные для отправки
+      const updateData = {
+        log_level: formData.log_level,
+        log_format: formData.log_format,
+        log_to_file: formData.log_to_file,
+        log_retention_days: formData.log_retention_days,
+        max_log_file_size_mb: formData.max_log_file_size_mb,
+        telegram_notifications: {
+          enabled: formData.telegram_notifications.enabled,
+          chat_id: formData.telegram_notifications.chat_id,
+          min_level: formData.telegram_notifications.min_level,
+          rate_limit_minutes: formData.telegram_notifications.rate_limit_minutes
+        }
+      };
+
       const response = await fetch('/api/logging/config', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(updateData)
       });
-      
+
       if (!response.ok) {
+        const errorData = await response.text();
+        logger.error('Server response:', errorData);
         throw new Error('Ошибка сохранения конфигурации');
       }
-      
+
       const data = await response.json();
       setConfig(data);
-      setFormData(data);
       
+      // Правильно устанавливаем форму с нужной структурой
+      setFormData({
+        log_level: data.log_level,
+        log_format: data.log_format,
+        log_to_file: data.log_to_file,
+        log_retention_days: data.log_retention_days,
+        max_log_file_size_mb: data.max_log_file_size_mb,
+        telegram_notifications: {
+          enabled: data.telegram_notifications.enabled,
+          chat_id: data.telegram_notifications.chat_id || '',
+          min_level: data.telegram_notifications.min_level,
+          rate_limit_minutes: data.telegram_notifications.rate_limit_minutes
+        }
+      });
+
       toast({
         title: 'Успешно',
         description: 'Конфигурация логирования обновлена',
         status: 'success',
         duration: 3000
       });
-      
+
       logger.info('Конфигурация логирования обновлена');
     } catch (error) {
       logger.error('Ошибка сохранения конфигурации:', error);
@@ -244,20 +289,20 @@ const Logging = ({ currentAdmin }) => {
       const params = new URLSearchParams({
         lines: linesCount.toString()
       });
-      
+
       if (searchTerm) params.append('search', searchTerm);
       if (levelFilter) params.append('level', levelFilter);
-      
+
       const response = await fetch(`/api/logging/files/${filename}/content?${params}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error('Ошибка загрузки содержимого лога');
       }
-      
+
       const data = await response.json();
       setLogContent(data.content);
       setSelectedFile(filename);
@@ -277,14 +322,14 @@ const Logging = ({ currentAdmin }) => {
     try {
       const response = await fetch(`/api/logging/files/${filename}/download`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error('Ошибка скачивания файла');
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -294,7 +339,7 @@ const Logging = ({ currentAdmin }) => {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      
+
       logger.info('Файл лога скачан', { filename });
     } catch (error) {
       logger.error('Ошибка скачивания файла:', error);
@@ -307,72 +352,33 @@ const Logging = ({ currentAdmin }) => {
     }
   };
 
-  const toggleLiveLogs = () => {
-    if (liveLogsEnabled) {
-      // Останавливаем live логи
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      setLiveLogsEnabled(false);
-      logger.debug('Live логи остановлены');
-    } else {
-      // Запускаем live логи
-      const params = new URLSearchParams();
-      if (levelFilter) params.append('level', levelFilter);
-      if (searchTerm) params.append('search', searchTerm);
-      
-      const eventSource = new EventSource(`/api/logging/live?${params}`);
-      
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.error) {
-            logger.error('Ошибка в live логах:', data.error);
-            return;
-          }
-          
-          if (data.line) {
-            setLogContent(prev => [data.line, ...prev.slice(0, 999)]);
-            
-            // Автоскролл
-            if (liveLogsRef.current) {
-              liveLogsRef.current.scrollTop = 0;
-            }
-          }
-        } catch (error) {
-          logger.error('Ошибка парсинга live лога:', error);
-        }
-      };
-      
-      eventSource.onerror = (error) => {
-        logger.error('Ошибка EventSource:', error);
-        eventSource.close();
-        setLiveLogsEnabled(false);
-      };
-      
-      eventSourceRef.current = eventSource;
-      setLiveLogsEnabled(true);
-      setLogContent([]);
-      logger.debug('Live логи запущены');
-    }
-  };
 
   const testTelegramNotification = async () => {
+    // Проверяем, есть ли несохраненные изменения
+    if (config && hasUnsavedChanges()) {
+      toast({
+        title: 'Сохраните изменения',
+        description: 'Сначала сохраните текущие настройки, затем отправьте тестовое уведомление',
+        status: 'warning',
+        duration: 5000
+      });
+      return;
+    }
+
     try {
       const response = await fetch('/api/logging/test-notification', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         }
       });
-      
+
       if (!response.ok) {
         throw new Error('Ошибка тестирования уведомлений');
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         toast({
           title: 'Успешно',
@@ -383,7 +389,7 @@ const Logging = ({ currentAdmin }) => {
       } else {
         throw new Error(data.message);
       }
-      
+
       logger.info('Тестовое уведомление отправлено');
     } catch (error) {
       logger.error('Ошибка тестирования уведомлений:', error);
@@ -393,6 +399,68 @@ const Logging = ({ currentAdmin }) => {
         status: 'error',
         duration: 5000
       });
+    }
+  };
+
+  const hasUnsavedChanges = () => {
+    if (!config) return false;
+    
+    return (
+      formData.log_level !== config.log_level ||
+      formData.log_format !== config.log_format ||
+      formData.log_to_file !== config.log_to_file ||
+      formData.log_retention_days !== config.log_retention_days ||
+      formData.max_log_file_size_mb !== config.max_log_file_size_mb ||
+      formData.telegram_notifications.enabled !== config.telegram_notifications.enabled ||
+      formData.telegram_notifications.chat_id !== config.telegram_notifications.chat_id ||
+      formData.telegram_notifications.min_level !== config.telegram_notifications.min_level ||
+      formData.telegram_notifications.rate_limit_minutes !== config.telegram_notifications.rate_limit_minutes
+    );
+  };
+
+  const clearLogs = async () => {
+    setClearing(true);
+    try {
+      const response = await fetch('/api/logging/clear-logs', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка очистки логов');
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast({
+          title: 'Успешно',
+          description: `Очищено файлов: ${data.files_processed}`,
+          status: 'success',
+          duration: 3000
+        });
+        
+        // Обновляем список файлов
+        await loadLogFiles();
+        setLogContent([]);
+        setSelectedFile(null);
+      } else {
+        throw new Error('Не удалось очистить логи');
+      }
+
+      logger.info('Логи очищены');
+    } catch (error) {
+      logger.error('Ошибка очистки логов:', error);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось очистить логи',
+        status: 'error',
+        duration: 5000
+      });
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -415,16 +483,6 @@ const Logging = ({ currentAdmin }) => {
     return colors[level] || 'gray';
   };
 
-  const getLevelIcon = (level) => {
-    const icons = {
-      'DEBUG': FiInfo,
-      'INFO': FiInfo,
-      'WARNING': FiAlertTriangle,
-      'ERROR': FiAlertCircle,
-      'CRITICAL': FiAlertCircle
-    };
-    return icons[level] || FiInfo;
-  };
 
   if (loading) {
     return (
@@ -438,48 +496,59 @@ const Logging = ({ currentAdmin }) => {
   }
 
   return (
-    <Box p={6}>
+    <Box p={6} bg="gray.50" minHeight="100vh">
       <VStack spacing={6} align="stretch">
         <HStack justify="space-between" align="center">
-          <Heading size="lg" color="white">
+          <Heading size="lg" color="gray.800">
             <HStack>
               <FiFileText />
               <Text>Управление логированием</Text>
             </HStack>
           </Heading>
-          
+
           <HStack>
             <Button
               leftIcon={<FiRefreshCw />}
               variant="outline"
               size="sm"
-              onClick={loadConfig}
+              onClick={refreshData}
+              isLoading={loading}
             >
               Обновить
+            </Button>
+            
+            <Button
+              colorScheme="red"
+              size="sm"
+              onClick={clearLogs}
+              isLoading={clearing}
+              loadingText="Очистка..."
+            >
+              Очистить логи
             </Button>
           </HStack>
         </HStack>
 
         {/* Статистика логов */}
         {statistics && (
-          <Card bg="gray.800" borderColor="gray.700">
+          <Card bg="white" borderColor="gray.200" boxShadow="lg">
             <CardHeader>
-              <Heading size="md" color="white">Статистика за 24 часа</Heading>
+              <Heading size="md" color="gray.800">Статистика за 24 часа</Heading>
             </CardHeader>
             <CardBody>
               <StatGroup>
                 <Stat>
-                  <StatLabel color="gray.400">Всего записей</StatLabel>
-                  <StatNumber color="white">{statistics.total_entries}</StatNumber>
+                  <StatLabel color="gray.600">Всего записей</StatLabel>
+                  <StatNumber color="gray.800">{statistics.total_entries}</StatNumber>
                 </Stat>
                 <Stat>
-                  <StatLabel color="gray.400">Ошибки</StatLabel>
-                  <StatNumber color="red.400">{statistics.errors_count}</StatNumber>
+                  <StatLabel color="gray.600">Ошибки</StatLabel>
+                  <StatNumber color="red.500">{statistics.errors_count}</StatNumber>
                   <StatHelpText color="gray.500">{statistics.error_rate}%</StatHelpText>
                 </Stat>
                 <Stat>
-                  <StatLabel color="gray.400">Предупреждения</StatLabel>
-                  <StatNumber color="yellow.400">{statistics.warnings_count}</StatNumber>
+                  <StatLabel color="gray.600">Предупреждения</StatLabel>
+                  <StatNumber color="orange.500">{statistics.warnings_count}</StatNumber>
                   <StatHelpText color="gray.500">{statistics.warning_rate}%</StatHelpText>
                 </Stat>
               </StatGroup>
@@ -501,33 +570,27 @@ const Logging = ({ currentAdmin }) => {
                 <Text>Просмотр логов</Text>
               </HStack>
             </Tab>
-            <Tab _selected={{ bg: 'purple.600', color: 'white' }}>
-              <HStack>
-                <FiActivity />
-                <Text>Live логи</Text>
-              </HStack>
-            </Tab>
           </TabList>
 
           <TabPanels>
             {/* Вкладка настроек */}
             <TabPanel>
               <VStack spacing={6} align="stretch">
-                <Card bg="gray.800" borderColor="gray.700">
+                <Card bg="white" borderColor="gray.200" boxShadow="lg">
                   <CardHeader>
-                    <Heading size="md" color="white">Основные настройки</Heading>
+                    <Heading size="md" color="gray.800">Основные настройки</Heading>
                   </CardHeader>
                   <CardBody>
                     <VStack spacing={4} align="stretch">
                       <HStack spacing={4}>
                         <FormControl>
-                          <FormLabel color="gray.300">Уровень логирования</FormLabel>
+                          <FormLabel color="gray.700">Уровень логирования</FormLabel>
                           <Select
                             value={formData.log_level}
                             onChange={(e) => setFormData(prev => ({...prev, log_level: e.target.value}))}
-                            bg="gray.700"
-                            borderColor="gray.600"
-                            color="white"
+                            bg="white"
+                            borderColor="gray.300"
+                            color="gray.800"
                           >
                             <option value="DEBUG">DEBUG</option>
                             <option value="INFO">INFO</option>
@@ -538,13 +601,13 @@ const Logging = ({ currentAdmin }) => {
                         </FormControl>
 
                         <FormControl>
-                          <FormLabel color="gray.300">Формат логов</FormLabel>
+                          <FormLabel color="gray.700">Формат логов</FormLabel>
                           <Select
                             value={formData.log_format}
                             onChange={(e) => setFormData(prev => ({...prev, log_format: e.target.value}))}
-                            bg="gray.700"
-                            borderColor="gray.600"
-                            color="white"
+                            bg="white"
+                            borderColor="gray.300"
+                            color="gray.800"
                           >
                             <option value="text">Текстовый</option>
                             <option value="json">JSON</option>
@@ -554,7 +617,7 @@ const Logging = ({ currentAdmin }) => {
 
                       <HStack spacing={4} align="flex-end">
                         <FormControl display="flex" alignItems="center">
-                          <FormLabel color="gray.300" mb="0">Запись в файл</FormLabel>
+                          <FormLabel color="gray.700" mb="0">Запись в файл</FormLabel>
                           <Switch
                             isChecked={formData.log_to_file}
                             onChange={(e) => setFormData(prev => ({...prev, log_to_file: e.target.checked}))}
@@ -563,28 +626,28 @@ const Logging = ({ currentAdmin }) => {
                         </FormControl>
 
                         <FormControl>
-                          <FormLabel color="gray.300">Срок хранения (дни)</FormLabel>
+                          <FormLabel color="gray.700">Срок хранения (дни)</FormLabel>
                           <Input
                             type="number"
                             value={formData.log_retention_days}
                             onChange={(e) => setFormData(prev => ({...prev, log_retention_days: parseInt(e.target.value)}))}
-                            bg="gray.700"
-                            borderColor="gray.600"
-                            color="white"
+                            bg="white"
+                            borderColor="gray.300"
+                            color="gray.800"
                             min="1"
                             max="365"
                           />
                         </FormControl>
 
                         <FormControl>
-                          <FormLabel color="gray.300">Размер файла (MB)</FormLabel>
+                          <FormLabel color="gray.700">Размер файла (MB)</FormLabel>
                           <Input
                             type="number"
                             value={formData.max_log_file_size_mb}
                             onChange={(e) => setFormData(prev => ({...prev, max_log_file_size_mb: parseInt(e.target.value)}))}
-                            bg="gray.700"
-                            borderColor="gray.600"
-                            color="white"
+                            bg="white"
+                            borderColor="gray.300"
+                            color="gray.800"
                             min="1"
                             max="100"
                           />
@@ -595,15 +658,15 @@ const Logging = ({ currentAdmin }) => {
                 </Card>
 
                 {/* Настройки Telegram уведомлений */}
-                <Card bg="gray.800" borderColor="gray.700">
+                <Card bg="white" borderColor="gray.200" boxShadow="lg">
                   <CardHeader>
-                    <Heading size="md" color="white">Telegram уведомления</Heading>
+                    <Heading size="md" color="gray.800">Telegram уведомления</Heading>
                   </CardHeader>
                   <CardBody>
                     <VStack spacing={4} align="stretch">
                       <HStack justify="space-between">
                         <FormControl display="flex" alignItems="center">
-                          <FormLabel color="gray.300" mb="0">Включить уведомления</FormLabel>
+                          <FormLabel color="gray.700" mb="0">Включить уведомления</FormLabel>
                           <Switch
                             isChecked={formData.telegram_notifications.enabled}
                             onChange={(e) => setFormData(prev => ({
@@ -631,7 +694,7 @@ const Logging = ({ currentAdmin }) => {
                       {formData.telegram_notifications.enabled && (
                         <HStack spacing={4}>
                           <FormControl>
-                            <FormLabel color="gray.300">ID чата</FormLabel>
+                            <FormLabel color="gray.700">ID чата</FormLabel>
                             <Input
                               value={formData.telegram_notifications.chat_id}
                               onChange={(e) => setFormData(prev => ({
@@ -642,14 +705,14 @@ const Logging = ({ currentAdmin }) => {
                                 }
                               }))}
                               placeholder="-100123456789"
-                              bg="gray.700"
-                              borderColor="gray.600"
-                              color="white"
+                              bg="white"
+                              borderColor="gray.300"
+                              color="gray.800"
                             />
                           </FormControl>
 
                           <FormControl>
-                            <FormLabel color="gray.300">Мин. уровень</FormLabel>
+                            <FormLabel color="gray.700">Мин. уровень</FormLabel>
                             <Select
                               value={formData.telegram_notifications.min_level}
                               onChange={(e) => setFormData(prev => ({
@@ -659,9 +722,9 @@ const Logging = ({ currentAdmin }) => {
                                   min_level: e.target.value
                                 }
                               }))}
-                              bg="gray.700"
-                              borderColor="gray.600"
-                              color="white"
+                              bg="white"
+                              borderColor="gray.300"
+                              color="gray.800"
                             >
                               <option value="WARNING">WARNING</option>
                               <option value="ERROR">ERROR</option>
@@ -670,7 +733,7 @@ const Logging = ({ currentAdmin }) => {
                           </FormControl>
 
                           <FormControl>
-                            <FormLabel color="gray.300">Интервал (мин)</FormLabel>
+                            <FormLabel color="gray.700">Интервал (мин)</FormLabel>
                             <Input
                               type="number"
                               value={formData.telegram_notifications.rate_limit_minutes}
@@ -681,9 +744,9 @@ const Logging = ({ currentAdmin }) => {
                                   rate_limit_minutes: parseInt(e.target.value)
                                 }
                               }))}
-                              bg="gray.700"
-                              borderColor="gray.600"
-                              color="white"
+                              bg="white"
+                              borderColor="gray.300"
+                              color="gray.800"
                               min="1"
                               max="60"
                             />
@@ -712,7 +775,7 @@ const Logging = ({ currentAdmin }) => {
             <TabPanel>
               <VStack spacing={4} align="stretch">
                 {/* Фильтры */}
-                <Card bg="gray.800" borderColor="gray.700">
+                <Card bg="white" borderColor="gray.200" boxShadow="lg">
                   <CardBody>
                     <HStack spacing={4}>
                       <InputGroup>
@@ -723,9 +786,9 @@ const Logging = ({ currentAdmin }) => {
                           placeholder="Поиск в логах..."
                           value={searchTerm}
                           onChange={(e) => setSearchTerm(e.target.value)}
-                          bg="gray.700"
-                          borderColor="gray.600"
-                          color="white"
+                          bg="white"
+                          borderColor="gray.300"
+                          color="gray.800"
                         />
                       </InputGroup>
 
@@ -733,9 +796,9 @@ const Logging = ({ currentAdmin }) => {
                         placeholder="Уровень"
                         value={levelFilter}
                         onChange={(e) => setLevelFilter(e.target.value)}
-                        bg="gray.700"
-                        borderColor="gray.600"
-                        color="white"
+                        bg="white"
+                        borderColor="gray.300"
+                        color="gray.800"
                         width="150px"
                       >
                         <option value="DEBUG">DEBUG</option>
@@ -750,9 +813,9 @@ const Logging = ({ currentAdmin }) => {
                         placeholder="Строки"
                         value={linesCount}
                         onChange={(e) => setLinesCount(parseInt(e.target.value) || 100)}
-                        bg="gray.700"
-                        borderColor="gray.600"
-                        color="white"
+                        bg="white"
+                        borderColor="gray.300"
+                        color="gray.800"
                         width="100px"
                         min="10"
                         max="10000"
@@ -762,9 +825,9 @@ const Logging = ({ currentAdmin }) => {
                 </Card>
 
                 {/* Список файлов логов */}
-                <Card bg="gray.800" borderColor="gray.700">
+                <Card bg="white" borderColor="gray.200" boxShadow="lg">
                   <CardHeader>
-                    <Heading size="md" color="white">Файлы логов</Heading>
+                    <Heading size="md" color="gray.800">Файлы логов</Heading>
                   </CardHeader>
                   <CardBody>
                     <Table variant="simple">
@@ -779,7 +842,7 @@ const Logging = ({ currentAdmin }) => {
                       <Tbody>
                         {logFiles.map((file) => (
                           <Tr key={file.name}>
-                            <Td color="white">
+                            <Td color="gray.800">
                               <HStack>
                                 <Text>{file.name}</Text>
                                 {file.is_current && (
@@ -826,15 +889,15 @@ const Logging = ({ currentAdmin }) => {
 
                 {/* Содержимое лога */}
                 {selectedFile && logContent.length > 0 && (
-                  <Card bg="gray.800" borderColor="gray.700">
+                  <Card bg="white" borderColor="gray.200" boxShadow="lg">
                     <CardHeader>
-                      <Heading size="md" color="white">
+                      <Heading size="md" color="gray.800">
                         Содержимое: {selectedFile}
                       </Heading>
                     </CardHeader>
                     <CardBody>
                       <Box
-                        bg="gray.900"
+                        bg="gray.50"
                         p={4}
                         borderRadius="md"
                         maxHeight="400px"
@@ -844,12 +907,12 @@ const Logging = ({ currentAdmin }) => {
                           {logContent.map((line, index) => {
                             const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/);
                             const level = levelMatch ? levelMatch[1] : '';
-                            
+
                             return (
                               <HStack key={index} align="flex-start" spacing={2}>
                                 {level && (
-                                  <Badge 
-                                    colorScheme={getLevelColor(level)} 
+                                  <Badge
+                                    colorScheme={getLevelColor(level)}
                                     size="sm"
                                     minWidth="60px"
                                   >
@@ -860,7 +923,7 @@ const Logging = ({ currentAdmin }) => {
                                   display="block"
                                   whiteSpace="pre-wrap"
                                   bg="transparent"
-                                  color="gray.100"
+                                  color="gray.800"
                                   fontSize="sm"
                                   p={0}
                                   flex="1"
@@ -878,94 +941,6 @@ const Logging = ({ currentAdmin }) => {
               </VStack>
             </TabPanel>
 
-            {/* Вкладка Live логов */}
-            <TabPanel>
-              <VStack spacing={4} align="stretch">
-                <Card bg="gray.800" borderColor="gray.700">
-                  <CardHeader>
-                    <HStack justify="space-between">
-                      <Heading size="md" color="white">Live мониторинг логов</Heading>
-                      <HStack>
-                        <Button
-                          size="sm"
-                          colorScheme={liveLogsEnabled ? 'red' : 'green'}
-                          leftIcon={liveLogsEnabled ? <FiPause /> : <FiPlay />}
-                          onClick={toggleLiveLogs}
-                        >
-                          {liveLogsEnabled ? 'Остановить' : 'Запустить'}
-                        </Button>
-                        {liveLogsEnabled && (
-                          <Badge colorScheme="green">Запущено</Badge>
-                        )}
-                      </HStack>
-                    </HStack>
-                  </CardHeader>
-                  <CardBody>
-                    {liveLogsEnabled && (
-                      <Alert status="info" mb={4}>
-                        <AlertIcon />
-                        <AlertDescription color="gray.800">
-                          Live мониторинг активен. Новые записи отображаются в реальном времени.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
-                    <Box
-                      ref={liveLogsRef}
-                      bg="gray.900"
-                      p={4}
-                      borderRadius="md"
-                      height="500px"
-                      overflowY="auto"
-                      border="1px solid"
-                      borderColor="gray.600"
-                    >
-                      {logContent.length === 0 ? (
-                        <Text color="gray.500" textAlign="center" mt={8}>
-                          {liveLogsEnabled ? 'Ожидание новых логов...' : 'Запустите мониторинг для просмотра логов в реальном времени'}
-                        </Text>
-                      ) : (
-                        <VStack align="stretch" spacing={1}>
-                          {logContent.map((line, index) => {
-                            const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/);
-                            const level = levelMatch ? levelMatch[1] : '';
-                            const LevelIcon = getLevelIcon(level);
-                            
-                            return (
-                              <HStack key={index} align="flex-start" spacing={2}>
-                                {level && (
-                                  <HStack spacing={1}>
-                                    <LevelIcon size={12} color={getLevelColor(level)} />
-                                    <Badge 
-                                      colorScheme={getLevelColor(level)} 
-                                      size="sm"
-                                      minWidth="60px"
-                                    >
-                                      {level}
-                                    </Badge>
-                                  </HStack>
-                                )}
-                                <Code
-                                  display="block"
-                                  whiteSpace="pre-wrap"
-                                  bg="transparent"
-                                  color="gray.100"
-                                  fontSize="sm"
-                                  p={0}
-                                  flex="1"
-                                >
-                                  {line}
-                                </Code>
-                              </HStack>
-                            );
-                          })}
-                        </VStack>
-                      )}
-                    </Box>
-                  </CardBody>
-                </Card>
-              </VStack>
-            </TabPanel>
           </TabPanels>
         </Tabs>
       </VStack>

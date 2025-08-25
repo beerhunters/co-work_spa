@@ -115,7 +115,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()  
 LOG_FORMAT = os.getenv("LOG_FORMAT", "text").lower()  # "text" или "json"
 LOG_TO_FILE = os.getenv("LOG_TO_FILE", "true").lower() == "true"
-LOGS_DIR = Path(os.getenv("LOGS_DIR", "logs"))
+LOGS_DIR = BASE_DIR / Path(os.getenv("LOGS_DIR", "logs"))
 
 # Telegram логирование
 TELEGRAM_LOGGING_ENABLED = os.getenv("TELEGRAM_LOGGING_ENABLED", "false").lower() == "true"

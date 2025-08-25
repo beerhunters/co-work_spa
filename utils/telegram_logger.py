@@ -191,6 +191,42 @@ async def send_critical_alert(message: str, context: Optional[Dict[str, Any]] = 
         return False
 
 
+async def send_test_notification(level: str = "TEST", admin_login: str = "admin") -> bool:
+    """Отправляет тестовое уведомление с форматированием в зависимости от уровня"""
+    try:
+        env_text = "🏭 PRODUCTION" if ENVIRONMENT == "production" else "🧪 DEVELOPMENT"
+        
+        # Выбираем эмодзи и заголовок в зависимости от уровня
+        level_config = {
+            "TEST": {"emoji": "🧪", "title": "ТЕСТОВОЕ УВЕДОМЛЕНИЕ"},
+            "DEBUG": {"emoji": "🔍", "title": "DEBUG СООБЩЕНИЕ"}, 
+            "INFO": {"emoji": "ℹ️", "title": "ИНФОРМАЦИОННОЕ СООБЩЕНИЕ"},
+            "WARNING": {"emoji": "⚠️", "title": "ПРЕДУПРЕЖДЕНИЕ"},
+            "ERROR": {"emoji": "🔴", "title": "ОШИБКА"},
+            "CRITICAL": {"emoji": "💥", "title": "КРИТИЧЕСКАЯ ОШИБКА"}
+        }
+        
+        config = level_config.get(level, level_config["TEST"])
+        
+        message = f"{config['emoji']} **{config['title']}** {env_text}\n\n"
+        message += f"🕐 **Время**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        message += f"👤 **Инициатор**: {admin_login}\n"
+        message += f"📊 **Среда**: {ENVIRONMENT}\n"
+        message += f"🔧 **Уровень**: {level}\n\n"
+        
+        if level == "TEST":
+            message += "✅ Тестовое сообщение от системы логирования\n"
+            message += "🔧 Все настройки Telegram работают корректно"
+        else:
+            message += f"📝 Пример {level.lower()} уведомления от системы мониторинга"
+        
+        return await send_log_message(message, level)
+        
+    except Exception as e:
+        logger.error(f"Ошибка отправки тестового уведомления: {e}")
+        return False
+
+
 async def send_startup_notification() -> bool:
     """Отправляет уведомление о запуске приложения"""
     try:
