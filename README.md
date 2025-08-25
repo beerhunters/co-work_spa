@@ -172,7 +172,7 @@ async def get_users(
 
 ```bash
 # Клонирование репозитория
-git clone https://github.com/yourusername/coworking-system.git
+git clone https://github.com/beerhunters/co-work_spa.git
 cd coworking-system
 
 # Создание конфигурации
