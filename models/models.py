@@ -426,6 +426,13 @@ class Permission(enum.Enum):
     # Дашборд и статистика
     VIEW_DASHBOARD = "view_dashboard"
 
+    # Логирование и мониторинг
+    VIEW_LOGS = "view_logs"
+    MANAGE_LOGGING = "manage_logging"
+    
+    # Бэкапы (только для super_admin)
+    MANAGE_BACKUPS = "manage_backups"
+
 
 class Admin(Base):
     __tablename__ = "admins"

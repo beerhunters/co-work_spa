@@ -53,6 +53,13 @@ class PermissionEnum(str, Enum):
     # Дашборд
     VIEW_DASHBOARD = "view_dashboard"
 
+    # Логирование и мониторинг
+    VIEW_LOGS = "view_logs"
+    MANAGE_LOGGING = "manage_logging"
+    
+    # Бэкапы
+    MANAGE_BACKUPS = "manage_backups"
+
 
 class AdminBase(BaseModel):
     id: int
@@ -165,6 +172,11 @@ class AvailablePermissions(BaseModel):
             "manage_admins": "Управление администраторами",
             # Дашборд
             "view_dashboard": "Просмотр дашборда",
+            # Логирование
+            "view_logs": "Просмотр логов",
+            "manage_logging": "Управление логированием",
+            # Бэкапы
+            "manage_backups": "Управление бэкапами",
         }
         return labels.get(permission, permission)
 
@@ -195,5 +207,8 @@ class AvailablePermissions(BaseModel):
             "manage_newsletters": "Рассылки",
             "manage_admins": "Администрирование",
             "view_dashboard": "Система",
+            "view_logs": "Система",
+            "manage_logging": "Система", 
+            "manage_backups": "Администрирование",
         }
         return categories.get(permission, "Другое")

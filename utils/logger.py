@@ -28,6 +28,15 @@ except ImportError:
 
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
+# Импорт после инициализации основных настроек
+def _import_telegram_logger():
+    """Ленивый импорт для избежания циклических зависимостей"""
+    try:
+        from utils.telegram_logger import setup_telegram_logging
+        return setup_telegram_logging
+    except ImportError:
+        return None
+
 # Глобальная переменная для отслеживания настроенных логгеров
 _configured_loggers = set()
 
@@ -161,6 +170,9 @@ class UnifiedLogger:
         # Файловый обработчик
         if self.log_to_file:
             self._add_file_handler(formatter, level)
+        
+        # Telegram обработчик для критических ошибок
+        self._add_telegram_handler()
     
     def _add_file_handler(self, formatter, level):
         """Добавляет файловый обработчик"""
@@ -192,6 +204,21 @@ class UnifiedLogger:
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
+    
+    def _add_telegram_handler(self):
+        """Добавляет Telegram обработчик для критических ошибок"""
+        try:
+            setup_telegram_logging = _import_telegram_logger()
+            if setup_telegram_logging:
+                telegram_handler = setup_telegram_logging(
+                    min_level="ERROR",
+                    rate_limit_minutes=5
+                )
+                if telegram_handler:
+                    self.logger.addHandler(telegram_handler)
+        except Exception as e:
+            # Не логируем ошибку через self.logger чтобы избежать рекурсии
+            print(f"Warning: Could not initialize Telegram logging: {e}")
     
     def debug(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.debug(message, extra=extra or {}, **kwargs)

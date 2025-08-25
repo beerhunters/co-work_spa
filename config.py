@@ -117,6 +117,11 @@ LOG_FORMAT = os.getenv("LOG_FORMAT", "text").lower()  # "text" или "json"
 LOG_TO_FILE = os.getenv("LOG_TO_FILE", "true").lower() == "true"
 LOGS_DIR = Path(os.getenv("LOGS_DIR", "logs"))
 
+# Telegram логирование
+TELEGRAM_LOGGING_ENABLED = os.getenv("TELEGRAM_LOGGING_ENABLED", "false").lower() == "true"
+TELEGRAM_LOG_MIN_LEVEL = os.getenv("TELEGRAM_LOG_MIN_LEVEL", "ERROR")
+TELEGRAM_LOG_RATE_LIMIT = int(os.getenv("TELEGRAM_LOG_RATE_LIMIT", "5"))
+
 # Настройки временной зоны
 import pytz
 

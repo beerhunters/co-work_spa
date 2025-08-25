@@ -51,6 +51,7 @@ from routes import admins
 from routes.frontend_logs import router as frontend_logs_router
 from routes.optimization import router as optimization_router
 from routes.cache import router as cache_router
+from routes.logging import router as logging_router
 
 logger = get_logger(__name__)
 
@@ -62,6 +63,13 @@ async def lifespan(app: FastAPI):
     # Логируем информацию о запуске
     log_startup_info()
     logger.info("Запуск приложения...")
+    
+    # Отправляем уведомление о запуске в Telegram
+    try:
+        from utils.telegram_logger import send_startup_notification
+        await send_startup_notification()
+    except Exception as e:
+        logger.warning(f"Не удалось отправить уведомление о запуске: {e}")
 
     # Создаем необходимые директории
     directories = [DATA_DIR, AVATARS_DIR, TICKET_PHOTOS_DIR, NEWSLETTER_PHOTOS_DIR]
@@ -119,6 +127,13 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Завершение приложения...")
+    
+    # Отправляем уведомление об остановке в Telegram
+    try:
+        from utils.telegram_logger import send_shutdown_notification
+        await send_shutdown_notification()
+    except Exception as e:
+        logger.warning(f"Не удалось отправить уведомление об остановке: {e}")
 
     try:
         await stop_cache_cleanup()
@@ -236,6 +251,7 @@ routers = [
     (frontend_logs_router, "frontend_logs"),
     (optimization_router, "optimization"),
     (cache_router, "cache"),
+    (logging_router, "logging"),
 ]
 
 for router, name in routers:

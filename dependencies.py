@@ -115,13 +115,16 @@ class CachedAdmin:
 
     def has_permission(self, permission: Permission) -> bool:
         """Проверяет разрешение из кешированных данных"""
-        if self.role == AdminRole.SUPER_ADMIN:
+        # Проверяем супер админа (учитываем как enum, так и string значения)
+        if (self.role == AdminRole.SUPER_ADMIN or 
+            (isinstance(self.role, str) and self.role == AdminRole.SUPER_ADMIN.value)):
             return True
         return hasattr(self, "permissions") and permission.value in self.permissions
 
     def get_permissions_list(self) -> list:
         """Возвращает список разрешений из кеша"""
-        if self.role == AdminRole.SUPER_ADMIN:
+        if (self.role == AdminRole.SUPER_ADMIN or 
+            (isinstance(self.role, str) and self.role == AdminRole.SUPER_ADMIN.value)):
             return [p.value for p in Permission]
         return getattr(self, "permissions", [])
 
@@ -303,7 +306,8 @@ def verify_token_with_permissions(required_permissions: List[Permission]):
     ) -> CachedAdmin:
 
         # Супер админ имеет все права
-        if current_admin.role == AdminRole.SUPER_ADMIN:
+        if (current_admin.role == AdminRole.SUPER_ADMIN or 
+            (isinstance(current_admin.role, str) and current_admin.role == AdminRole.SUPER_ADMIN.value)):
             return current_admin
 
         # Проверяем каждое требуемое разрешение
@@ -328,7 +332,8 @@ def require_super_admin(
     current_admin: CachedAdmin = Depends(verify_token),
 ) -> CachedAdmin:
     """Проверка, что пользователь - супер админ"""
-    if current_admin.role != AdminRole.SUPER_ADMIN:
+    if not (current_admin.role == AdminRole.SUPER_ADMIN or 
+            (isinstance(current_admin.role, str) and current_admin.role == AdminRole.SUPER_ADMIN.value)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Super admin access required"
         )

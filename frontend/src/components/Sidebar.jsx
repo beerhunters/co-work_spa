@@ -10,7 +10,7 @@ import {
   Collapse,
   Text
 } from '@chakra-ui/react';
-import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronDown, FiChevronRight } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronDown, FiChevronRight, FiFileText } from 'react-icons/fi';
 import { colors, sizes, styles, typography, spacing, animations } from '../styles/styles';
 
 const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
@@ -33,6 +33,7 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
     { icon: FiActivity, label: 'Мониторинг', section: 'monitoring', color: 'green' },
     { icon: FiLayers, label: 'Кэш', section: 'cache', color: 'blue' },
     { icon: FiCpu, label: 'Производительность', section: 'performance', color: 'purple' },
+    { icon: FiFileText, label: 'Логирование', section: 'logging', color: 'gray' },
     { icon: FiKey, label: 'API ключи', section: 'api-keys', color: 'orange' },
     { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple' },
     { icon: FiDatabase, label: 'Бэкапы', section: 'backups', color: 'red' },
