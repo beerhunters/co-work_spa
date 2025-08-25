@@ -98,13 +98,50 @@ const Performance = () => {
 
   const fetchPerformanceData = async () => {
     try {
-      const [perfResponse, queriesResponse, recsResponse] = await Promise.all([
-        api.get('/optimization/performance-stats'),
+      const [dbStatsResponse, queriesResponse, recsResponse, healthResponse] = await Promise.all([
+        api.get('/optimization/database-stats'),
         api.get('/optimization/slow-queries'),
-        api.get('/optimization/recommendations')
+        api.get('/optimization/recommendations'),
+        api.get('/monitoring/health/detailed').catch(() => null) // Не критично если не получится
       ]);
 
-      setPerformanceData(perfResponse.data.performance_stats);
+      // Получаем системные метрики из мониторинга
+      const dbStats = dbStatsResponse.data;
+      const systemMetrics = healthResponse?.data?.checks?.system_resources || {};
+      
+      // Вычисляем общий балл производительности
+      const calculateOverallScore = () => {
+        let score = 100;
+        
+        // Снижаем балл за большой размер БД без достаточного количества индексов
+        if (dbStats.total_tables > 0) {
+          const indexRatio = dbStats.total_indexes / dbStats.total_tables;
+          if (indexRatio < 1) score -= 20;
+          else if (indexRatio < 2) score -= 10;
+        }
+        
+        // Учитываем системные ресурсы
+        if (systemMetrics.cpu?.percent > 80) score -= 15;
+        if (systemMetrics.memory?.percent > 85) score -= 15;
+        if (systemMetrics.disk?.percent > 90) score -= 20;
+        
+        return Math.max(score, 0);
+      };
+
+      setPerformanceData({
+        overall_score: calculateOverallScore(),
+        avg_query_time: queriesResponse.data.slow_queries?.length > 0 ? 
+          queriesResponse.data.slow_queries.reduce((sum, q) => sum + (q.avg_duration || 0), 0) / queriesResponse.data.slow_queries.length : 
+          25, // Базовое время для хорошей производительности
+        query_time_trend: 0,
+        cpu_usage: systemMetrics.cpu?.percent || 0,
+        memory_usage: systemMetrics.memory?.used_mb * 1024 * 1024 || 0,
+        memory_percentage: systemMetrics.memory?.percent || 0,
+        database_size_mb: dbStats.database_size_mb,
+        total_tables: dbStats.total_tables,
+        total_indexes: dbStats.total_indexes
+      });
+      
       setSlowQueries(queriesResponse.data.slow_queries || []);
       setRecommendations(recsResponse.data.recommendations || []);
       setIndexSuggestions(recsResponse.data.index_suggestions || []);
@@ -154,22 +191,23 @@ const Performance = () => {
     }
   };
 
-  const optimizeQuery = async (queryId) => {
+  const analyzeQuery = async (queryObj) => {
     try {
-      await api.post(`/optimization/optimize-query/${queryId}`);
+      const response = await api.post('/optimization/analyze-query', null, {
+        params: { query: queryObj.query_text }
+      });
       toast({
-        title: 'Запрос оптимизирован',
-        description: 'Запрос был успешно оптимизирован',
-        status: 'success',
-        duration: 3000,
+        title: 'Анализ завершен',
+        description: `Производительность: ${response.data.performance_rating}, время: ${response.data.execution_time_ms}мс`,
+        status: 'info',
+        duration: 5000,
         isClosable: true,
       });
-      fetchPerformanceData();
     } catch (error) {
-      console.error('Ошибка оптимизации запроса:', error);
+      console.error('Ошибка анализа запроса:', error);
       toast({
-        title: 'Ошибка оптимизации',
-        description: 'Не удалось оптимизировать запрос',
+        title: 'Ошибка анализа',
+        description: error.response?.data?.detail || 'Не удалось проанализировать запрос',
         status: 'error',
         duration: 5000,
         isClosable: true,
@@ -214,29 +252,30 @@ const Performance = () => {
   return (
     <Box p={6} maxW="full">
       <Flex justify="space-between" align="center" mb={6}>
-        <Heading size="lg" color={colors.text.primary}>
-          <Icon as={FiActivity} mr={3} />
-          Анализ производительности
-        </Heading>
-        <HStack>
-          <FormControl display="flex" alignItems="center">
-            <FormLabel htmlFor="auto-refresh" mb="0" fontSize="sm">
-              Автообновление
-            </FormLabel>
-            <Switch 
-              id="auto-refresh" 
-              isChecked={autoRefresh}
-              onChange={(e) => setAutoRefresh(e.target.checked)}
-              colorScheme="blue"
-            />
-          </FormControl>
+        <HStack spacing={4}>
+          <Icon as={FiActivity} boxSize={8} color="blue.400" />
+          <Heading size="lg" color={colors.text.primary}>
+            Анализ производительности
+          </Heading>
+        </HStack>
+        <HStack spacing={3}>
           <Button
+            size="sm"
             leftIcon={<FiRefreshCw />}
             onClick={fetchPerformanceData}
-            colorScheme="blue"
-            size="sm"
+            isLoading={loading}
+            variant="outline"
           >
             Обновить
+          </Button>
+          <Button
+            size="sm"
+            leftIcon={<FiZap />}
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            colorScheme={autoRefresh ? 'green' : 'gray'}
+            variant={autoRefresh ? 'solid' : 'outline'}
+          >
+            {autoRefresh ? 'Авто' : 'Ручное'}
           </Button>
         </HStack>
       </Flex>
@@ -353,11 +392,11 @@ const Performance = () => {
                         <Td>
                           <Button
                             size="xs"
-                            colorScheme="green"
-                            onClick={() => optimizeQuery(query.id)}
-                            leftIcon={<FiZap />}
+                            colorScheme="blue"
+                            onClick={() => analyzeQuery(query)}
+                            leftIcon={<FiSearch />}
                           >
-                            Оптимизировать
+                            Анализ
                           </Button>
                         </Td>
                       </Tr>

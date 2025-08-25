@@ -22,61 +22,81 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
 
-# Простая система метрик (заглушка для работы мониторинга)
-class SimpleMetrics:
-    """Простая система сбора метрик"""
-    
-    def __init__(self):
-        self.metrics = {
-            "requests_total": 0,
-            "errors_total": 0,
-            "requests_by_endpoint": {},
-            "requests_by_status": {},
-            "response_times": [],
-            "auth_failures": 0,
-            "rate_limits_exceeded": 0,
-            "active_sessions": 0,
-        }
-    
-    def get_metrics_summary(self):
-        """Возвращает сводку метрик"""
-        avg_response_time = (
-            sum(self.metrics["response_times"]) / len(self.metrics["response_times"])
-            if self.metrics["response_times"] else 0
-        )
-        
-        return {
-            "counters": {
-                "requests_total": self.metrics["requests_total"],
-                "errors_total": self.metrics["errors_total"],
-                "auth_failures": self.metrics["auth_failures"],
-                "rate_limits_exceeded": self.metrics["rate_limits_exceeded"],
-                "active_sessions": self.metrics["active_sessions"],
-            },
-            "histograms": {
-                "response_times_histogram": {
-                    "count": len(self.metrics["response_times"]),
-                    "mean": avg_response_time,
-                    "max": max(self.metrics["response_times"]) if self.metrics["response_times"] else 0,
-                    "min": min(self.metrics["response_times"]) if self.metrics["response_times"] else 0,
-                }
-            },
-            "by_endpoint": self.metrics["requests_by_endpoint"],
-            "by_status": self.metrics["requests_by_status"],
-        }
-    
-    def get_metrics(self):
-        """Возвращает полные метрики"""
-        return self.metrics
+# Глобальная переменная для хранения метрик (должна быть заменена на Redis/базу)
+# TODO: Заменить на постоянное хранилище метрик
+_metrics_storage = {
+    "requests_total": 0,
+    "errors_total": 0,
+    "requests_by_endpoint": {},
+    "requests_by_status": {},
+    "response_times": [],
+    "auth_failures": 0,
+    "rate_limits_exceeded": 0,
+    "active_sessions": 0,
+}
 
 
-# Глобальный экземпляр метрик
-_metrics = SimpleMetrics()
+def increment_metric(metric_name: str, value: int = 1):
+    """Увеличить значение метрики"""
+    global _metrics_storage
+    if metric_name in _metrics_storage:
+        _metrics_storage[metric_name] += value
 
 
-def get_metrics():
-    """Получить экземпляр метрик"""
-    return _metrics
+def record_response_time(time_ms: float):
+    """Записать время ответа"""
+    global _metrics_storage
+    _metrics_storage["response_times"].append(time_ms)
+    # Ограничиваем размер массива временами ответа
+    if len(_metrics_storage["response_times"]) > 1000:
+        _metrics_storage["response_times"] = _metrics_storage["response_times"][-1000:]
+
+
+def record_endpoint_request(endpoint: str):
+    """Записать запрос к endpoint"""
+    global _metrics_storage
+    if endpoint not in _metrics_storage["requests_by_endpoint"]:
+        _metrics_storage["requests_by_endpoint"][endpoint] = 0
+    _metrics_storage["requests_by_endpoint"][endpoint] += 1
+
+
+def record_status_code(status_code: int):
+    """Записать статус код ответа"""
+    global _metrics_storage
+    status_str = str(status_code)
+    if status_str not in _metrics_storage["requests_by_status"]:
+        _metrics_storage["requests_by_status"][status_str] = 0
+    _metrics_storage["requests_by_status"][status_str] += 1
+
+
+def get_metrics_summary():
+    """Возвращает сводку метрик"""
+    global _metrics_storage
+
+    avg_response_time = (
+        sum(_metrics_storage["response_times"]) / len(_metrics_storage["response_times"])
+        if _metrics_storage["response_times"] else 0
+    )
+
+    return {
+        "counters": {
+            "requests_total": _metrics_storage["requests_total"],
+            "errors_total": _metrics_storage["errors_total"],
+            "auth_failures": _metrics_storage["auth_failures"],
+            "rate_limits_exceeded": _metrics_storage["rate_limits_exceeded"],
+            "active_sessions": _metrics_storage["active_sessions"],
+        },
+        "histograms": {
+            "response_times_histogram": {
+                "count": len(_metrics_storage["response_times"]),
+                "mean": round(avg_response_time, 2),
+                "max": max(_metrics_storage["response_times"]) if _metrics_storage["response_times"] else 0,
+                "min": min(_metrics_storage["response_times"]) if _metrics_storage["response_times"] else 0,
+            }
+        },
+        "by_endpoint": _metrics_storage["requests_by_endpoint"],
+        "by_status": _metrics_storage["requests_by_status"],
+    }
 
 
 @router.get("/health/detailed")
@@ -100,9 +120,13 @@ async def detailed_health_check():
             ),
             "details": db_health,
         }
+
+        if not db_health.get("connection_ok", False):
+            health_status["status"] = "unhealthy"
+
     except Exception as e:
         health_status["checks"]["database"] = {"status": "unhealthy", "error": str(e)}
-        health_status["status"] = "degraded"
+        health_status["status"] = "unhealthy"
 
     # 2. System Resources
     try:
@@ -126,17 +150,22 @@ async def detailed_health_check():
             else "warning" if cpu_percent < 95 else "critical"
         )
 
+        resource_status = "healthy"
+        if any(s == "critical" for s in [memory_status, disk_status, cpu_status]):
+            resource_status = "critical"
+            health_status["status"] = "unhealthy"
+        elif any(s == "warning" for s in [memory_status, disk_status, cpu_status]):
+            resource_status = "warning"
+            if health_status["status"] == "healthy":
+                health_status["status"] = "degraded"
+
         health_status["checks"]["system_resources"] = {
-            "status": (
-                "healthy"
-                if all(s == "healthy" for s in [memory_status, disk_status, cpu_status])
-                else "warning"
-            ),
+            "status": resource_status,
             "memory": {
                 "total_mb": round(memory.total / (1024**2)),
                 "used_mb": round(memory.used / (1024**2)),
                 "available_mb": round(memory.available / (1024**2)),
-                "percent": memory.percent,
+                "percent": round(memory.percent, 1),
                 "status": memory_status,
             },
             "disk": {
@@ -146,17 +175,15 @@ async def detailed_health_check():
                 "percent": round(disk_usage.used / disk_usage.total * 100, 1),
                 "status": disk_status,
             },
-            "cpu": {"percent": cpu_percent, "status": cpu_status},
+            "cpu": {"percent": round(cpu_percent, 1), "status": cpu_status},
         }
 
-        if health_status["checks"]["system_resources"]["status"] == "warning":
-            health_status["status"] = "degraded"
     except Exception as e:
         health_status["checks"]["system_resources"] = {
             "status": "unhealthy",
             "error": str(e),
         }
-        health_status["status"] = "degraded"
+        health_status["status"] = "unhealthy"
 
     # 3. Rate Limiter Status
     try:
@@ -171,23 +198,32 @@ async def detailed_health_check():
             "status": "unhealthy",
             "error": str(e),
         }
+        if health_status["status"] == "healthy":
+            health_status["status"] = "degraded"
 
     # 4. Application Metrics Summary
     try:
-        metrics = get_metrics()
-        metrics_summary = metrics.get_metrics_summary()
+        metrics_summary = get_metrics_summary()
 
-        # Простая проверка - если много ошибок, статус degraded
-        error_rate = metrics_summary["counters"].get("errors_total", 0) / max(
-            metrics_summary["counters"].get("requests_total", 1), 1
-        )
-        if error_rate > 0.1:  # Более 10% ошибок
-            health_status["status"] = "degraded"
+        # Проверка на высокий уровень ошибок
+        total_requests = metrics_summary["counters"].get("requests_total", 0)
+        total_errors = metrics_summary["counters"].get("errors_total", 0)
+
+        if total_requests > 0:
+            error_rate = total_errors / total_requests
+            metrics_status = "healthy" if error_rate <= 0.05 else "degraded"
+
+            if error_rate > 0.05 and health_status["status"] == "healthy":
+                health_status["status"] = "degraded"
+        else:
+            error_rate = 0
+            metrics_status = "healthy"
 
         health_status["checks"]["metrics"] = {
-            "status": "healthy" if error_rate <= 0.1 else "degraded",
-            "error_rate": round(error_rate * 100, 2),
-            "summary": metrics_summary,
+            "status": metrics_status,
+            "error_rate_percent": round(error_rate * 100, 2),
+            "total_requests": total_requests,
+            "total_errors": total_errors,
         }
     except Exception as e:
         health_status["checks"]["metrics"] = {"status": "unhealthy", "error": str(e)}
@@ -209,23 +245,22 @@ async def detailed_health_check():
 
 @router.get("/metrics")
 async def get_application_metrics(
-    summary: bool = Query(True, description="Возвращать сводку или полные метрики")
+        summary: bool = Query(True, description="Возвращать сводку или полные метрики")
 ):
     """Получение метрик приложения"""
-    metrics = get_metrics()
-
     if summary:
-        return metrics.get_metrics_summary()
+        return get_metrics_summary()
     else:
-        return metrics.get_metrics()
+        return {
+            "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
+            "metrics": _metrics_storage
+        }
 
 
 @router.get("/metrics/prometheus")
 async def get_prometheus_metrics():
     """Метрики в формате Prometheus"""
-    metrics = get_metrics()
-    metrics_data = metrics.get_metrics_summary()
-
+    metrics_data = get_metrics_summary()
     prometheus_output = []
 
     # Добавляем counters
@@ -260,38 +295,39 @@ async def get_database_statistics(_: str = Depends(verify_token)):
         """Получение статистики таблиц"""
         tables_info = []
 
-        # Получаем список таблиц
-        tables_result = session.execute(
-            text(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-            )
-        ).fetchall()
+        try:
+            # Получаем список таблиц
+            tables_result = session.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                )
+            ).fetchall()
 
-        for (table_name,) in tables_result:
-            # Количество записей
-            count_result = session.execute(
-                text(f"SELECT COUNT(*) FROM {table_name}")
-            ).scalar()
+            for (table_name,) in tables_result:
+                try:
+                    # Количество записей
+                    count_result = session.execute(
+                        text(f"SELECT COUNT(*) FROM `{table_name}`")
+                    ).scalar()
 
-            # Размер таблицы (приблизительно)
-            try:
-                size_result = session.execute(
-                    text(
-                        "SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()"
+                    tables_info.append(
+                        {
+                            "table_name": table_name,
+                            "record_count": count_result or 0,
+                        }
                     )
-                ).scalar()
-            except:
-                size_result = 0
+                except Exception as e:
+                    logger.warning(f"Could not get stats for table {table_name}: {e}")
+                    tables_info.append(
+                        {
+                            "table_name": table_name,
+                            "record_count": 0,
+                            "error": str(e)
+                        }
+                    )
 
-            tables_info.append(
-                {
-                    "table_name": table_name,
-                    "record_count": count_result,
-                    "estimated_size_kb": (
-                        round(size_result / 1024, 2) if size_result else 0
-                    ),
-                }
-            )
+        except Exception as e:
+            logger.error(f"Error getting table list: {e}")
 
         return tables_info
 
@@ -300,7 +336,7 @@ async def get_database_statistics(_: str = Depends(verify_token)):
         pool_stats = ConnectionPoolMonitor.get_pool_status()
 
         # Статистика таблиц
-        table_stats = DatabaseManager.safe_execute(_get_table_stats)
+        table_stats = DatabaseManager.safe_execute(_get_table_stats) or []
 
         # Database file info
         db_path = DATA_DIR / "coworking.db"
@@ -315,7 +351,10 @@ async def get_database_statistics(_: str = Depends(verify_token)):
             },
             "connection_pool": pool_stats,
             "tables": table_stats,
-            "total_records": sum(table["record_count"] for table in table_stats),
+            "total_records": sum(
+                table.get("record_count", 0) for table in table_stats
+                if isinstance(table.get("record_count"), int)
+            ),
         }
 
     except Exception as e:
@@ -323,20 +362,6 @@ async def get_database_statistics(_: str = Depends(verify_token)):
         raise HTTPException(
             status_code=500, detail=f"Database statistics error: {str(e)}"
         )
-
-
-@router.get("/performance/slow-queries")
-async def get_slow_queries(
-    limit: int = Query(50, ge=1, le=500), _: str = Depends(verify_token)
-):
-    """Получение информации о медленных запросах"""
-    # В реальном приложении здесь была бы логика сбора медленных запросов
-    # Пока возвращаем заглушку
-    return {
-        "message": "Slow queries monitoring not implemented yet",
-        "note": "This would require query logging and analysis",
-        "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
-    }
 
 
 @router.get("/alerts")
@@ -358,9 +383,9 @@ async def get_system_alerts(_: str = Depends(verify_token)):
                     "id": "high_memory_usage",
                     "severity": "critical" if memory.percent > 95 else "warning",
                     "title": "Высокое использование памяти",
-                    "message": f"Использование памяти: {memory.percent}%",
+                    "message": f"Использование памяти: {memory.percent:.1f}%",
                     "timestamp": current_time.isoformat(),
-                    "value": memory.percent,
+                    "value": round(memory.percent, 1),
                     "threshold": 90,
                 }
             )
@@ -387,32 +412,32 @@ async def get_system_alerts(_: str = Depends(verify_token)):
                     "id": "high_cpu_usage",
                     "severity": "critical" if cpu_percent > 95 else "warning",
                     "title": "Высокая загрузка CPU",
-                    "message": f"Загрузка CPU: {cpu_percent}%",
+                    "message": f"Загрузка CPU: {cpu_percent:.1f}%",
                     "timestamp": current_time.isoformat(),
-                    "value": cpu_percent,
+                    "value": round(cpu_percent, 1),
                     "threshold": 85,
                 }
             )
 
         # Error rate alerts
-        metrics = get_metrics()
-        metrics_summary = metrics.get_metrics_summary()
-        error_rate = metrics_summary["counters"].get("errors_total", 0) / max(
-            metrics_summary["counters"].get("requests_total", 1), 1
-        )
+        metrics_summary = get_metrics_summary()
+        total_requests = metrics_summary["counters"].get("requests_total", 0)
+        total_errors = metrics_summary["counters"].get("errors_total", 0)
 
-        if error_rate > 0.05:  # Более 5% ошибок
-            alerts.append(
-                {
-                    "id": "high_error_rate",
-                    "severity": "critical" if error_rate > 0.1 else "warning",
-                    "title": "Высокий уровень ошибок",
-                    "message": f"Процент ошибок: {error_rate * 100:.1f}%",
-                    "timestamp": current_time.isoformat(),
-                    "value": round(error_rate * 100, 1),
-                    "threshold": 5.0,
-                }
-            )
+        if total_requests > 0:
+            error_rate = total_errors / total_requests
+            if error_rate > 0.05:  # Более 5% ошибок
+                alerts.append(
+                    {
+                        "id": "high_error_rate",
+                        "severity": "critical" if error_rate > 0.1 else "warning",
+                        "title": "Высокий уровень ошибок",
+                        "message": f"Процент ошибок: {error_rate * 100:.1f}%",
+                        "timestamp": current_time.isoformat(),
+                        "value": round(error_rate * 100, 1),
+                        "threshold": 5.0,
+                    }
+                )
 
         # Rate limiting alerts
         rate_limit_count = metrics_summary["counters"].get("rate_limits_exceeded", 0)
@@ -448,22 +473,19 @@ async def get_system_alerts(_: str = Depends(verify_token)):
 @router.post("/metrics/reset")
 async def reset_metrics(_: str = Depends(verify_token)):
     """Сброс метрик приложения"""
-    metrics = get_metrics()
-    metrics.metrics.clear()
+    global _metrics_storage
 
-    # Инициализируем базовые метрики
-    metrics.metrics.update(
-        {
-            "requests_total": 0,
-            "requests_by_endpoint": {},
-            "requests_by_status": {},
-            "response_times": [],
-            "errors_total": 0,
-            "auth_failures": 0,
-            "rate_limits_exceeded": 0,
-            "active_sessions": 0,
-        }
-    )
+    _metrics_storage.clear()
+    _metrics_storage.update({
+        "requests_total": 0,
+        "errors_total": 0,
+        "requests_by_endpoint": {},
+        "requests_by_status": {},
+        "response_times": [],
+        "auth_failures": 0,
+        "rate_limits_exceeded": 0,
+        "active_sessions": 0,
+    })
 
     logger.info("Application metrics reset by admin")
 
@@ -471,3 +493,35 @@ async def reset_metrics(_: str = Depends(verify_token)):
         "message": "Метрики успешно сброшены",
         "timestamp": datetime.now(MOSCOW_TZ).isoformat(),
     }
+
+
+# Функции для интеграции с middleware для сбора метрик
+def track_request(endpoint: str, status_code: int, response_time_ms: float):
+    """Функция для отслеживания запросов из middleware"""
+    global _metrics_storage
+
+    _metrics_storage["requests_total"] += 1
+    record_endpoint_request(endpoint)
+    record_status_code(status_code)
+    record_response_time(response_time_ms)
+
+    if status_code >= 400:
+        _metrics_storage["errors_total"] += 1
+
+
+def track_auth_failure():
+    """Отслеживание неудачной аутентификации"""
+    global _metrics_storage
+    _metrics_storage["auth_failures"] += 1
+
+
+def track_rate_limit_exceeded():
+    """Отслеживание превышения rate limit"""
+    global _metrics_storage
+    _metrics_storage["rate_limits_exceeded"] += 1
+
+
+def set_active_sessions(count: int):
+    """Установить количество активных сессий"""
+    global _metrics_storage
+    _metrics_storage["active_sessions"] = count

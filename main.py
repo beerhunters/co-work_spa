@@ -75,19 +75,38 @@ async def lifespan(app: FastAPI):
     try:
         from pathlib import Path
         import json
-        config_file = Path("logging_config.json")
+        config_file = Path("config") / "logging_config.json"
+        logger.info(f"Проверяем наличие файла конфигурации: {config_file.absolute()}")
+        
         if config_file.exists():
             with open(config_file, 'r') as f:
                 saved_config = json.load(f)
             
+            logger.info(f"Найден файл конфигурации с настройками: {list(saved_config.keys())}")
+            
             # Применяем сохраненные настройки к переменным окружения
             for key, value in saved_config.items():
-                os.environ[key] = value
-                logger.info(f"Загружена настройка {key}={value}")
+                old_value = os.getenv(key)
+                os.environ[key] = str(value)
+                logger.info(f"Загружена настройка {key}: {old_value} -> {value}")
             
-            logger.info("Конфигурация логирования загружена из файла")
+            logger.info("✅ Конфигурация логирования успешно загружена из файла")
+            
+            # Обновляем уровень логгеров после загрузки новых настроек
+            if 'LOG_LEVEL' in saved_config:
+                try:
+                    from utils.logger import update_loggers_level
+                    new_level = saved_config['LOG_LEVEL'].upper()
+                    update_loggers_level(new_level)
+                    logger.info(f"🔄 Уровень логирования обновлен до {new_level} для всех активных логгеров")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка обновления уровня логгеров: {e}")
+        else:
+            logger.info("Файл конфигурации логирования не найден, используются настройки по умолчанию")
     except Exception as e:
-        logger.warning(f"Не удалось загрузить конфигурацию логирования: {e}")
+        logger.error(f"❌ Ошибка загрузки конфигурации логирования: {e}")
+        import traceback
+        logger.error(f"Полная трассировка: {traceback.format_exc()}")
 
     # Создаем необходимые директории
     directories = [DATA_DIR, AVATARS_DIR, TICKET_PHOTOS_DIR, NEWSLETTER_PHOTOS_DIR]

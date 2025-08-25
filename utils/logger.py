@@ -317,6 +317,37 @@ def log_startup_info():
     logger.info("=" * 50)
 
 
+def update_loggers_level(new_level: str):
+    """Обновить уровень всех активных логгеров"""
+    try:
+        # Получаем числовое значение уровня
+        numeric_level = getattr(logging, new_level.upper())
+        
+        # Обновляем все логгеры
+        for name in logging.Logger.manager.loggerDict:
+            logger_obj = logging.getLogger(name)
+            logger_obj.setLevel(numeric_level)
+            
+            # Обновляем обработчики
+            for handler in logger_obj.handlers:
+                handler.setLevel(numeric_level)
+        
+        # Обновляем корневой логгер
+        root_logger = logging.getLogger()
+        root_logger.setLevel(numeric_level)
+        
+        for handler in root_logger.handlers:
+            handler.setLevel(numeric_level)
+            
+        logger = get_logger("logger_update")
+        logger.info(f"Уровень логирования изменен на {new_level} для всех логгеров")
+        
+    except Exception as e:
+        logger = get_logger("logger_update")
+        logger.error(f"Ошибка обновления уровня логгеров: {e}")
+        raise
+
+
 class LoggerContext:
     """Контекстный менеджер для автоматического логирования операций"""
     

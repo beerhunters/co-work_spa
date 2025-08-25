@@ -85,7 +85,8 @@ async def update_logging_config(
         
         # Применяем изменения к текущим логгерам
         if config.log_level:
-            await _update_loggers_level(config.log_level)
+            from utils.logger import update_loggers_level
+            update_loggers_level(config.log_level)
         
         # Обновляем Telegram уведомления
         if config.telegram_notifications:
@@ -477,63 +478,57 @@ async def _get_telegram_config() -> TelegramNotificationConfig:
 async def _update_telegram_config(config: TelegramNotificationConfig):
     """Обновить конфигурацию Telegram уведомлений"""
     os.environ["TELEGRAM_LOGGING_ENABLED"] = "true" if config.enabled else "false"
-    if config.chat_id:
-        os.environ["FOR_LOGS"] = config.chat_id
+    # Устанавливаем FOR_LOGS даже если chat_id пустой
+    os.environ["FOR_LOGS"] = config.chat_id or ""
     os.environ["TELEGRAM_LOG_MIN_LEVEL"] = config.min_level
     os.environ["TELEGRAM_LOG_RATE_LIMIT"] = str(config.rate_limit_minutes)
 
 
 async def _save_config_to_file(config: LoggingConfigUpdate):
     """Сохранить конфигурацию в файл для применения после перезапуска"""
-    config_file = Path("logging_config.json")
+    config_dir = Path("config")
+    config_dir.mkdir(exist_ok=True)  # Создаем директорию если её нет
+    config_file = config_dir / "logging_config.json"
     
-    config_data = {}
-    if config.log_level:
-        config_data["LOG_LEVEL"] = config.log_level.upper()
-    if config.log_format:
-        config_data["LOG_FORMAT"] = config.log_format.lower()
-    if config.log_to_file is not None:
-        config_data["LOG_TO_FILE"] = "true" if config.log_to_file else "false"
-    if config.log_retention_days:
-        config_data["LOG_RETENTION_DAYS"] = str(config.log_retention_days)
-    if config.max_log_file_size_mb:
-        config_data["MAX_LOG_FILE_SIZE_MB"] = str(config.max_log_file_size_mb)
-    
-    if config.telegram_notifications:
-        config_data["TELEGRAM_LOGGING_ENABLED"] = "true" if config.telegram_notifications.enabled else "false"
-        if config.telegram_notifications.chat_id:
-            config_data["FOR_LOGS"] = config.telegram_notifications.chat_id
-        config_data["TELEGRAM_LOG_MIN_LEVEL"] = config.telegram_notifications.min_level
-        config_data["TELEGRAM_LOG_RATE_LIMIT"] = str(config.telegram_notifications.rate_limit_minutes)
-    
-    async with aiofiles.open(config_file, 'w') as f:
-        await f.write(json.dumps(config_data, indent=2))
-
-
-async def _update_loggers_level(new_level: str):
-    """Обновить уровень всех активных логгеров"""
     try:
-        # Получаем числовое значение уровня
-        numeric_level = getattr(logging, new_level.upper())
+        logger.info(f"🔄 Начинаем сохранение конфигурации в файл: {config_file.absolute()}")
+        logger.info(f"Входящая конфигурация: log_level={config.log_level}, telegram_notifications={config.telegram_notifications is not None}")
         
-        # Обновляем все логгеры
-        for name in logging.Logger.manager.loggerDict:
-            logger_obj = logging.getLogger(name)
-            logger_obj.setLevel(numeric_level)
-            
-            # Обновляем обработчики
-            for handler in logger_obj.handlers:
-                handler.setLevel(numeric_level)
+        # Всегда сохраняем полную текущую конфигурацию из переменных окружения
+        config_data = {
+            "LOG_LEVEL": config.log_level.upper() if config.log_level else os.getenv("LOG_LEVEL", "INFO"),
+            "LOG_FORMAT": config.log_format.lower() if config.log_format else os.getenv("LOG_FORMAT", "detailed"),
+            "LOG_TO_FILE": "true" if (config.log_to_file if config.log_to_file is not None else os.getenv("LOG_TO_FILE", "true").lower() == "true") else "false",
+            "LOG_RETENTION_DAYS": str(config.log_retention_days) if config.log_retention_days else os.getenv("LOG_RETENTION_DAYS", "30"),
+            "MAX_LOG_FILE_SIZE_MB": str(config.max_log_file_size_mb) if config.max_log_file_size_mb else os.getenv("MAX_LOG_FILE_SIZE_MB", "10"),
+        }
         
-        # Обновляем корневой логгер
-        root_logger = logging.getLogger()
-        root_logger.setLevel(numeric_level)
+        # Всегда сохраняем настройки Telegram
+        if config.telegram_notifications:
+            logger.info(f"Сохраняем Telegram настройки: enabled={config.telegram_notifications.enabled}, chat_id={config.telegram_notifications.chat_id}")
+            config_data["TELEGRAM_LOGGING_ENABLED"] = "true" if config.telegram_notifications.enabled else "false"
+            config_data["FOR_LOGS"] = config.telegram_notifications.chat_id or ""
+            config_data["TELEGRAM_LOG_MIN_LEVEL"] = config.telegram_notifications.min_level
+            config_data["TELEGRAM_LOG_RATE_LIMIT"] = str(config.telegram_notifications.rate_limit_minutes)
+        else:
+            # Если Telegram настройки не переданы, сохраняем текущие из окружения
+            logger.info("Telegram настройки не переданы, сохраняем текущие из окружения")
+            config_data["TELEGRAM_LOGGING_ENABLED"] = os.getenv("TELEGRAM_LOGGING_ENABLED", "false")
+            config_data["FOR_LOGS"] = os.getenv("FOR_LOGS", "")
+            config_data["TELEGRAM_LOG_MIN_LEVEL"] = os.getenv("TELEGRAM_LOG_MIN_LEVEL", "ERROR")
+            config_data["TELEGRAM_LOG_RATE_LIMIT"] = os.getenv("TELEGRAM_LOG_RATE_LIMIT", "5")
         
-        for handler in root_logger.handlers:
-            handler.setLevel(numeric_level)
-            
-        logger.info(f"Уровень логирования изменен на {new_level} для всех логгеров")
+        logger.info(f"Данные для сохранения: {config_data}")
+        
+        async with aiofiles.open(config_file, 'w') as f:
+            await f.write(json.dumps(config_data, indent=2))
+        
+        logger.info(f"✅ Конфигурация успешно сохранена в файл {config_file}")
         
     except Exception as e:
-        logger.error(f"Ошибка обновления уровня логгеров: {e}")
+        logger.error(f"❌ Ошибка сохранения конфигурации в файл: {e}")
+        import traceback
+        logger.error(f"Полная трассировка: {traceback.format_exc()}")
         raise
+
+

@@ -58,7 +58,10 @@ const formatBytes = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
-const formatPercentage = (value) => Math.round(value * 10) / 10;
+const formatPercentage = (value) => {
+  if (value == null || isNaN(value)) return 0;
+  return Math.round(value * 10) / 10;
+};
 
 const getHealthColor = (status) => {
   switch (status?.toLowerCase()) {
@@ -282,16 +285,6 @@ const SystemMonitor = () => {
     }
   };
 
-  // Функция загрузки системных метрик
-  const loadSystemMetrics = async () => {
-    try {
-      const response = await api.get('/health/system');
-      setSystemMetrics(response.data);
-      logger.debug('System metrics loaded', { data: response.data });
-    } catch (error) {
-      logger.error('Failed to load system metrics', error);
-    }
-  };
 
   // Функция загрузки алертов
   const loadAlerts = async () => {
@@ -310,7 +303,6 @@ const SystemMonitor = () => {
     try {
       await Promise.all([
         loadHealthData(),
-        loadSystemMetrics(),
         loadAlerts()
       ]);
     } catch (error) {
@@ -319,6 +311,13 @@ const SystemMonitor = () => {
       setLoading(false);
     }
   };
+
+  // Эффект для извлечения системных метрик из healthData
+  useEffect(() => {
+    if (healthData?.checks?.system_resources) {
+      setSystemMetrics(healthData.checks.system_resources);
+    }
+  }, [healthData]);
 
   // Эффект для первоначальной загрузки и автообновления
   useEffect(() => {
@@ -467,9 +466,9 @@ const SystemMonitor = () => {
                 <SystemMetricsCard
                   title="Память"
                   icon={FiServer}
-                  value={formatBytes(systemMetrics.memory.total_mb * 1024 * 1024 - systemMetrics.memory.available_mb * 1024 * 1024)}
+                  value={formatBytes((systemMetrics.memory.total_mb - systemMetrics.memory.available_mb) * 1024 * 1024)}
                   unit={`/ ${formatBytes(systemMetrics.memory.total_mb * 1024 * 1024)}`}
-                  percentage={systemMetrics.memory.usage_percent}
+                  percentage={((systemMetrics.memory.total_mb - systemMetrics.memory.available_mb) / systemMetrics.memory.total_mb) * 100}
                   threshold={85}
                 />
               )}
@@ -480,7 +479,7 @@ const SystemMonitor = () => {
                   icon={FiHardDrive}
                   value={formatBytes(systemMetrics.disk.used_gb * 1024 * 1024 * 1024)}
                   unit={`/ ${formatBytes(systemMetrics.disk.total_gb * 1024 * 1024 * 1024)}`}
-                  percentage={systemMetrics.disk.usage_percent}
+                  percentage={(systemMetrics.disk.used_gb / systemMetrics.disk.total_gb) * 100}
                   threshold={85}
                 />
               )}
@@ -489,9 +488,9 @@ const SystemMonitor = () => {
                 <SystemMetricsCard
                   title="Процессор"
                   icon={FiCpu}
-                  value={formatPercentage(systemMetrics.cpu.usage_percent)}
+                  value={formatPercentage(systemMetrics.cpu.usage_percent || 0)}
                   unit="%"
-                  percentage={systemMetrics.cpu.usage_percent}
+                  percentage={systemMetrics.cpu.usage_percent || 0}
                   threshold={80}
                 />
               )}

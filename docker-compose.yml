@@ -56,6 +56,7 @@ services:
       - ticket_photos_volume:/app/ticket_photos
       - newsletter_photos_volume:/app/newsletter_photos
       - logs_volume:/app/logs
+      - config_volume:/app/config
     restart: unless-stopped
     depends_on:
       web:
@@ -172,6 +173,7 @@ services:
       - ticket_photos_volume:/app/ticket_photos
       - newsletter_photos_volume:/app/newsletter_photos
       - logs_volume:/app/logs
+      - config_volume:/app/config
     working_dir: /app
     restart: unless-stopped
     depends_on:
@@ -268,6 +270,12 @@ volumes:
       type: none
       o: bind
       device: ${PWD}/logs
+  config_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/config
   redis_data:
     driver: local
 

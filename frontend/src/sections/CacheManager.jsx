@@ -197,12 +197,12 @@ const CacheControlPanel = ({ onClearCache, loading }) => {
   const [selectedPreset, setSelectedPreset] = useState('');
 
   const presetPatterns = [
-    { label: 'Все данные пользователей', pattern: 'user:*', description: 'Очистить все кэшированные данные пользователей' },
-    { label: 'Dashboard данные', pattern: 'dashboard:*', description: 'Очистить кэш дашборда и статистики' },
-    { label: 'Данные бронирований', pattern: 'booking:*', description: 'Очистить кэш бронирований' },
-    { label: 'Тарифы', pattern: 'tariffs:*', description: 'Очистить кэш тарифов' },
-    { label: 'Сессии пользователей', pattern: 'session:*', description: 'Очистить все активные сессии' },
-    { label: 'API responses', pattern: 'api:*', description: 'Очистить кэшированные API ответы' },
+    { label: 'Данные администраторов', pattern: 'admin:*', description: 'Очистить кэш данных администраторов' },
+    { label: 'Dashboard статистика', pattern: 'dashboard:*', description: 'Очистить кэш дашборда и статистики' },
+    { label: 'Данные бронирований', pattern: 'bookings:*', description: 'Очистить кэш статистики бронирований' },
+    { label: 'Тарифы', pattern: 'tariffs:*', description: 'Очистить кэш активных тарифов' },
+    { label: 'Telegram уведомления', pattern: 'telegram:*', description: 'Очистить кэш лимитов Telegram уведомлений' },
+    { label: 'API ключи', pattern: 'api_keys:*', description: 'Очистить кэш API ключей' },
   ];
 
   const handleClear = (pattern) => {
@@ -380,26 +380,45 @@ const CacheManager = () => {
   // Функция очистки кэша
   const handleClearCache = async (pattern = '*') => {
     setClearLoading(true);
+    
+    // Сохраняем текущую статистику для сравнения
+    const oldStats = cacheStats;
+    
     try {
-      const endpoint = pattern === '*' ? '/cache/clear' : `/cache/clear/${encodeURIComponent(pattern)}`;
-      const response = await api.post(endpoint);
+      // Отправляем запрос с параметром pattern как query parameter
+      let url = '/cache/clear';
+      if (pattern !== '*') {
+        url += `?pattern=${encodeURIComponent(pattern)}`;
+      }
+      
+      const response = await api.post(url);
+      
+      // Обновляем статистику сразу после очистки для визуального эффекта
+      await loadCacheStats();
+      await loadCacheHealth();
+      
+      // Показываем детальную информацию об очистке
+      const clearedCount = oldStats ? (oldStats.total_keys || 0) - (cacheStats?.total_keys || 0) : 0;
+      const sizeReduced = oldStats ? (oldStats.total_size || 0) - (cacheStats?.total_size || 0) : 0;
       
       toast({
-        title: 'Кэш очищен',
-        description: response.data.message || `Очищен кэш по паттерну: ${pattern}`,
+        title: '✅ Кэш очищен',
+        description: response.data.message || (
+          clearedCount > 0 
+            ? `Удалено ${formatNumber(clearedCount)} ключей, освобождено ${formatBytes(sizeReduced)}`
+            : `Очищен кэш${pattern !== '*' ? ` по паттерну: ${pattern}` : ' полностью'}`
+        ),
         status: 'success',
-        duration: 3000,
+        duration: 6000,
         isClosable: true,
       });
       
-      // Обновляем статистику после очистки
-      setTimeout(loadCacheStats, 1000);
-      logger.info('Cache cleared', { pattern });
+      logger.info('Cache cleared', { pattern, clearedCount, sizeReduced });
     } catch (error) {
       logger.error('Failed to clear cache', error);
       toast({
         title: 'Ошибка очистки',
-        description: 'Не удалось очистить кэш',
+        description: error.response?.data?.detail || 'Не удалось очистить кэш',
         status: 'error',
         duration: 5000,
         isClosable: true,
