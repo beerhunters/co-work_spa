@@ -1,0 +1,307 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+      target: production
+    environment:
+      # Основные настройки
+      - DEBUG=${DEBUG:-false}
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+
+      # Telegram Bot
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - BOT_LINK=${BOT_LINK}
+      - INVITE_LINK=${INVITE_LINK}
+      - GROUP_ID=${GROUP_ID}
+      - FOR_LOGS=${FOR_LOGS}
+
+      # Безопасность
+      - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_JWT=${SECRET_KEY_JWT}
+      - ADMIN_LOGIN=${ADMIN_LOGIN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+
+      # API
+      - API_BASE_URL=${API_BASE_URL}
+
+      # Backup настройки
+      - BACKUP_ENABLED=${BACKUP_ENABLED:-true}
+      - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-6}
+      - BACKUP_DIR=/app/data/backups
+      - COMPRESS_BACKUPS=${COMPRESS_BACKUPS:-true}
+      - KEEP_HOURLY_BACKUPS=${KEEP_HOURLY_BACKUPS:-48}
+      - KEEP_DAILY_BACKUPS=${KEEP_DAILY_BACKUPS:-30}
+      - KEEP_WEEKLY_BACKUPS=${KEEP_WEEKLY_BACKUPS:-12}
+      - KEEP_MONTHLY_BACKUPS=${KEEP_MONTHLY_BACKUPS:-6}
+      - MAX_BACKUP_SIZE_MB=${MAX_BACKUP_SIZE_MB:-1000}
+
+      # Логирование
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_TO_FILE=${LOG_TO_FILE:-true}
+      - TELEGRAM_LOGGING_ENABLED=${TELEGRAM_LOGGING_ENABLED:-true}
+      - TELEGRAM_LOG_MIN_LEVEL=${TELEGRAM_LOG_MIN_LEVEL:-ERROR}
+
+      # Кэширование
+      - REDIS_URL=redis://redis:6379/0
+
+      # Внешние URL
+      - ADMIN_URL=${ADMIN_URL}
+      - RULES_URL=${RULES_URL}
+    volumes:
+      - data_volume:/app/data
+      - avatars_volume:/app/avatars
+      - ticket_photos_volume:/app/ticket_photos
+      - newsletter_photos_volume:/app/newsletter_photos
+      - logs_volume:/app/logs
+      - config_volume:/app/config
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "test", "-f", "/app/data/bot_initialized"]
+      interval: ${HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${HEALTHCHECK_RETRIES:-3}
+      start_period: ${HEALTHCHECK_START_PERIOD:-30s}
+    networks:
+      - coworking_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      target: production
+    environment:
+      # Основные настройки
+      - DEBUG=${DEBUG:-false}
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - APP_NAME=${APP_NAME}
+      - APP_VERSION=${APP_VERSION}
+
+      # Сетевые настройки
+      - API_BASE_URL=${API_BASE_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+
+      # Безопасность
+      - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_JWT=${SECRET_KEY_JWT}
+      - ACCESS_TOKEN_EXPIRE_HOURS=${ACCESS_TOKEN_EXPIRE_HOURS:-24}
+      - ADMIN_LOGIN=${ADMIN_LOGIN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+
+      # Telegram Bot
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - BOT_LINK=${BOT_LINK}
+      - INVITE_LINK=${INVITE_LINK}
+      - GROUP_ID=${GROUP_ID}
+      - FOR_LOGS=${FOR_LOGS}
+
+      # Платежные системы
+      - YOKASSA_ACCOUNT_ID=${YOKASSA_ACCOUNT_ID}
+      - YOKASSA_SECRET_KEY=${YOKASSA_SECRET_KEY}
+
+      # Rubitime
+      - RUBITIME_API_KEY=${RUBITIME_API_KEY}
+      - RUBITIME_BASE_URL=${RUBITIME_BASE_URL}
+      - RUBITIME_BRANCH_ID=${RUBITIME_BRANCH_ID}
+      - RUBITIME_COOPERATOR_ID=${RUBITIME_COOPERATOR_ID}
+
+      # База данных
+      - DB_TIMEOUT=${DB_TIMEOUT:-60}
+      - DB_RETRY_ATTEMPTS=${DB_RETRY_ATTEMPTS:-3}
+      - DB_RETRY_DELAY=${DB_RETRY_DELAY:-0.1}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-10}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-20}
+      - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30}
+      - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
+
+      # Backup настройки
+      - BACKUP_ENABLED=${BACKUP_ENABLED:-true}
+      - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-6}
+      - BACKUP_DIR=/app/data/backups
+      - COMPRESS_BACKUPS=${COMPRESS_BACKUPS:-true}
+      - KEEP_HOURLY_BACKUPS=${KEEP_HOURLY_BACKUPS:-48}
+      - KEEP_DAILY_BACKUPS=${KEEP_DAILY_BACKUPS:-30}
+      - KEEP_WEEKLY_BACKUPS=${KEEP_WEEKLY_BACKUPS:-12}
+      - KEEP_MONTHLY_BACKUPS=${KEEP_MONTHLY_BACKUPS:-6}
+      - MAX_BACKUP_SIZE_MB=${MAX_BACKUP_SIZE_MB:-1000}
+
+      # Файлы и лимиты
+      - FILE_RETENTION_DAYS=${FILE_RETENTION_DAYS:-90}
+      - MAX_FILE_SIZE_MB=${MAX_FILE_SIZE_MB:-10}
+      - NEWSLETTER_MAX_PHOTOS=${NEWSLETTER_MAX_PHOTOS:-10}
+      - NEWSLETTER_MAX_FILE_SIZE_MB=${NEWSLETTER_MAX_FILE_SIZE_MB:-20}
+      - NEWSLETTER_RATE_LIMIT_DELAY=${NEWSLETTER_RATE_LIMIT_DELAY:-0.05}
+
+      # Логирование
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_TO_FILE=${LOG_TO_FILE:-true}
+      - LOG_RETENTION_DAYS=${LOG_RETENTION_DAYS:-30}
+      - MAX_LOG_FILE_SIZE_MB=${MAX_LOG_FILE_SIZE_MB:-50}
+      - TELEGRAM_LOGGING_ENABLED=${TELEGRAM_LOGGING_ENABLED:-true}
+      - TELEGRAM_LOG_MIN_LEVEL=${TELEGRAM_LOG_MIN_LEVEL:-ERROR}
+      - TELEGRAM_LOG_RATE_LIMIT=${TELEGRAM_LOG_RATE_LIMIT:-5}
+
+      # Кэширование
+      - REDIS_URL=redis://redis:6379/0
+      - CACHE_DEFAULT_TTL=${CACHE_DEFAULT_TTL:-600}
+      - CACHE_DASHBOARD_TTL=${CACHE_DASHBOARD_TTL:-120}
+      - CACHE_USER_DATA_TTL=${CACHE_USER_DATA_TTL:-1200}
+      - CACHE_STATIC_DATA_TTL=${CACHE_STATIC_DATA_TTL:-3600}
+
+      # Внешние URL
+      - ADMIN_URL=${ADMIN_URL}
+      - RULES_URL=${RULES_URL}
+
+      # Email (опционально)
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - data_volume:/app/data
+      - avatars_volume:/app/avatars
+      - ticket_photos_volume:/app/ticket_photos
+      - newsletter_photos_volume:/app/newsletter_photos
+      - logs_volume:/app/logs
+      - config_volume:/app/config
+    working_dir: /app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000 || exit 1"]
+      interval: ${HEALTHCHECK_INTERVAL:-30s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-10s}
+      retries: ${HEALTHCHECK_RETRIES:-3}
+      start_period: ${HEALTHCHECK_START_PERIOD:-30s}
+    deploy:
+      resources:
+        limits:
+          memory: ${WEB_MEMORY_LIMIT:-1G}
+        reservations:
+          memory: ${WEB_MEMORY_RESERVATION:-512M}
+    networks:
+      - coworking_network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - REACT_APP_API_BASE_URL=${API_BASE_URL}
+        - REACT_APP_FRONTEND_URL=${FRONTEND_URL}
+    environment:
+      - API_BASE_URL=${API_BASE_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - coworking_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: >
+      redis-server 
+      --maxmemory ${REDIS_MAXMEMORY:-512mb}
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - coworking_network
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-512M}
+        reservations:
+          memory: ${REDIS_MEMORY_RESERVATION:-256M}
+
+volumes:
+  data_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/data
+  avatars_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/avatars
+  ticket_photos_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/ticket_photos
+  newsletter_photos_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/newsletter_photos
+  logs_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/logs
+  config_volume:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/config
+  redis_data:
+    driver: local
+
+networks:
+  coworking_network:
+    driver: bridge

@@ -28,7 +28,8 @@ import {
   AlertDialogHeader,
   AlertDialogContent,
   AlertDialogOverlay,
-  useDisclosure
+  useDisclosure,
+  Checkbox
 } from '@chakra-ui/react';
 import {
   FiSearch,
@@ -37,7 +38,9 @@ import {
   FiCheck,
   FiX,
   FiEye,
-  FiTrash2
+  FiTrash2,
+  FiCheckSquare,
+  FiSquare
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { bookingApi } from '../utils/api';
@@ -59,8 +62,12 @@ const Bookings = ({
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Массовый выбор
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedBookings, setSelectedBookings] = useState(new Set());
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
   const cancelRef = React.useRef();
   const toast = useToast();
 
@@ -246,6 +253,70 @@ const Bookings = ({
     }
   };
 
+  // Функции массового выбора
+  const handleToggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedBookings(new Set());
+  };
+
+  const handleSelectBooking = (bookingId, isSelected) => {
+    const newSelected = new Set(selectedBookings);
+    if (isSelected) {
+      newSelected.add(bookingId);
+    } else {
+      newSelected.delete(bookingId);
+    }
+    setSelectedBookings(newSelected);
+  };
+
+  const handleSelectAll = (isSelected) => {
+    if (isSelected) {
+      const allIds = new Set(displayedBookings.map(booking => booking.id));
+      setSelectedBookings(allIds);
+    } else {
+      setSelectedBookings(new Set());
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedArray = Array.from(selectedBookings);
+    setIsDeleting(true);
+    
+    try {
+      const promises = selectedArray.map(bookingId => bookingApi.delete(bookingId));
+      await Promise.all(promises);
+
+      toast({
+        title: 'Успешно',
+        description: `Удалено бронирований: ${selectedArray.length}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setSelectedBookings(new Set());
+      setIsSelectionMode(false);
+
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось удалить выбранные бронирования',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+      onBulkDeleteClose();
+    }
+  };
+
+  const isAllSelected = displayedBookings.length > 0 && selectedBookings.size === displayedBookings.length;
+  const isIndeterminate = selectedBookings.size > 0 && selectedBookings.size < displayedBookings.length;
+
   // Статистика для отображения
   const stats = useMemo(() => {
     const total = totalCount;
@@ -278,6 +349,18 @@ const Bookings = ({
               <Text fontSize="sm" color="gray.500">
                 Показано: {displayedBookings.length} из {totalCount}
               </Text>
+              {canDeleteBookings && (
+                <Button
+                  size="sm"
+                  leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
+                  onClick={handleToggleSelectionMode}
+                  colorScheme={isSelectionMode ? "gray" : "purple"}
+                  variant="outline"
+                  isDisabled={isLoading || displayedBookings.length === 0}
+                >
+                  {isSelectionMode ? 'Отменить' : 'Выбрать'}
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={onRefresh}
@@ -359,6 +442,48 @@ const Bookings = ({
               </Button>
             )}
           </HStack>
+
+          {/* Панель массовых действий */}
+          {isSelectionMode && (
+            <Box
+              bg={useColorModeValue('purple.50', 'purple.900')}
+              borderWidth="1px"
+              borderColor={useColorModeValue('purple.200', 'purple.600')}
+              borderRadius="lg"
+              p={4}
+            >
+              <HStack justify="space-between" align="center" wrap="wrap">
+                <HStack spacing={4}>
+                  <Text fontSize="sm" fontWeight="medium" color="purple.700">
+                    {selectedBookings.size > 0 
+                      ? `Выбрано: ${selectedBookings.size} из ${displayedBookings.length}`
+                      : 'Выберите бронирования для удаления'
+                    }
+                  </Text>
+                  <Checkbox
+                    isChecked={isAllSelected}
+                    isIndeterminate={isIndeterminate}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    colorScheme="purple"
+                  >
+                    Выбрать все на странице
+                  </Checkbox>
+                </HStack>
+                
+                {selectedBookings.size > 0 && (
+                  <Button
+                    leftIcon={<Icon as={FiTrash2} />}
+                    onClick={onBulkDeleteOpen}
+                    colorScheme="red"
+                    size="sm"
+                    variant="outline"
+                  >
+                    Удалить выбранные ({selectedBookings.size})
+                  </Button>
+                )}
+              </HStack>
+            </Box>
+          )}
         </VStack>
 
         {/* Таблица бронирований */}
@@ -377,6 +502,7 @@ const Bookings = ({
             <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
                 <Tr>
+                  {isSelectionMode && <Th w="40px"></Th>}
                   <Th>ID</Th>
                   <Th>Пользователь</Th>
                   <Th>Название тарифа</Th>
@@ -387,14 +513,36 @@ const Bookings = ({
                 </Tr>
               </Thead>
               <Tbody>
-                {displayedBookings.map(booking => (
-                  <Tr
-                    key={booking.id}
-                    _hover={{
-                      bg: useColorModeValue('gray.50', 'gray.700'),
-                    }}
-                  >
-                    <Td fontWeight="semibold">#{booking.id}</Td>
+                {displayedBookings.map(booking => {
+                  const isSelected = selectedBookings.has(booking.id);
+                  
+                  return (
+                    <Tr
+                      key={booking.id}
+                      bg={isSelectionMode && isSelected ? useColorModeValue('purple.50', 'purple.900') : 'transparent'}
+                      _hover={{
+                        bg: isSelectionMode && isSelected 
+                          ? useColorModeValue('purple.100', 'purple.800')
+                          : useColorModeValue('gray.50', 'gray.700'),
+                      }}
+                      cursor={isSelectionMode ? "pointer" : "default"}
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectBooking(booking.id, !isSelected);
+                        }
+                      }}
+                    >
+                      {isSelectionMode && (
+                        <Td onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            isChecked={isSelected}
+                            onChange={(e) => handleSelectBooking(booking.id, e.target.checked)}
+                            colorScheme="purple"
+                          />
+                        </Td>
+                      )}
+                      <Td fontWeight="semibold">#{booking.id}</Td>
 
                     <Td>
                       <VStack align="start" spacing={0}>
@@ -474,7 +622,7 @@ const Bookings = ({
                           </Button>
                         </Tooltip>
 
-                        {canDeleteBookings && (
+                        {canDeleteBookings && !isSelectionMode && (
                           <Tooltip label="Удалить бронирование">
                             <IconButton
                               icon={<FiTrash2 />}
@@ -492,7 +640,8 @@ const Bookings = ({
                       </HStack>
                     </Td>
                   </Tr>
-                ))}
+                  );
+                })}
               </Tbody>
             </Table>
           </Box>
@@ -620,6 +769,41 @@ const Bookings = ({
               <Button
                 colorScheme="red"
                 onClick={confirmDeleteBooking}
+                ml={3}
+                isLoading={isDeleting}
+                loadingText="Удаление..."
+              >
+                Удалить
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      {/* Диалог массового удаления */}
+      <AlertDialog
+        isOpen={isBulkDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onBulkDeleteClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Удалить выбранные бронирования
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              Вы уверены, что хотите удалить {selectedBookings.size} выбранных бронирований? 
+              Это действие нельзя отменить.
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onBulkDeleteClose}>
+                Отменить
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleBulkDelete}
                 ml={3}
                 isLoading={isDeleting}
                 loadingText="Удаление..."

@@ -25,7 +25,7 @@ export const fetchInitialData = async (dataSetters, setLastNotificationId, toast
     { url: '/tickets/detailed?per_page=100', setter: (data) => dataSetters.tickets(data.tickets || []) },
     { url: '/newsletters', setter: dataSetters.newsletters },
     {
-      url: '/notifications',
+      url: '/notifications?per_page=500',
       setter: (data) => {
         dataSetters.notifications(data);
         if (Array.isArray(data) && data.length > 0) {
@@ -69,7 +69,7 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
     'tariffs': { url: '/tariffs', setter: dataSetters.tariffs },
     'promocodes': { url: '/promocodes', setter: dataSetters.promocodes },
     'tickets': { url: '/tickets/detailed?per_page=100', setter: (data) => dataSetters.tickets(data.tickets || []) },
-    'notifications': { url: '/notifications', setter: dataSetters.notifications },
+    'notifications': { url: '/notifications?per_page=500', setter: dataSetters.notifications },
     'newsletters': { url: '/newsletters', setter: dataSetters.newsletters },
     'dashboard': { url: '/dashboard/stats', setter: dataSetters.dashboardStats },
     'admins': { url: '/admins', setter: dataSetters.admins },
@@ -152,18 +152,40 @@ export const notificationApi = {
   getRelatedObject: async (notification) => {
     try {
       if (notification.ticket_id) {
+        console.log(`Загружаем тикет #${notification.ticket_id}`);
         const res = await apiClient.get(`/tickets/${notification.ticket_id}`);
         return { type: 'ticket', data: res.data };
+        
       } else if (notification.booking_id) {
-        const res = await apiClient.get(`/bookings/${notification.booking_id}`);
-        return { type: 'booking', data: res.data };
-      } else if (notification.user_id) {
+        console.log(`Загружаем бронирование #${notification.booking_id}`);
+        // Используем детальный эндпоинт для бронирования с полной информацией
+        try {
+          const res = await apiClient.get(`/bookings/${notification.booking_id}/detailed`);
+          return { type: 'booking', data: res.data };
+        } catch (detailedError) {
+          // Фолбэк на обычный эндпоинт
+          console.warn('Detailed booking endpoint недоступен, используем fallback');
+          const res = await apiClient.get(`/bookings/${notification.booking_id}`);
+          return { type: 'booking', data: res.data };
+        }
+        
+      } else if (notification.user_id && !notification.ticket_id && !notification.booking_id) {
+        console.log(`Загружаем пользователя #${notification.user_id}`);
         const res = await apiClient.get(`/users/${notification.user_id}`);
         return { type: 'user', data: res.data };
       }
+      
+      console.warn('Уведомление не связано с конкретным объектом:', notification);
       return null;
     } catch (error) {
       logger.warn('Could not fetch related object:', error);
+      console.error('Детали ошибки:', {
+        notificationId: notification.id,
+        ticketId: notification.ticket_id,
+        bookingId: notification.booking_id,
+        userId: notification.user_id,
+        error: error.response?.data || error.message
+      });
       return null;
     }
   }
@@ -813,7 +835,26 @@ export const ticketApi = {
       return res.data.photo_url; // Возвращает data URL
     } catch (error) {
       console.error('Ошибка получения фото:', error);
-      return null;
+      // Возвращаем объект с информацией об ошибке для более точной обработки
+      if (error.response?.status === 404) {
+        throw new Error('PHOTO_NOT_AVAILABLE');
+      }
+      throw error;
+    }
+  },
+
+  // Получение фото ответа в base64
+  getResponsePhotoBase64: async (ticketId) => {
+    try {
+      const res = await apiClient.get(`/tickets/${ticketId}/response-photo-base64`);
+      return res.data.photo_url; // Возвращает data URL
+    } catch (error) {
+      console.error('Ошибка получения base64 фото ответа тикета:', error);
+      // Возвращаем объект с информацией об ошибке для более точной обработки
+      if (error.response?.status === 404) {
+        throw new Error('PHOTO_NOT_AVAILABLE');
+      }
+      throw error;
     }
   },
 

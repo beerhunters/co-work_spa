@@ -19,16 +19,29 @@ import {
   Button,
   Flex,
   Select,
-  Tooltip
+  Tooltip,
+  Checkbox,
+  useDisclosure,
+  AlertDialog,
+  AlertDialogOverlay,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogBody,
+  AlertDialogFooter,
+  useToast
 } from '@chakra-ui/react';
 import {
   FiImage,
   FiMessageSquare,
   FiSearch,
   FiChevronLeft,
-  FiChevronRight
+  FiChevronRight,
+  FiTrash2,
+  FiCheckSquare,
+  FiSquare
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
+import { ticketApi } from '../utils/api';
 
 const Tickets = ({
   tickets,
@@ -42,9 +55,16 @@ const Tickets = ({
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
+  // Состояния для массового выбора
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedTickets, setSelectedTickets] = useState(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const tableBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
+  const toast = useToast();
+  const { isOpen: isDeleteDialogOpen, onOpen: onDeleteDialogOpen, onClose: onDeleteDialogClose } = useDisclosure();
+  const cancelRef = React.useRef();
 
   // Эффект для отправки фильтров в родительский компонент
   useEffect(() => {
@@ -155,6 +175,73 @@ const Tickets = ({
     }
   };
 
+  // Функции для массового выбора
+  const handleToggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedTickets(new Set());
+  };
+
+  const handleSelectTicket = (ticketId, isSelected) => {
+    const newSelected = new Set(selectedTickets);
+    if (isSelected) {
+      newSelected.add(ticketId);
+    } else {
+      newSelected.delete(ticketId);
+    }
+    setSelectedTickets(newSelected);
+  };
+
+  const handleSelectAll = (isSelected) => {
+    if (isSelected) {
+      const allIds = new Set(displayedTickets.map(ticket => ticket.id));
+      setSelectedTickets(allIds);
+    } else {
+      setSelectedTickets(new Set());
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    setIsDeleting(true);
+    const selectedArray = Array.from(selectedTickets);
+    
+    try {
+      const promises = selectedArray.map(ticketId => ticketApi.delete(ticketId));
+      await Promise.all(promises);
+
+      toast({
+        title: 'Успешно',
+        description: `Удалено тикетов: ${selectedArray.length}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Сбрасываем выбор и режим выбора
+      setSelectedTickets(new Set());
+      setIsSelectionMode(false);
+
+      // Обновляем данные
+      if (onRefresh) {
+        onRefresh();
+      }
+    } catch (error) {
+      console.error('Ошибка при удалении тикетов:', error);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось удалить выбранные тикеты',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+      onDeleteDialogClose();
+    }
+  };
+
+  const isAllSelected = displayedTickets.length > 0 && selectedTickets.size === displayedTickets.length;
+  const isIndeterminate = selectedTickets.size > 0 && selectedTickets.size < displayedTickets.length;
+
   return (
     <Box p={6}>
       <VStack spacing={6} align="stretch">
@@ -177,6 +264,16 @@ const Tickets = ({
               <Text fontSize="sm" color="gray.500">
                 Показано: {displayedTickets.length} из {totalCount}
               </Text>
+              <Button
+                size="sm"
+                leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
+                onClick={handleToggleSelectionMode}
+                colorScheme={isSelectionMode ? "gray" : "purple"}
+                variant="outline"
+                isDisabled={isLoading || displayedTickets.length === 0}
+              >
+                {isSelectionMode ? 'Отменить' : 'Выбрать'}
+              </Button>
               <Button
                 size="sm"
                 onClick={onRefresh}
@@ -243,6 +340,48 @@ const Tickets = ({
               </Button>
             )}
           </HStack>
+
+          {/* Панель массовых действий */}
+          {isSelectionMode && (
+            <Box
+              bg={useColorModeValue('purple.50', 'purple.900')}
+              borderWidth="1px"
+              borderColor={useColorModeValue('purple.200', 'purple.600')}
+              borderRadius="lg"
+              p={4}
+            >
+              <HStack justify="space-between" align="center" wrap="wrap">
+                <HStack spacing={4}>
+                  <Text fontSize="sm" fontWeight="medium" color="purple.700">
+                    {selectedTickets.size > 0 
+                      ? `Выбрано: ${selectedTickets.size} из ${displayedTickets.length}`
+                      : 'Выберите тикеты для удаления'
+                    }
+                  </Text>
+                  <Checkbox
+                    isChecked={isAllSelected}
+                    isIndeterminate={isIndeterminate}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    colorScheme="purple"
+                  >
+                    Выбрать все на странице
+                  </Checkbox>
+                </HStack>
+                
+                {selectedTickets.size > 0 && (
+                  <Button
+                    leftIcon={<Icon as={FiTrash2} />}
+                    onClick={onDeleteDialogOpen}
+                    colorScheme="red"
+                    size="sm"
+                    variant="outline"
+                  >
+                    Удалить выбранные ({selectedTickets.size})
+                  </Button>
+                )}
+              </HStack>
+            </Box>
+          )}
         </VStack>
 
         {/* Таблица тикетов */}
@@ -261,6 +400,7 @@ const Tickets = ({
             <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
                 <Tr>
+                  {isSelectionMode && <Th w="40px"></Th>}
                   <Th>ID</Th>
                   <Th>Пользователь</Th>
                   <Th>Описание</Th>
@@ -270,19 +410,43 @@ const Tickets = ({
                 </Tr>
               </Thead>
               <Tbody>
-                {displayedTickets.map(ticket => (
-                  <Tr
-                    key={ticket.id}
-                    cursor="pointer"
-                    _hover={{
-                      bg: useColorModeValue('gray.50', 'gray.700'),
-                      transform: 'translateY(-1px)',
-                      boxShadow: 'md'
-                    }}
-                    transition="all 0.2s"
-                    onClick={() => openDetailModal(ticket, 'ticket')}
-                  >
-                    <Td fontWeight="semibold">#{ticket.id}</Td>
+                {displayedTickets.map(ticket => {
+                  const isSelected = selectedTickets.has(ticket.id);
+                  
+                  return (
+                    <Tr
+                      key={ticket.id}
+                      cursor="pointer"
+                      bg={isSelectionMode && isSelected ? useColorModeValue('purple.50', 'purple.900') : 'transparent'}
+                      _hover={{
+                        bg: isSelectionMode && isSelected 
+                          ? useColorModeValue('purple.100', 'purple.800')
+                          : useColorModeValue('gray.50', 'gray.700'),
+                        transform: 'translateY(-1px)',
+                        boxShadow: 'md'
+                      }}
+                      transition="all 0.2s"
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          // В режиме выбора - переключаем выбор
+                          e.stopPropagation();
+                          handleSelectTicket(ticket.id, !isSelected);
+                        } else {
+                          // В обычном режиме - открываем детали
+                          openDetailModal(ticket, 'ticket');
+                        }
+                      }}
+                    >
+                      {isSelectionMode && (
+                        <Td onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            isChecked={isSelected}
+                            onChange={(e) => handleSelectTicket(ticket.id, e.target.checked)}
+                            colorScheme="purple"
+                          />
+                        </Td>
+                      )}
+                      <Td fontWeight="semibold">#{ticket.id}</Td>
                     <Td>
                       <VStack align="start" spacing={0}>
                         <Text fontWeight="medium">
@@ -346,7 +510,8 @@ const Tickets = ({
                       </HStack>
                     </Td>
                   </Tr>
-                ))}
+                  );
+                })}
               </Tbody>
             </Table>
           </Box>
@@ -428,6 +593,41 @@ const Tickets = ({
             </Text>
           </Flex>
         )}
+
+        {/* Диалог подтверждения удаления */}
+        <AlertDialog
+          isOpen={isDeleteDialogOpen}
+          leastDestructiveRef={cancelRef}
+          onClose={onDeleteDialogClose}
+        >
+          <AlertDialogOverlay>
+            <AlertDialogContent>
+              <AlertDialogHeader fontSize="lg" fontWeight="bold">
+                Удалить выбранные тикеты
+              </AlertDialogHeader>
+
+              <AlertDialogBody>
+                Вы уверены, что хотите удалить {selectedTickets.size} выбранных тикетов? 
+                Это действие нельзя отменить.
+              </AlertDialogBody>
+
+              <AlertDialogFooter>
+                <Button ref={cancelRef} onClick={onDeleteDialogClose}>
+                  Отменить
+                </Button>
+                <Button
+                  colorScheme="red"
+                  onClick={handleDeleteSelected}
+                  ml={3}
+                  isLoading={isDeleting}
+                  loadingText="Удаление..."
+                >
+                  Удалить
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialogOverlay>
+        </AlertDialog>
       </VStack>
     </Box>
   );

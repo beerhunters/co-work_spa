@@ -522,6 +522,50 @@ async def get_ticket_response_photo(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/{ticket_id}/response-photo-base64")
+async def get_ticket_response_photo_base64(
+    ticket_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение фото ответа администратора на тикет в формате base64."""
+    try:
+        ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+
+        if not ticket.response_photo_id:
+            raise HTTPException(
+                status_code=404, detail="Response photo not found for this ticket"
+            )
+
+        try:
+            # Загружаем фото напрямую из Telegram
+            photo_data, mime_type = await get_photo_from_telegram(
+                ticket.response_photo_id
+            )
+
+            # Конвертируем в base64
+            import base64
+            photo_base64 = base64.b64encode(photo_data).decode('utf-8')
+            data_url = f"data:{mime_type};base64,{photo_base64}"
+
+            logger.info(f"Получено base64 фото ответа для тикета {ticket_id}")
+            return {"photo_url": data_url}
+
+        except Exception as e:
+            logger.error(
+                f"Ошибка загрузки фото ответа из Telegram для тикета {ticket_id}: {e}"
+            )
+            raise HTTPException(
+                status_code=404, detail="Response photo not available from Telegram"
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка получения base64 фото ответа тикета {ticket_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.post("/{ticket_id}/photo")
 async def send_photo_to_user(
     ticket_id: int,

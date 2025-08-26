@@ -29,7 +29,9 @@ import {
   Spinner,
   Flex,
   IconButton,
-  Tooltip
+  Tooltip,
+  Checkbox,
+  Icon
 } from '@chakra-ui/react';
 import {
   FiSearch,
@@ -40,7 +42,9 @@ import {
   FiUser,
   FiCalendar,
   FiMessageSquare,
-  FiExternalLink
+  FiExternalLink,
+  FiCheckSquare,
+  FiSquare
 } from 'react-icons/fi';
 import { sizes, styles, colors, getStatusColor, spacing, typography } from '../styles/styles';
 import { notificationApi } from '../utils/api';
@@ -53,11 +57,19 @@ const Notifications = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // all, read, unread
+  const [typeFilter, setTypeFilter] = useState('all'); // all, ticket, booking, user
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [loadingNotification, setLoadingNotification] = useState(null);
+  // Массовый выбор
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedNotifications, setSelectedNotifications] = useState(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  
   const { isOpen: clearDialogOpen, onOpen: openClearDialog, onClose: closeClearDialog } = useDisclosure();
+  const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
   const toast = useToast();
   const cancelRef = React.useRef();
 
@@ -72,16 +84,27 @@ const Notifications = ({
       filtered = filtered.filter(n => !n.is_read);
     }
 
-    // Поиск по тексту
+    // Фильтр по типу
+    if (typeFilter === 'ticket') {
+      filtered = filtered.filter(n => n.ticket_id);
+    } else if (typeFilter === 'booking') {
+      filtered = filtered.filter(n => n.booking_id);
+    } else if (typeFilter === 'user') {
+      filtered = filtered.filter(n => n.user_id && !n.ticket_id && !n.booking_id);
+    }
+
+    // Поиск по тексту (регистронезависимо)
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       filtered = filtered.filter(n =>
-        n.message.toLowerCase().includes(query)
+        n.message.toLowerCase().includes(query) ||
+        (n.ticket_id && String(n.ticket_id).includes(query)) ||
+        (n.booking_id && String(n.booking_id).includes(query))
       );
     }
 
     return filtered;
-  }, [notifications, searchQuery, statusFilter]);
+  }, [notifications, searchQuery, statusFilter, typeFilter]);
 
   // Пагинация
   const totalPages = Math.ceil(filteredNotifications.length / itemsPerPage);
@@ -92,7 +115,7 @@ const Notifications = ({
   // Сброс на первую страницу при изменении фильтров
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter]);
+  }, [searchQuery, statusFilter, typeFilter]);
 
   const handlePageChange = (newPage) => {
     setCurrentPage(Math.max(1, Math.min(newPage, totalPages)));
@@ -114,36 +137,124 @@ const Notifications = ({
 
   const handleNotificationClick = async (notification) => {
     try {
+      // Устанавливаем индикатор загрузки для конкретного уведомления
+      setLoadingNotification(notification.id);
+
       // Помечаем как прочитанное
       if (!notification.is_read) {
         await notificationApi.markRead(notification.id);
         await onRefresh();
       }
 
-      // Навигация к связанному объекту
+      // Навигация к связанному объекту с загрузкой и открытием детальной модалки
       if (notification.ticket_id) {
         // Переходим к тикетам и открываем конкретный тикет
         setSection('tickets');
-        // Здесь можно добавить логику для автоматического открытия тикета
-        // openDetailModal(ticket, 'ticket') после получения данных тикета
+        
+        try {
+          // Загружаем данные тикета и открываем детальную модалку
+          const relatedObject = await notificationApi.getRelatedObject(notification);
+          if (relatedObject && relatedObject.type === 'ticket') {
+            setTimeout(() => {
+              openDetailModal(relatedObject.data, 'ticket');
+            }, 100); // Небольшая задержка для переключения раздела
+          } else {
+            throw new Error('Не удалось загрузить данные тикета');
+          }
+        } catch (error) {
+          console.warn('Не удалось загрузить данные тикета:', error);
+          toast({
+            title: 'Внимание',
+            description: `Переход к разделу тикетов выполнен, но не удалось загрузить Тикет #${notification.ticket_id}`,
+            status: 'warning',
+            duration: 4000,
+            isClosable: true,
+          });
+        }
+        
       } else if (notification.booking_id) {
+        // Переходим к бронированиям и открываем конкретное бронирование
         setSection('bookings');
-      } else if (notification.user_id) {
+        
+        try {
+          const relatedObject = await notificationApi.getRelatedObject(notification);
+          if (relatedObject && relatedObject.type === 'booking') {
+            setTimeout(() => {
+              openDetailModal(relatedObject.data, 'booking');
+            }, 100);
+          } else {
+            throw new Error('Не удалось загрузить данные бронирования');
+          }
+        } catch (error) {
+          console.warn('Не удалось загрузить данные бронирования:', error);
+          toast({
+            title: 'Внимание',
+            description: `Переход к разделу бронирований выполнен, но не удалось загрузить Бронь #${notification.booking_id}`,
+            status: 'warning',
+            duration: 4000,
+            isClosable: true,
+          });
+        }
+        
+      } else if (notification.user_id && !notification.ticket_id && !notification.booking_id) {
+        // Переходим к пользователям и открываем конкретного пользователя
         setSection('users');
+        
+        try {
+          const relatedObject = await notificationApi.getRelatedObject(notification);
+          if (relatedObject && relatedObject.type === 'user') {
+            setTimeout(() => {
+              openDetailModal(relatedObject.data, 'user');
+            }, 100);
+          } else {
+            throw new Error('Не удалось загрузить данные пользователя');
+          }
+        } catch (error) {
+          console.warn('Не удалось загрузить данные пользователя:', error);
+          toast({
+            title: 'Внимание',
+            description: `Переход к разделу пользователей выполнен, но не удалось загрузить пользователя`,
+            status: 'warning',
+            duration: 4000,
+            isClosable: true,
+          });
+        }
+        
       } else if (notification.target_url) {
+        // Обработка кастомных URL
         const urlParts = notification.target_url.split('/');
         if (urlParts.length >= 2) {
           setSection(urlParts[1]);
         }
+        
+        toast({
+          title: 'Переход выполнен',
+          description: 'Переходим к указанному разделу',
+          status: 'info',
+          duration: 2000,
+          isClosable: true,
+        });
+      } else {
+        // Уведомление без конкретной привязки
+        toast({
+          title: 'Уведомление прочитано',
+          description: 'Нет связанного объекта для перехода',
+          status: 'info',
+          duration: 2000,
+          isClosable: true,
+        });
       }
 
-      toast({
-        title: 'Переход выполнен',
-        description: 'Переходим к связанному событию',
-        status: 'info',
-        duration: 2000,
-        isClosable: true,
-      });
+      // Если есть конкретный объект, показываем успешное уведомление
+      if (notification.ticket_id || notification.booking_id || (notification.user_id && !notification.ticket_id && !notification.booking_id)) {
+        toast({
+          title: 'Переход выполнен',
+          description: 'Открываем детальную информацию',
+          status: 'success',
+          duration: 2000,
+          isClosable: true,
+        });
+      }
 
     } catch (error) {
       console.error('Ошибка при обработке уведомления:', error);
@@ -154,6 +265,9 @@ const Notifications = ({
         duration: 3000,
         isClosable: true,
       });
+    } finally {
+      // Убираем индикатор загрузки
+      setLoadingNotification(null);
     }
   };
 
@@ -271,7 +385,7 @@ const Notifications = ({
                     <FiSearch color="gray" />
                   </InputLeftElement>
                   <Input
-                    placeholder="Поиск по тексту уведомления..."
+                    placeholder="Поиск по тексту, тикету или брони..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -280,11 +394,22 @@ const Notifications = ({
                 <Select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  maxW="200px"
+                  maxW="180px"
                 >
                   <option value="all">Все уведомления</option>
                   <option value="unread">Только непрочитанные</option>
                   <option value="read">Только прочитанные</option>
+                </Select>
+
+                <Select
+                  value={typeFilter}
+                  onChange={(e) => setTypeFilter(e.target.value)}
+                  maxW="150px"
+                >
+                  <option value="all">Все типы</option>
+                  <option value="ticket">Тикеты</option>
+                  <option value="booking">Бронирования</option>
+                  <option value="user">Пользователи</option>
                 </Select>
 
                 <Select
@@ -334,12 +459,13 @@ const Notifications = ({
                       border={styles.listItem.border}
                       borderColor={styles.listItem.borderColor}
                       bg={notification.is_read ? colors.notification.readBg : colors.notification.unreadBg}
-                      cursor="pointer"
-                      _hover={styles.listItem.hover}
+                      cursor={loadingNotification === notification.id ? "wait" : "pointer"}
+                      _hover={loadingNotification === notification.id ? {} : styles.listItem.hover}
                       transition={styles.listItem.transition}
-                      onClick={() => handleNotificationClick(notification)}
+                      onClick={() => loadingNotification === notification.id ? null : handleNotificationClick(notification)}
                       borderLeft={!notification.is_read ? "4px solid" : "none"}
                       borderLeftColor={!notification.is_read ? "blue.400" : "transparent"}
+                      opacity={loadingNotification === notification.id ? 0.7 : 1}
                     >
                       <HStack justify="space-between" align="start">
                         <HStack spacing={3} align="start" flex={1}>
@@ -383,7 +509,11 @@ const Notifications = ({
                           >
                             {notification.is_read ? 'Прочитано' : 'Новое'}
                           </Badge>
-                          <FiExternalLink size={12} color="gray" />
+                          {loadingNotification === notification.id ? (
+                            <Spinner size="xs" color="blue.500" />
+                          ) : (
+                            <FiExternalLink size={12} color="gray" />
+                          )}
                         </VStack>
                       </HStack>
                     </Box>

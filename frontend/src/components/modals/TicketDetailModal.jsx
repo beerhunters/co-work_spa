@@ -42,9 +42,14 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
   const [responsePhoto, setResponsePhoto] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [photoLoading, setPhotoLoading] = useState(false);
-  const [photoError, setPhotoError] = useState(false);
+  const [photoError, setPhotoError] = useState(null); // null, 'PHOTO_NOT_AVAILABLE', 'NETWORK_ERROR'
   const [photoUrl, setPhotoUrl] = useState(null);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  // Состояние для фото ответа
+  const [responsePhotoLoading, setResponsePhotoLoading] = useState(false);
+  const [responsePhotoError, setResponsePhotoError] = useState(null); // null, 'PHOTO_NOT_AVAILABLE', 'NETWORK_ERROR'
+  const [responsePhotoUrl, setResponsePhotoUrl] = useState(null);
+  const [isResponsePhotoModalOpen, setIsResponsePhotoModalOpen] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -52,12 +57,19 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
       setStatus(ticket.status || 'OPEN');
       setComment(ticket.comment || '');
       setResponsePhoto(null);
-      setPhotoError(false);
+      setPhotoError(null);
       setPhotoUrl(null);
+      setResponsePhotoError(null);
+      setResponsePhotoUrl(null);
 
-      // Загружаем фото, если оно есть
+      // Загружаем фото пользователя, если оно есть
       if (ticket.photo_id) {
         loadTicketPhoto();
+      }
+
+      // Загружаем фото ответа администратора, если оно есть
+      if (ticket.response_photo_id) {
+        loadResponsePhoto();
       }
     }
   }, [ticket]);
@@ -66,18 +78,22 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
     if (!ticket?.photo_id) return;
 
     setPhotoLoading(true);
-    setPhotoError(false);
+    setPhotoError(null);
 
     try {
       const photoDataUrl = await ticketApi.getPhotoBase64(ticket.id);
       if (photoDataUrl) {
         setPhotoUrl(photoDataUrl);
       } else {
-        setPhotoError(true);
+        setPhotoError('NETWORK_ERROR');
       }
     } catch (error) {
       console.error('Ошибка загрузки фото:', error);
-      setPhotoError(true);
+      if (error.message === 'PHOTO_NOT_AVAILABLE') {
+        setPhotoError('PHOTO_NOT_AVAILABLE');
+      } else {
+        setPhotoError('NETWORK_ERROR');
+      }
     } finally {
       setPhotoLoading(false);
     }
@@ -154,6 +170,13 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
       setComment(updatedTicket.comment || '');
       setResponsePhoto(null);
 
+      // Если было добавлено response photo, загружаем его
+      if (updatedTicket.response_photo_id && !ticket.response_photo_id) {
+        setResponsePhotoError(null);
+        setResponsePhotoUrl(null);
+        loadResponsePhoto();
+      }
+
       // Передаем обновленные данные родительскому компоненту
       if (onUpdate) {
         await onUpdate(updatedTicket);
@@ -213,9 +236,40 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
     }
   };
 
+  const loadResponsePhoto = async () => {
+    if (!ticket?.response_photo_id) return;
+
+    setResponsePhotoLoading(true);
+    setResponsePhotoError(null);
+
+    try {
+      const photoDataUrl = await ticketApi.getResponsePhotoBase64(ticket.id);
+      if (photoDataUrl) {
+        setResponsePhotoUrl(photoDataUrl);
+      } else {
+        setResponsePhotoError('NETWORK_ERROR');
+      }
+    } catch (error) {
+      console.error('Ошибка загрузки фото ответа:', error);
+      if (error.message === 'PHOTO_NOT_AVAILABLE') {
+        setResponsePhotoError('PHOTO_NOT_AVAILABLE');
+      } else {
+        setResponsePhotoError('NETWORK_ERROR');
+      }
+    } finally {
+      setResponsePhotoLoading(false);
+    }
+  };
+
   const handleRetryPhoto = () => {
     if (ticket?.photo_id) {
       loadTicketPhoto();
+    }
+  };
+
+  const handleRetryResponsePhoto = () => {
+    if (ticket?.response_photo_id) {
+      loadResponsePhoto();
     }
   };
 
@@ -286,15 +340,20 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
                       )}
 
                       {photoError && !photoLoading && (
-                        <Alert status="warning" borderRadius="md">
+                        <Alert status={photoError === 'PHOTO_NOT_AVAILABLE' ? 'info' : 'warning'} borderRadius="md">
                           <AlertIcon />
                           <VStack align="start" spacing={2} flex={1}>
                             <AlertDescription>
-                              Не удалось загрузить изображение. Возможно, фото больше недоступно в Telegram.
+                              {photoError === 'PHOTO_NOT_AVAILABLE' 
+                                ? 'Фото больше недоступно в Telegram (файлы старше 30 дней удаляются автоматически)'
+                                : 'Не удалось загрузить изображение. Проблема с подключением или сервером.'
+                              }
                             </AlertDescription>
-                            <Button size="sm" onClick={handleRetryPhoto} variant="outline">
-                              Попробовать снова
-                            </Button>
+                            {photoError === 'NETWORK_ERROR' && (
+                              <Button size="sm" onClick={handleRetryPhoto} variant="outline">
+                                Попробовать снова
+                              </Button>
+                            )}
                           </VStack>
                         </Alert>
                       )}
@@ -489,9 +548,81 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
                         <Text fontSize="sm" color="gray.500" mb={2} fontWeight="medium">
                           Прикрепленное фото в ответе
                         </Text>
-                        <Text fontSize="sm" color="green.600">
-                          ✓ Фото было отправлено пользователю
-                        </Text>
+
+                        {responsePhotoLoading && (
+                          <Center p={8} borderRadius="md" border="1px solid" borderColor="gray.200">
+                            <VStack spacing={2}>
+                              <Spinner size="lg" />
+                              <Text fontSize="sm" color="gray.500">Загружается...</Text>
+                            </VStack>
+                          </Center>
+                        )}
+
+                        {responsePhotoError && !responsePhotoLoading && (
+                          <Alert status={responsePhotoError === 'PHOTO_NOT_AVAILABLE' ? 'info' : 'warning'} borderRadius="md">
+                            <AlertIcon />
+                            <VStack align="start" spacing={2} flex={1}>
+                              <AlertDescription>
+                                {responsePhotoError === 'PHOTO_NOT_AVAILABLE' 
+                                  ? 'Фото ответа больше недоступно в Telegram (файлы старше 30 дней удаляются автоматически)'
+                                  : 'Не удалось загрузить изображение ответа. Проблема с подключением или сервером.'
+                                }
+                              </AlertDescription>
+                              {responsePhotoError === 'NETWORK_ERROR' && (
+                                <Button size="sm" onClick={handleRetryResponsePhoto} variant="outline">
+                                  Попробовать снова
+                                </Button>
+                              )}
+                            </VStack>
+                          </Alert>
+                        )}
+
+                        {responsePhotoUrl && !responsePhotoLoading && (
+                          <Box position="relative">
+                            <Image
+                              src={responsePhotoUrl}
+                              alt="Фото в ответе администратора"
+                              maxH="400px"
+                              maxW="100%"
+                              borderRadius="md"
+                              border="1px solid"
+                              borderColor="purple.200"
+                              objectFit="contain"
+                              cursor="pointer"
+                              onClick={() => setIsResponsePhotoModalOpen(true)}
+                              _hover={{
+                                opacity: 0.8,
+                                transform: 'scale(1.02)',
+                                transition: 'all 0.2s'
+                              }}
+                              transition="all 0.2s"
+                            />
+                            <Box
+                              position="absolute"
+                              top={2}
+                              right={2}
+                              bg="blackAlpha.600"
+                              color="white"
+                              p={1}
+                              borderRadius="md"
+                              fontSize="xs"
+                              opacity={0}
+                              _groupHover={{ opacity: 1 }}
+                              pointerEvents="none"
+                            >
+                              Нажмите для увеличения
+                            </Box>
+                          </Box>
+                        )}
+
+                        {!responsePhotoLoading && !responsePhotoError && !responsePhotoUrl && (
+                          <Alert status="info" borderRadius="md" variant="subtle">
+                            <AlertIcon />
+                            <AlertDescription fontSize="sm">
+                              ✓ Фото было отправлено пользователю (превью недоступно)
+                            </AlertDescription>
+                          </Alert>
+                        )}
                       </Box>
                     )}
                   </VStack>
@@ -502,12 +633,21 @@ const TicketDetailModal = ({ isOpen, onClose, ticket, onUpdate }) => {
         </ModalBody>
       </ModalContent>
 
-      {/* Модальное окно для просмотра фото */}
+      {/* Модальное окно для просмотра фото пользователя */}
       <PhotoModal
         isOpen={isPhotoModalOpen}
         onClose={() => setIsPhotoModalOpen(false)}
         photoUrl={photoUrl}
         ticketId={ticket.id}
+      />
+
+      {/* Модальное окно для просмотра фото ответа */}
+      <PhotoModal
+        isOpen={isResponsePhotoModalOpen}
+        onClose={() => setIsResponsePhotoModalOpen(false)}
+        photoUrl={responsePhotoUrl}
+        ticketId={ticket.id}
+        title="Фото в ответе администратора"
       />
     </ChakraModal>
   );

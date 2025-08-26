@@ -27,9 +27,11 @@ import {
   AlertDialogContent,
   AlertDialogOverlay,
   useDisclosure,
-  Tooltip
+  Tooltip,
+  Checkbox,
+  Icon
 } from '@chakra-ui/react';
-import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2 } from 'react-icons/fi';
+import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare } from 'react-icons/fi';
 import { userApi } from '../utils/api';
 
 const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
@@ -38,8 +40,12 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Состояния для массового выбора
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
+  const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
   const cancelRef = React.useRef();
   const toast = useToast();
 
@@ -137,6 +143,73 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
     }
   };
 
+  // Функции для массового выбора
+  const handleToggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedUsers(new Set());
+  };
+
+  const handleSelectUser = (userId, isSelected) => {
+    const newSelected = new Set(selectedUsers);
+    if (isSelected) {
+      newSelected.add(userId);
+    } else {
+      newSelected.delete(userId);
+    }
+    setSelectedUsers(newSelected);
+  };
+
+  const handleSelectAll = (isSelected) => {
+    if (isSelected) {
+      const allIds = new Set(currentUsers.map(user => user.id));
+      setSelectedUsers(allIds);
+    } else {
+      setSelectedUsers(new Set());
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedArray = Array.from(selectedUsers);
+    setIsDeleting(true);
+    
+    try {
+      const promises = selectedArray.map(userId => userApi.delete(userId));
+      await Promise.all(promises);
+
+      toast({
+        title: 'Успешно',
+        description: `Удалено пользователей: ${selectedArray.length}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Сбрасываем выбор и режим выбора
+      setSelectedUsers(new Set());
+      setIsSelectionMode(false);
+
+      // Обновляем данные
+      if (onUpdate) {
+        await onUpdate();
+      }
+    } catch (error) {
+      console.error('Ошибка при массовом удалении пользователей:', error);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось удалить выбранных пользователей',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+      onBulkDeleteClose();
+    }
+  };
+
+  const isAllSelected = currentUsers.length > 0 && selectedUsers.size === currentUsers.length;
+  const isIndeterminate = selectedUsers.size > 0 && selectedUsers.size < currentUsers.length;
+
   return (
     <Box p={6}>
       <VStack spacing={6} align="stretch">
@@ -173,8 +246,63 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
               <option value={50}>по 50</option>
               <option value={100}>по 100</option>
             </Select>
+
+            {canDeleteUsers && (
+              <Button
+                size="sm"
+                leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
+                onClick={handleToggleSelectionMode}
+                colorScheme={isSelectionMode ? "gray" : "purple"}
+                variant="outline"
+                isDisabled={currentUsers.length === 0}
+              >
+                {isSelectionMode ? 'Отменить' : 'Выбрать'}
+              </Button>
+            )}
           </HStack>
         </HStack>
+
+        {/* Панель массовых действий */}
+        {isSelectionMode && (
+          <Box
+            bg={useColorModeValue('purple.50', 'purple.900')}
+            borderWidth="1px"
+            borderColor={useColorModeValue('purple.200', 'purple.600')}
+            borderRadius="lg"
+            p={4}
+          >
+            <HStack justify="space-between" align="center" wrap="wrap">
+              <HStack spacing={4}>
+                <Text fontSize="sm" fontWeight="medium" color="purple.700">
+                  {selectedUsers.size > 0 
+                    ? `Выбрано: ${selectedUsers.size} из ${currentUsers.length}`
+                    : 'Выберите пользователей для удаления'
+                  }
+                </Text>
+                <Checkbox
+                  isChecked={isAllSelected}
+                  isIndeterminate={isIndeterminate}
+                  onChange={(e) => handleSelectAll(e.target.checked)}
+                  colorScheme="purple"
+                >
+                  Выбрать все на странице
+                </Checkbox>
+              </HStack>
+              
+              {selectedUsers.size > 0 && (
+                <Button
+                  leftIcon={<Icon as={FiTrash2} />}
+                  onClick={onBulkDeleteOpen}
+                  colorScheme="red"
+                  size="sm"
+                  variant="outline"
+                >
+                  Удалить выбранных ({selectedUsers.size})
+                </Button>
+              )}
+            </HStack>
+          </Box>
+        )}
 
         {/* Таблица пользователей */}
         {currentUsers.length > 0 ? (
@@ -188,6 +316,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
             <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
                 <Tr>
+                  {isSelectionMode && <Th w="40px"></Th>}
                   <Th>ФИО</Th>
                   <Th>Username</Th>
                   <Th>Телефон</Th>
@@ -197,17 +326,39 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                 </Tr>
               </Thead>
               <Tbody>
-                {currentUsers.map(user => (
-                  <Tr
-                    key={user.id}
-                    _hover={{
-                      bg: useColorModeValue('gray.50', 'gray.700')
-                    }}
-                  >
-                    <Td
-                      cursor="pointer"
-                      onClick={() => openDetailModal(user, 'user')}
+                {currentUsers.map(user => {
+                  const isSelected = selectedUsers.has(user.id);
+                  
+                  return (
+                    <Tr
+                      key={user.id}
+                      bg={isSelectionMode && isSelected ? useColorModeValue('purple.50', 'purple.900') : 'transparent'}
+                      _hover={{
+                        bg: isSelectionMode && isSelected 
+                          ? useColorModeValue('purple.100', 'purple.800')
+                          : useColorModeValue('gray.50', 'gray.700')
+                      }}
                     >
+                      {isSelectionMode && (
+                        <Td onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            isChecked={isSelected}
+                            onChange={(e) => handleSelectUser(user.id, e.target.checked)}
+                            colorScheme="purple"
+                          />
+                        </Td>
+                      )}
+                      <Td
+                        cursor="pointer"
+                        onClick={(e) => {
+                          if (isSelectionMode) {
+                            e.stopPropagation();
+                            handleSelectUser(user.id, !isSelected);
+                          } else {
+                            openDetailModal(user, 'user');
+                          }
+                        }}
+                      >
                       <VStack align="start" spacing={1}>
                         <Text fontWeight="semibold">
                           {user.full_name || 'Не указано'}
@@ -220,7 +371,14 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
 
                     <Td
                       cursor="pointer"
-                      onClick={() => openDetailModal(user, 'user')}
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectUser(user.id, !isSelected);
+                        } else {
+                          openDetailModal(user, 'user');
+                        }
+                      }}
                     >
                       <Text color="gray.500">
                         @{user.username || 'Не указано'}
@@ -229,7 +387,14 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
 
                     <Td
                       cursor="pointer"
-                      onClick={() => openDetailModal(user, 'user')}
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectUser(user.id, !isSelected);
+                        } else {
+                          openDetailModal(user, 'user');
+                        }
+                      }}
                     >
                       <Text>
                         {user.phone || 'Не указан'}
@@ -238,7 +403,14 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
 
                     <Td
                       cursor="pointer"
-                      onClick={() => openDetailModal(user, 'user')}
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectUser(user.id, !isSelected);
+                        } else {
+                          openDetailModal(user, 'user');
+                        }
+                      }}
                     >
                       <Text fontSize="sm">
                         {new Date(user.reg_date || user.first_join_time).toLocaleDateString('ru-RU')}
@@ -247,7 +419,14 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
 
                     <Td
                       cursor="pointer"
-                      onClick={() => openDetailModal(user, 'user')}
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectUser(user.id, !isSelected);
+                        } else {
+                          openDetailModal(user, 'user');
+                        }
+                      }}
                     >
                       <HStack spacing={2} wrap="wrap">
                         {user.successful_bookings > 0 && (
@@ -272,23 +451,26 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
 
                     {canDeleteUsers && (
                       <Td>
-                        <Tooltip label="Удалить пользователя">
-                          <IconButton
-                            icon={<FiTrash2 />}
-                            size="sm"
-                            variant="ghost"
-                            colorScheme="red"
-                            aria-label="Удалить пользователя"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteUser(user);
-                            }}
-                          />
-                        </Tooltip>
+                        {!isSelectionMode && (
+                          <Tooltip label="Удалить пользователя">
+                            <IconButton
+                              icon={<FiTrash2 />}
+                              size="sm"
+                              variant="ghost"
+                              colorScheme="red"
+                              aria-label="Удалить пользователя"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteUser(user);
+                              }}
+                            />
+                          </Tooltip>
+                        )}
                       </Td>
                     )}
                   </Tr>
-                ))}
+                  );
+                })}
               </Tbody>
             </Table>
           </Box>
@@ -407,6 +589,41 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
               <Button
                 colorScheme="red"
                 onClick={confirmDeleteUser}
+                ml={3}
+                isLoading={isDeleting}
+                loadingText="Удаление..."
+              >
+                Удалить
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      {/* Диалог массового удаления */}
+      <AlertDialog
+        isOpen={isBulkDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onBulkDeleteClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Удалить выбранных пользователей
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              Вы уверены, что хотите удалить {selectedUsers.size} выбранных пользователей? 
+              Это действие нельзя отменить.
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onBulkDeleteClose}>
+                Отменить
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleBulkDelete}
                 ml={3}
                 isLoading={isDeleting}
                 loadingText="Удаление..."

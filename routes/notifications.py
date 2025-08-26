@@ -19,7 +19,7 @@ router = APIRouter(prefix="/notifications", tags=["notifications"])
 @router.get("", response_model=List[NotificationBase])
 async def get_notifications(
     page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=100),
+    per_page: int = Query(50, ge=1, le=1000),
     status: Optional[str] = None,  # read, unread
     db: Session = Depends(get_db),
     _: str = Depends(verify_token),

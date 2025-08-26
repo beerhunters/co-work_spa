@@ -38,7 +38,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Файловые операции
             "/newsletters/send": "api:newsletter",
             "/upload": "api:upload",
-            "/avatars": "api:upload",
             # Health checks - мягкие ограничения
             "/health": "health",
             "/": "health",  # Root endpoint
@@ -60,8 +59,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return "api:newsletter"
         elif path.startswith("/health") or path == "/":
             return "health"
-        elif "upload" in path or "photo" in path:
+        elif "upload" in path:
             return "api:upload"
+        elif ("photo" in path and method == "POST") or ("photo" in path and "upload" in path):
+            # Только POST запросы для загрузки фото или пути с upload используют upload лимит
+            return "api:upload"
+        elif ("photo" in path and ("base64" in path or method == "GET")) or "avatar" in path:
+            # GET запросы для просмотра фото (base64) используют более мягкий лимит
+            return "api:general"
 
         # Default rule for all API endpoints
         return "api:general"
