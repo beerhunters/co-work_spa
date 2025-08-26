@@ -59,10 +59,14 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
       const fullName = (user.full_name || '').toLowerCase();
       const phone = (user.phone || '').toLowerCase();
       const username = (user.username || '').toLowerCase();
+      const email = (user.email || '').toLowerCase();
+      const telegramId = String(user.telegram_id || '').toLowerCase();
 
       return fullName.includes(query) ||
              phone.includes(query) ||
-             username.includes(query);
+             username.includes(query) ||
+             email.includes(query) ||
+             telegramId.includes(query);
     });
   }, [users, searchQuery]);
 
@@ -153,7 +157,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                 <FiSearch color="gray.300" />
               </InputLeftElement>
               <Input
-                placeholder="Поиск по ФИО или телефону..."
+                placeholder="Поиск по ФИО, телефону, email, ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />

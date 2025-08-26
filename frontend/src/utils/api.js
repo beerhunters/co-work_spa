@@ -18,7 +18,7 @@ initAuth(apiClient);
 // Загрузка начальных данных
 export const fetchInitialData = async (dataSetters, setLastNotificationId, toast) => {
   const endpoints = [
-    { url: '/users', setter: dataSetters.users },
+    { url: '/users?per_page=1000', setter: dataSetters.users },
     { url: '/bookings', setter: dataSetters.bookings },
     { url: '/tariffs', setter: dataSetters.tariffs },
     { url: '/promocodes', setter: dataSetters.promocodes },
@@ -64,7 +64,7 @@ export const fetchInitialData = async (dataSetters, setLastNotificationId, toast
 // Загрузка данных для конкретной секции
 export const fetchSectionData = async (sectionName, dataSetters) => {
   const sectionEndpoints = {
-    'users': { url: '/users', setter: dataSetters.users },
+    'users': { url: '/users?per_page=1000', setter: dataSetters.users },
     'bookings': { url: '/bookings', setter: dataSetters.bookings },
     'tariffs': { url: '/tariffs', setter: dataSetters.tariffs },
     'promocodes': { url: '/promocodes', setter: dataSetters.promocodes },
@@ -172,8 +172,8 @@ export const notificationApi = {
 // -------------------- API: Пользователи (обновленный) --------------------
 export const userApi = {
   getAll: async () => {
-    // Убираем параметры пагинации - получаем всех пользователей
-    const res = await apiClient.get('/users');
+    // Запрашиваем всех пользователей (per_page=1000 включает режим "все пользователи")
+    const res = await apiClient.get('/users?per_page=1000');
     return res.data;
   },
 

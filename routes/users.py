@@ -27,21 +27,29 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("", response_model=List[UserBase])
 async def get_users(
     page: int = Query(1, ge=1, description="Номер страницы"),
-    per_page: int = Query(50, ge=1, le=200, description="Количество пользователей на страницу"),
+    per_page: int = Query(50, ge=1, le=1000, description="Количество пользователей на страницу"),
     _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
 ):
     """Получение списка пользователей с пагинацией."""
 
     def _get_users(session):
-        # Добавляем пагинацию для избежания загрузки всех пользователей
-        offset = (page - 1) * per_page
-        users = (
-            session.query(User)
-            .order_by(User.first_join_time.desc())
-            .offset(offset)
-            .limit(per_page)
-            .all()
-        )
+        # Если запрашивается большое количество пользователей, возвращаем всех
+        if per_page >= 500:
+            users = (
+                session.query(User)
+                .order_by(User.first_join_time.desc())
+                .all()
+            )
+        else:
+            # Обычная пагинация
+            offset = (page - 1) * per_page
+            users = (
+                session.query(User)
+                .order_by(User.first_join_time.desc())
+                .offset(offset)
+                .limit(per_page)
+                .all()
+            )
         users_data = []
         for user in users:
             user_dict = {
