@@ -49,10 +49,12 @@ const Bookings = ({
   onRefresh,
   onFiltersChange,
   isLoading = false,
-  currentAdmin // Добавляем текущего администратора
+  currentAdmin, // Добавляем текущего администратора
+  tariffs = [] // Добавляем список тарифов для фильтра
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tariffFilter, setTariffFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -99,6 +101,10 @@ const Bookings = ({
       params.status_filter = statusFilter;
     }
 
+    if (tariffFilter && tariffFilter !== 'all') {
+      params.tariff_filter = tariffFilter;
+    }
+
     if (searchQuery && searchQuery.trim()) {
       params.user_query = searchQuery.trim();
     }
@@ -107,21 +113,29 @@ const Bookings = ({
     console.log('Текущее состояние фильтров:', {
       searchQuery,
       statusFilter,
+      tariffFilter,
       currentPage,
       itemsPerPage
     });
+    console.log('Доступные тарифы:', tariffs);
+    
+    if (tariffFilter && tariffFilter !== 'all') {
+      console.log('Активный фильтр по тарифу:', tariffFilter);
+      const selectedTariff = tariffs.find(t => t.id.toString() === tariffFilter.toString());
+      console.log('Выбранный тариф:', selectedTariff);
+    }
 
     if (onFiltersChange) {
       onFiltersChange(params);
     }
-  }, [currentPage, itemsPerPage, statusFilter, searchQuery, onFiltersChange]);
+  }, [currentPage, itemsPerPage, statusFilter, tariffFilter, searchQuery, onFiltersChange]);
 
   // Сброс на первую страницу при изменении фильтров
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
     }
-  }, [statusFilter, searchQuery, itemsPerPage]);
+  }, [statusFilter, tariffFilter, searchQuery, itemsPerPage]);
 
   // Функция сброса всех фильтров
   const handleResetFilters = () => {
@@ -129,6 +143,7 @@ const Bookings = ({
 
     setSearchQuery('');
     setStatusFilter('all');
+    setTariffFilter('all');
     setCurrentPage(1);
     setItemsPerPage(20);
 
@@ -146,7 +161,7 @@ const Bookings = ({
   };
 
   // Проверка, активны ли какие-либо фильтры
-  const hasActiveFilters = searchQuery.trim() || statusFilter !== 'all' || itemsPerPage !== 20;
+  const hasActiveFilters = searchQuery.trim() || statusFilter !== 'all' || tariffFilter !== 'all' || itemsPerPage !== 20;
 
   const formatDateTime = (dateString) => {
     try {
@@ -285,7 +300,7 @@ const Bookings = ({
                   <Icon as={FiSearch} color="gray.400" />
                 </InputLeftElement>
                 <Input
-                  placeholder="Поиск по ID или ФИО пользователя..."
+                  placeholder="Поиск по ID, ФИО или тарифу..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -303,6 +318,20 @@ const Bookings = ({
               <option value="unpaid">Неоплаченные</option>
               <option value="confirmed">Подтвержденные</option>
               <option value="pending">Ожидающие</option>
+            </Select>
+
+            {/* Фильтр по тарифу */}
+            <Select
+              value={tariffFilter}
+              onChange={(e) => setTariffFilter(e.target.value)}
+              maxW="200px"
+            >
+              <option value="all">Все тарифы</option>
+              {tariffs.map(tariff => (
+                <option key={tariff.id} value={tariff.id}>
+                  {tariff.name}
+                </option>
+              ))}
             </Select>
 
             {/* Количество элементов на странице */}

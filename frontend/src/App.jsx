@@ -346,6 +346,7 @@ function App() {
       newFilters.page === 1 &&
       newFilters.per_page === 20 &&
       !newFilters.status_filter &&
+      !newFilters.tariff_filter &&
       !newFilters.user_query
     );
 
@@ -1013,6 +1014,7 @@ function App() {
             onFiltersChange={handleBookingFiltersChange}
             isLoading={isBookingsLoading}
             currentAdmin={currentAdmin}
+            tariffs={tariffs}
           />
         );
       case 'tariffs':

@@ -319,6 +319,10 @@ export const bookingApi = {
         queryParams.status_filter = params.status_filter;
       }
 
+      if (params.tariff_filter && params.tariff_filter !== 'all') {
+        queryParams.tariff_filter = params.tariff_filter;
+      }
+
       if (params.user_query && params.user_query.trim()) {
         queryParams.user_query = params.user_query.trim();
       }

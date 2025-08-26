@@ -9,7 +9,7 @@ import re
 from models.models import Promocode
 from dependencies import get_db, verify_token
 from config import MOSCOW_TZ
-from schemas.promocode_schemas import PromocodeBase, PromocodeCreate
+from schemas.promocode_schemas import PromocodeBase, PromocodeCreate, PromocodeUpdate
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,6 +22,17 @@ async def get_promocodes(db: Session = Depends(get_db), _: str = Depends(verify_
     """Получение всех промокодов."""
     promocodes = db.query(Promocode).order_by(Promocode.id.desc()).all()
     return promocodes
+
+
+@router.get("/{promocode_id}", response_model=PromocodeBase)
+async def get_promocode(
+    promocode_id: int, db: Session = Depends(get_db), _: str = Depends(verify_token)
+):
+    """Получение промокода по ID."""
+    promocode = db.query(Promocode).get(promocode_id)
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Promocode not found")
+    return promocode
 
 
 @router.get("/by_name/{name}")
@@ -102,6 +113,70 @@ async def create_promocode(
         db.rollback()
         logger.error(f"Ошибка создания промокода: {e}")
         raise HTTPException(status_code=500, detail="Не удалось создать промокод")
+
+
+@router.put("/{promocode_id}", response_model=PromocodeBase)
+async def update_promocode(
+    promocode_id: int,
+    promocode_data: PromocodeUpdate,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Обновление промокода."""
+    promocode = db.query(Promocode).get(promocode_id)
+    if not promocode:
+        raise HTTPException(status_code=404, detail="Promocode not found")
+
+    # Валидация названия если оно изменяется
+    if promocode_data.name and promocode_data.name != promocode.name:
+        if len(promocode_data.name.strip()) < 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Название промокода должно содержать минимум 3 символа",
+            )
+
+        if not re.match(r"^[A-Za-z0-9_-]+$", promocode_data.name):
+            raise HTTPException(
+                status_code=400,
+                detail="Название может содержать только латинские буквы, цифры, дефис и подчеркивание",
+            )
+
+        # Проверяем уникальность нового названия
+        existing = db.query(Promocode).filter_by(name=promocode_data.name.upper()).first()
+        if existing and existing.id != promocode_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Промокод с названием '{promocode_data.name}' уже существует",
+            )
+
+    # Валидация скидки
+    if promocode_data.discount is not None:
+        if promocode_data.discount < 1 or promocode_data.discount > 100:
+            raise HTTPException(status_code=400, detail="Скидка должна быть от 1% до 100%")
+
+    try:
+        # Обновляем только переданные поля
+        if promocode_data.name:
+            promocode.name = promocode_data.name.upper()
+        if promocode_data.discount is not None:
+            promocode.discount = promocode_data.discount
+        if promocode_data.usage_quantity is not None:
+            promocode.usage_quantity = promocode_data.usage_quantity
+        if promocode_data.expiration_date is not None:
+            promocode.expiration_date = promocode_data.expiration_date
+        if promocode_data.is_active is not None:
+            promocode.is_active = promocode_data.is_active
+
+        db.commit()
+        db.refresh(promocode)
+
+        logger.info(f"Обновлен промокод: {promocode.name} ({promocode.discount}%)")
+        return promocode
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка обновления промокода {promocode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось обновить промокод")
 
 
 @router.post("/{promocode_id}/use")

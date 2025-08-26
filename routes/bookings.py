@@ -46,6 +46,7 @@ async def get_bookings_detailed(
     user_query: Optional[str] = None,
     date_query: Optional[str] = None,
     status_filter: Optional[str] = None,
+    tariff_filter: Optional[str] = None,
     _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_BOOKINGS])),
 ):
     """Получение бронирований с данными тарифов и пользователей (оптимизированная версия)."""
@@ -54,8 +55,19 @@ async def get_bookings_detailed(
         try:
             logger.info(
                 f"Запрос бронирований: page={page}, per_page={per_page}, "
-                f"user_query='{user_query}', date_query='{date_query}', status_filter='{status_filter}'"
+                f"user_query='{user_query}', date_query='{date_query}', status_filter='{status_filter}', tariff_filter='{tariff_filter}'"
             )
+            
+            # Логируем обработку поискового запроса
+            if user_query and user_query.strip():
+                query_stripped = user_query.strip()
+                if query_stripped.isdigit():
+                    logger.info(f"Поиск по ID бронирования: {query_stripped}")
+                else:
+                    query_lower = query_stripped.lower()
+                    query_upper = query_stripped.upper()
+                    query_title = query_stripped.capitalize()
+                    logger.info(f"Текстовый поиск - оригинал: '{query_stripped}', нижний: '{query_lower}', верхний: '{query_upper}', заглавный: '{query_title}'")
 
             base_query = """
                 SELECT 
@@ -81,9 +93,29 @@ async def get_bookings_detailed(
                     where_conditions.append("b.id = :booking_id")
                     params["booking_id"] = int(query_stripped)
                 else:
-                    # Поиск по имени пользователя
-                    where_conditions.append("u.full_name LIKE :user_query")
-                    params["user_query"] = f"%{query_stripped}%"
+                    # Поиск по имени пользователя и названию тарифа (регистронезависимо для кириллицы)
+                    # Создаем все варианты: оригинал, нижний, верхний, с заглавной
+                    query_lower = query_stripped.lower()
+                    query_upper = query_stripped.upper()
+                    query_title = query_stripped.capitalize()
+                    where_conditions.append("""(
+                        u.full_name LIKE :user_query_orig OR 
+                        u.full_name LIKE :user_query_lower OR 
+                        u.full_name LIKE :user_query_upper OR
+                        u.full_name LIKE :user_query_title OR
+                        t.name LIKE :tariff_query_orig OR 
+                        t.name LIKE :tariff_query_lower OR 
+                        t.name LIKE :tariff_query_upper OR
+                        t.name LIKE :tariff_query_title
+                    )""")
+                    params["user_query_orig"] = f"%{query_stripped}%"
+                    params["user_query_lower"] = f"%{query_lower}%"
+                    params["user_query_upper"] = f"%{query_upper}%"
+                    params["user_query_title"] = f"%{query_title}%"
+                    params["tariff_query_orig"] = f"%{query_stripped}%"
+                    params["tariff_query_lower"] = f"%{query_lower}%"
+                    params["tariff_query_upper"] = f"%{query_upper}%"
+                    params["tariff_query_title"] = f"%{query_title}%"
 
             if date_query and date_query.strip():
                 try:
@@ -113,8 +145,20 @@ async def get_bookings_detailed(
                 elif status_filter == "pending":
                     where_conditions.append("b.confirmed = 0")
 
+            if tariff_filter and tariff_filter.strip() and tariff_filter != "all":
+                try:
+                    tariff_id = int(tariff_filter)
+                    where_conditions.append("b.tariff_id = :tariff_id")
+                    params["tariff_id"] = tariff_id
+                except ValueError:
+                    logger.warning(f"Invalid tariff_filter format: {tariff_filter}")
+                    # Игнорируем некорректный фильтр
+
             if where_conditions:
-                base_query += " WHERE " + " AND ".join(where_conditions)
+                where_clause = " AND ".join(where_conditions)
+                base_query += " WHERE " + where_clause
+                logger.info(f"WHERE условие: {where_clause}")
+                logger.info(f"Параметры поиска: {params}")
 
             count_query = f"SELECT COUNT(*) FROM ({base_query}) as counted"
             total_count = session.execute(text(count_query), params).scalar()
