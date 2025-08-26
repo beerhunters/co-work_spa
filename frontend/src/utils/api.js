@@ -19,10 +19,10 @@ initAuth(apiClient);
 export const fetchInitialData = async (dataSetters, setLastNotificationId, toast) => {
   const endpoints = [
     { url: '/users?per_page=1000', setter: dataSetters.users },
-    { url: '/bookings', setter: dataSetters.bookings },
+    { url: '/bookings/detailed?per_page=500', setter: (data) => dataSetters.bookings(data.bookings || []) },
     { url: '/tariffs', setter: dataSetters.tariffs },
     { url: '/promocodes', setter: dataSetters.promocodes },
-    { url: '/tickets', setter: dataSetters.tickets },
+    { url: '/tickets/detailed?per_page=100', setter: (data) => dataSetters.tickets(data.tickets || []) },
     { url: '/newsletters', setter: dataSetters.newsletters },
     {
       url: '/notifications',
@@ -65,10 +65,10 @@ export const fetchInitialData = async (dataSetters, setLastNotificationId, toast
 export const fetchSectionData = async (sectionName, dataSetters) => {
   const sectionEndpoints = {
     'users': { url: '/users?per_page=1000', setter: dataSetters.users },
-    'bookings': { url: '/bookings', setter: dataSetters.bookings },
+    'bookings': { url: '/bookings/detailed?per_page=500', setter: (data) => dataSetters.bookings(data.bookings || []) },
     'tariffs': { url: '/tariffs', setter: dataSetters.tariffs },
     'promocodes': { url: '/promocodes', setter: dataSetters.promocodes },
-    'tickets': { url: '/tickets', setter: dataSetters.tickets },
+    'tickets': { url: '/tickets/detailed?per_page=100', setter: (data) => dataSetters.tickets(data.tickets || []) },
     'notifications': { url: '/notifications', setter: dataSetters.notifications },
     'newsletters': { url: '/newsletters', setter: dataSetters.newsletters },
     'dashboard': { url: '/dashboard/stats', setter: dataSetters.dashboardStats },

@@ -42,7 +42,7 @@ router = APIRouter(prefix="/bookings", tags=["bookings"])
 @router.get("/detailed")
 async def get_bookings_detailed(
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=1000),
     user_query: Optional[str] = None,
     date_query: Optional[str] = None,
     status_filter: Optional[str] = None,
@@ -259,7 +259,7 @@ async def get_booking_stats(
 @router.get("", response_model=List[BookingBase])
 async def get_bookings(
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=1000),
     user_query: Optional[str] = None,
     date_query: Optional[str] = None,
     db: Session = Depends(get_db),

@@ -195,10 +195,25 @@ class SQLOptimizer:
                 query_stripped = user_query.strip()
                 query_lower = query_stripped.lower()
                 query_upper = query_stripped.upper()
-                where_conditions.append("(u.full_name LIKE :user_query_orig OR u.full_name LIKE :user_query_lower OR u.full_name LIKE :user_query_upper)")
+                query_title = query_stripped.capitalize()
+                where_conditions.append("""(
+                    u.full_name LIKE :user_query_orig OR 
+                    u.full_name LIKE :user_query_lower OR 
+                    u.full_name LIKE :user_query_upper OR
+                    u.full_name LIKE :user_query_title OR
+                    t.description LIKE :desc_query_orig OR 
+                    t.description LIKE :desc_query_lower OR 
+                    t.description LIKE :desc_query_upper OR
+                    t.description LIKE :desc_query_title
+                )""")
                 params["user_query_orig"] = f"%{query_stripped}%"
                 params["user_query_lower"] = f"%{query_lower}%"
                 params["user_query_upper"] = f"%{query_upper}%"
+                params["user_query_title"] = f"%{query_title}%"
+                params["desc_query_orig"] = f"%{query_stripped}%"
+                params["desc_query_lower"] = f"%{query_lower}%"
+                params["desc_query_upper"] = f"%{query_upper}%"
+                params["desc_query_title"] = f"%{query_title}%"
 
             if status and status.strip():
                 where_conditions.append("t.status = :status")

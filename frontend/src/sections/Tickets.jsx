@@ -199,7 +199,7 @@ const Tickets = ({
                   <Icon as={FiSearch} color="gray.400" />
                 </InputLeftElement>
                 <Input
-                  placeholder="Поиск по ФИО пользователя..."
+                  placeholder="Поиск по ФИО или описанию..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
