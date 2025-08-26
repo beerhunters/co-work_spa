@@ -156,3 +156,31 @@ async def create_notification(
         "notification_id": notification.id,
         "created_at": notification.created_at,
     }
+
+
+@router.delete("/{notification_id}")
+async def delete_notification(
+    notification_id: int, 
+    db: Session = Depends(get_db), 
+    _: str = Depends(verify_token)
+):
+    """Удаление конкретного уведомления."""
+    try:
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notification not found")
+
+        db.delete(notification)
+        db.commit()
+
+        logger.info(f"Уведомление #{notification_id} удалено")
+        return {"message": "Notification deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка при удалении уведомления #{notification_id}: {e}")
+        raise HTTPException(
+            status_code=500, detail="Failed to delete notification"
+        )

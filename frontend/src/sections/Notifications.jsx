@@ -339,6 +339,66 @@ const Notifications = ({
     }
   };
 
+  // Функции массового выбора
+  const handleToggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedNotifications(new Set());
+  };
+
+  const handleSelectNotification = (notificationId, isSelected) => {
+    const newSelected = new Set(selectedNotifications);
+    if (isSelected) {
+      newSelected.add(notificationId);
+    } else {
+      newSelected.delete(notificationId);
+    }
+    setSelectedNotifications(newSelected);
+  };
+
+  const handleSelectAll = (isSelected) => {
+    if (isSelected) {
+      const allIds = new Set(currentNotifications.map(n => n.id));
+      setSelectedNotifications(allIds);
+    } else {
+      setSelectedNotifications(new Set());
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedArray = Array.from(selectedNotifications);
+    setIsDeleting(true);
+    
+    try {
+      const promises = selectedArray.map(notificationId => notificationApi.delete(notificationId));
+      await Promise.all(promises);
+
+      toast({
+        title: 'Успешно',
+        description: `Удалено уведомлений: ${selectedArray.length}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setSelectedNotifications(new Set());
+      setIsSelectionMode(false);
+      await onRefresh();
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось удалить выбранные уведомления',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsDeleting(false);
+      onBulkDeleteClose();
+    }
+  };
+
+  const isAllSelected = currentNotifications.length > 0 && selectedNotifications.size === currentNotifications.length;
+  const isIndeterminate = selectedNotifications.size > 0 && selectedNotifications.size < currentNotifications.length;
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
   return (
@@ -354,6 +414,16 @@ const Notifications = ({
                   )}
                 </Heading>
                 <HStack spacing={2}>
+                  <Button
+                    leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
+                    onClick={handleToggleSelectionMode}
+                    colorScheme={isSelectionMode ? "gray" : "purple"}
+                    variant="outline"
+                    size="sm"
+                    isDisabled={currentNotifications.length === 0}
+                  >
+                    {isSelectionMode ? 'Отменить' : 'Выбрать'}
+                  </Button>
                   <Button
                     leftIcon={<FiCheckCircle />}
                     colorScheme="green"
@@ -432,6 +502,48 @@ const Notifications = ({
                   Непрочитанных: {unreadCount}
                 </AlertDescription>
               </Alert>
+
+              {/* Панель массовых действий */}
+              {isSelectionMode && (
+                <Box
+                  bg="purple.50"
+                  borderWidth="1px"
+                  borderColor="purple.200"
+                  borderRadius="lg"
+                  p={4}
+                >
+                  <HStack justify="space-between" align="center" wrap="wrap">
+                    <HStack spacing={4}>
+                      <Text fontSize="sm" fontWeight="medium" color="purple.700">
+                        {selectedNotifications.size > 0 
+                          ? `Выбрано: ${selectedNotifications.size} из ${currentNotifications.length}`
+                          : 'Выберите уведомления для удаления'
+                        }
+                      </Text>
+                      <Checkbox
+                        isChecked={isAllSelected}
+                        isIndeterminate={isIndeterminate}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        colorScheme="purple"
+                      >
+                        Выбрать все на странице
+                      </Checkbox>
+                    </HStack>
+                    
+                    {selectedNotifications.size > 0 && (
+                      <Button
+                        leftIcon={<Icon as={FiTrash2} />}
+                        onClick={onBulkDeleteOpen}
+                        colorScheme="red"
+                        size="sm"
+                        variant="outline"
+                      >
+                        Удалить выбранные ({selectedNotifications.size})
+                      </Button>
+                    )}
+                  </HStack>
+                </Box>
+              )}
             </VStack>
           </CardHeader>
 
@@ -450,6 +562,7 @@ const Notifications = ({
                 currentNotifications.map(notification => {
                   const IconComponent = getNotificationIcon(notification);
                   const iconColor = getNotificationIconColor(notification);
+                  const isSelected = selectedNotifications.has(notification.id);
 
                   return (
                     <Box
@@ -458,17 +571,36 @@ const Notifications = ({
                       borderRadius={styles.listItem.borderRadius}
                       border={styles.listItem.border}
                       borderColor={styles.listItem.borderColor}
-                      bg={notification.is_read ? colors.notification.readBg : colors.notification.unreadBg}
+                      bg={isSelectionMode && isSelected ? "purple.50" : (notification.is_read ? colors.notification.readBg : colors.notification.unreadBg)}
                       cursor={loadingNotification === notification.id ? "wait" : "pointer"}
-                      _hover={loadingNotification === notification.id ? {} : styles.listItem.hover}
+                      _hover={loadingNotification === notification.id ? {} : (isSelectionMode && isSelected ? {bg: "purple.100"} : styles.listItem.hover)}
                       transition={styles.listItem.transition}
-                      onClick={() => loadingNotification === notification.id ? null : handleNotificationClick(notification)}
+                      onClick={() => {
+                        if (loadingNotification === notification.id) return;
+                        if (isSelectionMode) {
+                          handleSelectNotification(notification.id, !isSelected);
+                        } else {
+                          handleNotificationClick(notification);
+                        }
+                      }}
                       borderLeft={!notification.is_read ? "4px solid" : "none"}
                       borderLeftColor={!notification.is_read ? "blue.400" : "transparent"}
                       opacity={loadingNotification === notification.id ? 0.7 : 1}
                     >
                       <HStack justify="space-between" align="start">
                         <HStack spacing={3} align="start" flex={1}>
+                          {isSelectionMode && (
+                            <Box pt={1}>
+                              <Checkbox
+                                isChecked={isSelected}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  handleSelectNotification(notification.id, e.target.checked);
+                                }}
+                                colorScheme="purple"
+                              />
+                            </Box>
+                          )}
                           <Box pt={1}>
                             <IconComponent size={16} color={iconColor} />
                           </Box>
@@ -614,6 +746,41 @@ const Notifications = ({
                 loadingText="Удаление..."
               >
                 Удалить все
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      {/* Диалог массового удаления */}
+      <AlertDialog
+        isOpen={isBulkDeleteOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onBulkDeleteClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader fontSize="lg" fontWeight="bold">
+              Удалить выбранные уведомления
+            </AlertDialogHeader>
+
+            <AlertDialogBody>
+              Вы уверены, что хотите удалить {selectedNotifications.size} выбранных уведомлений? 
+              Это действие нельзя отменить.
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onBulkDeleteClose}>
+                Отменить
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleBulkDelete}
+                ml={3}
+                isLoading={isDeleting}
+                loadingText="Удаление..."
+              >
+                Удалить
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

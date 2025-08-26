@@ -224,42 +224,49 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
             </Text>
           </VStack>
 
-          <HStack spacing={4}>
-            <InputGroup maxWidth="300px">
-              <InputLeftElement pointerEvents="none">
-                <FiSearch color="gray.300" />
-              </InputLeftElement>
-              <Input
-                placeholder="Поиск по ФИО, телефону, email, ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </InputGroup>
+          <VStack spacing={3} align="end">
+            <HStack spacing={4}>
+              <InputGroup maxWidth="300px">
+                <InputLeftElement pointerEvents="none">
+                  <FiSearch color="gray.300" />
+                </InputLeftElement>
+                <Input
+                  placeholder="Поиск по ФИО, телефону, email, ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </InputGroup>
 
-            <Select
-              value={itemsPerPage}
-              onChange={(e) => setItemsPerPage(Number(e.target.value))}
-              width="150px"
-            >
-              <option value={10}>по 10</option>
-              <option value={20}>по 20</option>
-              <option value={50}>по 50</option>
-              <option value={100}>по 100</option>
-            </Select>
-
-            {canDeleteUsers && (
-              <Button
-                size="sm"
-                leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
-                onClick={handleToggleSelectionMode}
-                colorScheme={isSelectionMode ? "gray" : "purple"}
-                variant="outline"
-                isDisabled={currentUsers.length === 0}
+              <Select
+                value={itemsPerPage}
+                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                width="150px"
               >
-                {isSelectionMode ? 'Отменить' : 'Выбрать'}
-              </Button>
-            )}
-          </HStack>
+                <option value={10}>по 10</option>
+                <option value={20}>по 20</option>
+                <option value={50}>по 50</option>
+                <option value={100}>по 100</option>
+              </Select>
+            </HStack>
+
+            <HStack spacing={3}>
+              <Text fontSize="sm" color="gray.500">
+                Показано: {currentUsers.length} из {filteredUsers.length}
+              </Text>
+              {canDeleteUsers && (
+                <Button
+                  size="sm"
+                  leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
+                  onClick={handleToggleSelectionMode}
+                  colorScheme={isSelectionMode ? "gray" : "purple"}
+                  variant="outline"
+                  isDisabled={currentUsers.length === 0}
+                >
+                  {isSelectionMode ? 'Отменить' : 'Выбрать'}
+                </Button>
+              )}
+            </HStack>
+          </VStack>
         </HStack>
 
         {/* Панель массовых действий */}
