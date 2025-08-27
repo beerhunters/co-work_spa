@@ -130,6 +130,38 @@ sudo systemctl start fail2ban
 # sudo systemctl restart ssh
 ```
 
+#### Настройка Docker
+
+```bash
+# Установка Docker (если не установлен)
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+
+# Настройка Docker daemon с DNS
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "dns": ["8.8.8.8", "8.8.4.4", "1.1.1.1"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  },
+  "storage-driver": "overlay2"
+}
+EOF
+
+# Перезапуск Docker для применения настроек
+sudo systemctl restart docker
+sudo systemctl enable docker
+
+# Логин в Docker Hub (если нужно)
+docker login
+```
+
+⚠️ **Важно**: После добавления пользователя в группу docker необходимо перелогиниться!
+
 ### Автоматическое развертывание
 
 #### Вариант 1: Полная автоматическая установка
@@ -306,6 +338,9 @@ docker-compose -f docker-compose.production.yml exec certbot certbot renew
 3. **Домен:** Убедитесь, что домен корректно указывает на IP сервера перед получением SSL
 4. **Файрвол:** Откройте порты 80 и 443 в файрволе сервера
 5. **Ресурсы:** Убедитесь, что у сервера достаточно RAM (рекомендуется минимум 2GB)
+6. **Docker:** После добавления в группу docker обязательно перелогиньтесь
+7. **DNS:** Настройка DNS в daemon.json помогает избежать проблем с разрешением имен
+8. **Docker Hub:** Если используете приватные репозитории, выполните `docker login`
 
 ---
 
@@ -377,4 +412,40 @@ sudo firewall-cmd --list-all
 sudo firewall-cmd --permanent --add-port=80/tcp
 sudo firewall-cmd --permanent --add-port=443/tcp
 sudo firewall-cmd --reload
+```
+
+### Проблема: Docker не может резолвить DNS
+```bash
+# Проверяем текущую конфигурацию
+cat /etc/docker/daemon.json
+
+# Добавляем DNS серверы
+sudo tee /etc/docker/daemon.json > /dev/null <<EOF
+{
+  "dns": ["8.8.8.8", "8.8.4.4", "1.1.1.1"],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+# Перезапускаем Docker
+sudo systemctl restart docker
+
+# Проверяем работу
+docker run --rm busybox nslookup google.com
+```
+
+### Проблема: Docker Hub недоступен
+```bash
+# Проверяем подключение к Docker Hub
+docker pull hello-world
+
+# Если ошибка авторизации
+docker login
+
+# Проверяем настройки proxy (если используете)
+docker info | grep -i proxy
 ```

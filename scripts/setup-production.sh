@@ -96,6 +96,7 @@ print_status "Настройка Docker для production..."
 sudo mkdir -p /etc/docker
 sudo tee /etc/docker/daemon.json > /dev/null <<EOF
 {
+  "dns": ["8.8.8.8", "8.8.4.4", "1.1.1.1"],
   "log-driver": "json-file",
   "log-opts": {
     "max-size": "10m",
@@ -107,6 +108,17 @@ EOF
 
 sudo systemctl restart docker || true
 sudo systemctl enable docker || true
+
+# Проверка логина в Docker Hub
+print_status "Проверка авторизации Docker Hub..."
+if ! docker info >/dev/null 2>&1; then
+    print_warning "Docker недоступен (возможно требуется перелогин для применения группы docker)"
+elif docker pull hello-world:latest >/dev/null 2>&1; then
+    docker rmi hello-world:latest >/dev/null 2>&1
+    print_status "Доступ к Docker Hub работает"
+else
+    print_warning "Возможны проблемы с Docker Hub. При необходимости выполните: docker login"
+fi
 
 # 5. Настройка firewall
 print_status "Настройка firewall..."
