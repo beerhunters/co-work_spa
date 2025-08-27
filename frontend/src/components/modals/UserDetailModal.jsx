@@ -25,8 +25,7 @@ import { FiEdit, FiTrash2, FiUpload, FiExternalLink } from 'react-icons/fi';
 import { userApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
 
-// const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost/api';
-const API_BASE_URL = 'https://parta.webhop.me/api';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost/api';
 
 // Утилита для получения URL аватара с защитой от кэширования
 const getAvatarUrl = (avatar, forceRefresh = false) => {
