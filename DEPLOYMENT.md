@@ -214,6 +214,8 @@ docker login
    - `BOT_TOKEN` - токен Telegram бота
    - `ADMIN_TELEGRAM_ID` - ваш Telegram ID
    - `ADMIN_PASSWORD` - пароль администратора
+   - `COWORKING_DIR` - полный путь к директории проекта (например, `/opt/coworking`)
+   - `DOMAIN_NAME` - ваш домен для SSL сертификатов
 
 3. **Получаем SSL (если используете домен):**
    ```bash

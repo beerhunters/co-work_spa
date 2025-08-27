@@ -222,6 +222,7 @@ services:
       - FRONTEND_URL=https://${DOMAIN_NAME}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DOMAIN_NAME=${DOMAIN_NAME}
+      - domain_name=${DOMAIN_NAME}
     ports:
       - "80:80"
       - "443:443"
@@ -286,37 +287,37 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ${PWD}/data
+      device: ${COWORKING_DIR:-/opt/coworking}/data
   avatars_volume:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${PWD}/avatars
+      device: ${COWORKING_DIR:-/opt/coworking}/avatars
   ticket_photos_volume:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${PWD}/ticket_photos
+      device: ${COWORKING_DIR:-/opt/coworking}/ticket_photos
   newsletter_photos_volume:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${PWD}/newsletter_photos
+      device: ${COWORKING_DIR:-/opt/coworking}/newsletter_photos
   logs_volume:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${PWD}/logs
+      device: ${COWORKING_DIR:-/opt/coworking}/logs
   config_volume:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: ${PWD}/config
+      device: ${COWORKING_DIR:-/opt/coworking}/config
   redis_data:
     driver: local
 
