@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 // Базовый URL по умолчанию на случай fallback-инициализации
-const DEFAULT_API_BASE_URL = 'http://localhost/api';
+const DEFAULT_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost/api';
 
 // Работа с токеном в localStorage
 export const getAuthToken = () => localStorage.getItem('authToken');
