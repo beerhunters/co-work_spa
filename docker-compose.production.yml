@@ -175,11 +175,11 @@ services:
       - RULES_URL=${RULES_URL}
 
       # Email (опционально)
-      - EMAIL_HOST=${EMAIL_HOST}
-      - EMAIL_PORT=${EMAIL_PORT:-587}
-      - EMAIL_USER=${EMAIL_USER}
-      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
-      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
+#      - EMAIL_HOST=${EMAIL_HOST}
+#      - EMAIL_PORT=${EMAIL_PORT:-587}
+#      - EMAIL_USER=${EMAIL_USER}
+#      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+#      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
     ports:
       - "${PORT:-8000}:8000"
     volumes:
