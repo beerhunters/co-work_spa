@@ -136,23 +136,23 @@ elif check_command firewall-cmd; then
     sudo firewall-cmd --reload
 fi
 
-# 6. Создание директории проекта
-PROJECT_DIR="/opt/coworking"
-if [ ! -d "$PROJECT_DIR" ]; then
-    print_status "Создание директории проекта..."
-    sudo mkdir -p $PROJECT_DIR
-    sudo chown $USER:$USER $PROJECT_DIR
+# 6. Проверка, что мы находимся в директории проекта
+if [ ! -f "docker-compose.production.yml" ] || [ ! -f ".env.production.example" ]; then
+    print_error "Скрипт должен запускаться из корневой директории проекта!"
+    print_status "Убедитесь, что вы находитесь в папке с файлами docker-compose.production.yml и .env.production.example"
+    print_status "Например: cd ~/co-work_spa && ./scripts/setup-production.sh"
+    exit 1
 fi
 
-cd $PROJECT_DIR
+PROJECT_DIR=$(pwd)
+print_status "Работаем в директории: $PROJECT_DIR"
 
-# 7. Клонирование или обновление репозитория
-if [ ! -d ".git" ]; then
-    print_status "Клонирование репозитория..."
-    git clone https://github.com/beerhunters/co-work_spa.git .
-else
+# 7. Обновление репозитория (если это git репозиторий)
+if [ -d ".git" ]; then
     print_status "Обновление репозитория..."
-    git pull origin main
+    git pull origin main || print_warning "Не удалось обновить репозиторий (возможно есть локальные изменения)"
+else
+    print_status "Проект не является git репозиторием, пропускаем обновление"
 fi
 
 # 8. Создание необходимых директорий
@@ -179,6 +179,7 @@ if [ ! -f ".env.production" ]; then
     if [ -n "$DOMAIN_NAME" ] && [ -n "$SSL_EMAIL" ]; then
         sed -i "s/your-domain.com/$DOMAIN_NAME/g" .env.production
         sed -i "s/your-email@example.com/$SSL_EMAIL/g" .env.production
+        sed -i "s|/opt/coworking|$PROJECT_DIR|g" .env.production
         print_status "Домен установлен: $DOMAIN_NAME"
         print_status "Email установлен: $SSL_EMAIL"
     else
@@ -238,7 +239,7 @@ chmod +x check-status.sh
 # Скрипт бэкапа
 cat > backup-system.sh << 'EOF'
 #!/bin/bash
-BACKUP_DIR="/opt/coworking/backups"
+BACKUP_DIR="\$PROJECT_DIR/backups"
 DATE=$(date +"%Y%m%d_%H%M%S")
 
 mkdir -p $BACKUP_DIR
@@ -361,7 +362,7 @@ After=docker.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=/opt/coworking
+WorkingDirectory=$PROJECT_DIR
 ExecStart=/usr/local/bin/docker-compose -f docker-compose.production.yml --env-file .env.production up -d
 ExecStop=/usr/local/bin/docker-compose -f docker-compose.production.yml --env-file .env.production down
 TimeoutStartSec=0
@@ -377,7 +378,7 @@ sudo systemctl enable coworking.service
 
 # 12. Настройка автоматических бэкапов
 print_status "Настройка автоматических бэкапов..."
-(crontab -l 2>/dev/null | grep -v "backup-system.sh"; echo "0 2 * * * /opt/coworking/backup-system.sh >> /opt/coworking/logs/backup.log 2>&1") | crontab - || true
+(crontab -l 2>/dev/null | grep -v "backup-system.sh"; echo "0 2 * * * $PROJECT_DIR/backup-system.sh >> $PROJECT_DIR/logs/backup.log 2>&1") | crontab - || true
 
 # 13. Финальная проверка
 print_status "Проверка настройки Docker группы..."
