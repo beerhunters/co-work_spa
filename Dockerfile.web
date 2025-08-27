@@ -29,7 +29,43 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Финальный этап
+# Этап разработки с дополнительными инструментами
+FROM base AS development
+
+WORKDIR /app
+
+# Устанавливаем инструменты для разработки
+RUN apt-get update && apt-get install -y \
+    gcc \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Копируем requirements.txt
+COPY requirements.txt .
+
+# Устанавливаем зависимости
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Создаем необходимые директории
+RUN mkdir -p /app/data /app/logs /app/avatars /app/ticket_photos /app/newsletter_photos && \
+    chown -R appuser:appuser /app
+
+# Копируем весь исходный код для разработки
+COPY --chown=appuser:appuser . .
+
+# Переключаемся на непривилегированного пользователя
+USER appuser
+
+# Открываем порт
+EXPOSE 8000
+
+# Команда запуска в режиме разработки с автоперезагрузкой
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# Финальный этап для продакшена
 FROM base AS production
 
 WORKDIR /app

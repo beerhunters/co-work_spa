@@ -29,8 +29,21 @@ print_error() {
 # Проверка прав root
 if [[ $EUID -eq 0 ]]; then
    print_error "Этот скрипт не должен запускаться от имени root!"
-   print_status "Используйте: ./setup-production.sh"
+   print_status "Создайте отдельного пользователя:"
+   print_status "  adduser coworking"
+   print_status "  usermod -aG sudo coworking" 
+   print_status "  su - coworking"
+   print_status "Затем запустите: ./setup-production.sh"
    exit 1
+fi
+
+# Проверка sudo доступа
+if ! sudo -n true 2>/dev/null; then
+    print_error "Пользователь $USER не имеет sudo доступа!"
+    print_status "Добавьте пользователя в группу sudo:"
+    print_status "  usermod -aG sudo $USER"
+    print_status "Затем перелогиньтесь и повторите попытку"
+    exit 1
 fi
 
 # Функция проверки команды
@@ -136,33 +149,46 @@ mkdir -p data avatars ticket_photos newsletter_photos logs config
 chmod -R 755 data avatars ticket_photos newsletter_photos logs config
 
 # 9. Настройка переменных окружения
-if [ ! -f ".env" ]; then
+if [ ! -f ".env.production" ]; then
     print_status "Создание файла конфигурации..."
-    cp .env.production .env
-    
-    # Автоматическое определение IP
-    EXTERNAL_IP=$(curl -s ifconfig.me || curl -s ipinfo.io/ip || curl -s icanhazip.com)
-    if [ -n "$EXTERNAL_IP" ]; then
-        print_status "Обнаружен внешний IP: $EXTERNAL_IP"
-        sed -i "s/YOUR_SERVER_IP/$EXTERNAL_IP/g" .env
+    if [ -f ".env.production.example" ]; then
+        cp .env.production.example .env.production
     else
-        print_warning "Не удалось определить внешний IP автоматически"
-        print_status "Пожалуйста, отредактируйте .env файл вручную"
+        print_error "Файл .env.production.example не найден!"
+        exit 1
+    fi
+    
+    # Запрос домена
+    echo ""
+    print_status "Настройка SSL сертификата..."
+    read -p "Введите ваш домен (например: example.com): " DOMAIN_NAME
+    read -p "Введите email для Let's Encrypt уведомлений: " SSL_EMAIL
+    
+    if [ -n "$DOMAIN_NAME" ] && [ -n "$SSL_EMAIL" ]; then
+        sed -i "s/your-domain.com/$DOMAIN_NAME/g" .env.production
+        sed -i "s/your-email@example.com/$SSL_EMAIL/g" .env.production
+        print_status "Домен установлен: $DOMAIN_NAME"
+        print_status "Email установлен: $SSL_EMAIL"
+    else
+        print_warning "Домен или email не указаны. Отредактируйте .env.production вручную."
     fi
     
     # Генерация безопасных ключей
     SECRET_KEY=$(openssl rand -hex 32)
     SECRET_JWT_KEY=$(openssl rand -hex 32)
     
-    sed -i "s/your-very-strong-secret-key-here-at-least-32-chars-please-change-this/$SECRET_KEY/g" .env
-    sed -i "s/your-jwt-secret-key-here-different-from-above-please-change-this/$SECRET_JWT_KEY/g" .env
+    sed -i "s/your-super-secret-key-here/$SECRET_KEY/g" .env.production
+    sed -i "s/your-jwt-secret-key-here/$SECRET_JWT_KEY/g" .env.production
     
-    print_warning "ВАЖНО! Отредактируйте .env файл и укажите:"
+    print_status "Секретные ключи сгенерированы и установлены"
+    
+    print_warning "ВАЖНО! Отредактируйте .env.production файл и укажите:"
     print_warning "- BOT_TOKEN (получите у @BotFather)"
-    print_warning "- ADMIN_TELEGRAM_ID (узнайте у @userinfobot)"
+    print_warning "- ADMIN_TELEGRAM_ID (узнайте у @userinfobot)" 
     print_warning "- ADMIN_PASSWORD (установите надежный пароль)"
+    print_warning "- Другие необходимые API ключи"
 else
-    print_status "Файл .env уже существует"
+    print_status "Файл .env.production уже существует"
 fi
 
 # 10. Создание скриптов управления
@@ -172,17 +198,27 @@ print_status "Создание скриптов управления..."
 cat > check-status.sh << 'EOF'
 #!/bin/bash
 echo "🏥 Статус сервисов:"
-docker-compose -f docker-compose.production.yml ps
+docker-compose -f docker-compose.production.yml --env-file .env.production ps
 
 echo -e "\n📊 Использование ресурсов:"
 docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
 
 echo -e "\n🔍 Последние логи (ERROR/CRITICAL):"
-docker-compose -f docker-compose.production.yml logs --tail=20 | grep -E "(ERROR|CRITICAL)" || echo "Ошибок не найдено"
+docker-compose -f docker-compose.production.yml --env-file .env.production logs --tail=20 | grep -E "(ERROR|CRITICAL)" || echo "Ошибок не найдено"
 
 echo -e "\n🌐 Проверка доступности:"
-curl -s -o /dev/null -w "API Health: %{http_code}\n" http://localhost:8000/health || echo "API недоступен"
+curl -s -o /dev/null -w "API Health: %{http_code}\n" http://localhost:8000/ || echo "API недоступен"
 curl -s -o /dev/null -w "Frontend: %{http_code}\n" http://localhost/ || echo "Frontend недоступен"
+
+# Проверка SSL сертификата если есть домен
+if [ -f ".env.production" ]; then
+    DOMAIN=$(grep "DOMAIN_NAME=" .env.production | cut -d'=' -f2)
+    if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "your-domain.com" ]; then
+        echo -e "\n🔒 Проверка SSL сертификата:"
+        curl -s -o /dev/null -w "HTTPS Status: %{http_code}\n" https://$DOMAIN || echo "HTTPS недоступен"
+        echo "SSL cert expires: $(openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d'=' -f2 || echo 'Не удается проверить')"
+    fi
+fi
 EOF
 
 chmod +x check-status.sh
@@ -207,7 +243,7 @@ tar -czf $BACKUP_DIR/data_backup_$DATE.tar.gz \
     --exclude='logs/app.log.*' 2>/dev/null || true
 
 # Бэкап базы данных через контейнер
-docker-compose -f docker-compose.production.yml exec -T web python -c "
+docker-compose -f docker-compose.production.yml --env-file .env.production exec -T web python -c "
 import sys
 sys.path.append('/app')
 try:
@@ -239,7 +275,7 @@ echo "📦 Создание бэкапа..."
 
 # Остановка сервисов
 echo "⏹️ Остановка сервисов..."
-docker-compose -f docker-compose.production.yml down
+docker-compose -f docker-compose.production.yml --env-file .env.production down
 
 # Получение обновлений
 echo "⬇️ Загрузка обновлений..."
@@ -249,10 +285,10 @@ git stash pop || echo "⚠️ Конфликты при восстановлен
 
 # Пересборка и перезапуск
 echo "🔨 Пересборка образов..."
-docker-compose -f docker-compose.production.yml build --no-cache
+docker-compose -f docker-compose.production.yml --env-file .env.production build --no-cache
 
 echo "🚀 Запуск сервисов..."
-docker-compose -f docker-compose.production.yml up -d
+docker-compose -f docker-compose.production.yml --env-file .env.production up -d
 
 # Проверка статуса
 echo "⏱️ Ожидание запуска сервисов..."
@@ -263,6 +299,44 @@ echo "✅ Обновление завершено!"
 EOF
 
 chmod +x update-system.sh
+
+# Скрипты быстрого запуска/остановки
+cat > start.sh << 'EOF'
+#!/bin/bash
+echo "🚀 Запуск Coworking Management System..."
+docker-compose -f docker-compose.production.yml --env-file .env.production up -d
+echo "⏱️ Ожидание запуска сервисов..."
+sleep 10
+./check-status.sh
+EOF
+
+cat > stop.sh << 'EOF'
+#!/bin/bash
+echo "⏹️ Остановка Coworking Management System..."
+docker-compose -f docker-compose.production.yml --env-file .env.production down
+echo "✅ Сервисы остановлены"
+EOF
+
+cat > restart.sh << 'EOF'
+#!/bin/bash
+echo "🔄 Перезапуск Coworking Management System..."
+./stop.sh
+sleep 5
+./start.sh
+EOF
+
+cat > logs.sh << 'EOF'
+#!/bin/bash
+if [ "$1" = "" ]; then
+    echo "📋 Все логи:"
+    docker-compose -f docker-compose.production.yml --env-file .env.production logs -f
+else
+    echo "📋 Логи сервиса $1:"
+    docker-compose -f docker-compose.production.yml --env-file .env.production logs -f $1
+fi
+EOF
+
+chmod +x start.sh stop.sh restart.sh logs.sh
 
 # 11. Создание systemd сервиса
 print_status "Создание systemd сервиса для автозапуска..."
@@ -276,8 +350,8 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/coworking
-ExecStart=/usr/local/bin/docker-compose -f docker-compose.production.yml up -d
-ExecStop=/usr/local/bin/docker-compose -f docker-compose.production.yml down
+ExecStart=/usr/local/bin/docker-compose -f docker-compose.production.yml --env-file .env.production up -d
+ExecStop=/usr/local/bin/docker-compose -f docker-compose.production.yml --env-file .env.production down
 TimeoutStartSec=0
 User=$USER
 Group=$USER
@@ -306,34 +380,64 @@ echo ""
 print_status "🎉 Настройка сервера завершена!"
 echo ""
 echo "📋 СЛЕДУЮЩИЕ ШАГИ:"
-echo "1. Отредактируйте файл .env:"
-echo "   nano .env"
+echo "1. Отредактируйте файл .env.production:"
+echo "   nano .env.production"
 echo ""
-echo "2. Обязательно укажите в .env:"
+echo "2. Обязательно укажите в .env.production:"
 echo "   - BOT_TOKEN=ваш_токен_бота"
 echo "   - ADMIN_TELEGRAM_ID=ваш_telegram_id"
 echo "   - ADMIN_PASSWORD=надежный_пароль"
 echo ""
-echo "3. Запустите систему:"
-echo "   docker-compose -f docker-compose.production.yml up -d"
+echo "3. Получите SSL сертификаты (если используете домен):"
+echo "   ./setup-ssl.sh"
 echo ""
-echo "4. Проверьте статус:"
+echo "4. Запустите систему:"
+echo "   docker-compose -f docker-compose.production.yml --env-file .env.production up -d"
+echo ""
+echo "5. Проверьте статус:"
 echo "   ./check-status.sh"
 echo ""
 echo "📁 Полезные команды:"
+echo "   ./start.sh            - запуск системы"
+echo "   ./stop.sh             - остановка системы"
+echo "   ./restart.sh          - перезапуск системы"
 echo "   ./check-status.sh     - проверка статуса"
+echo "   ./logs.sh [service]   - просмотр логов"
 echo "   ./backup-system.sh    - создание бэкапа"
 echo "   ./update-system.sh    - обновление системы"
 echo ""
 print_status "🌐 После запуска система будет доступна на:"
-if [ -n "$EXTERNAL_IP" ]; then
-    echo "   Frontend: http://$EXTERNAL_IP"
-    echo "   API: http://$EXTERNAL_IP:8000"
-    echo "   Docs: http://$EXTERNAL_IP:8000/docs"
+
+# Определяем URL на основе настроек
+if [ -f ".env.production" ] && grep -q "DOMAIN_NAME=" .env.production; then
+    DOMAIN=$(grep "DOMAIN_NAME=" .env.production | cut -d'=' -f2)
+    if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "your-domain.com" ]; then
+        echo "   Frontend: https://$DOMAIN"
+        echo "   API: https://$DOMAIN/api"
+        echo "   Docs: https://$DOMAIN/docs"
+        echo ""
+        print_warning "Не забудьте получить SSL сертификат: ./setup-ssl.sh"
+    else
+        if [ -n "$EXTERNAL_IP" ]; then
+            echo "   Frontend: http://$EXTERNAL_IP"
+            echo "   API: http://$EXTERNAL_IP:8000"
+            echo "   Docs: http://$EXTERNAL_IP:8000/docs"
+        else
+            echo "   Frontend: http://your_server_ip"
+            echo "   API: http://your_server_ip:8000"
+            echo "   Docs: http://your_server_ip:8000/docs"
+        fi
+    fi
 else
-    echo "   Frontend: http://your_server_ip"
-    echo "   API: http://your_server_ip:8000"
-    echo "   Docs: http://your_server_ip:8000/docs"
+    if [ -n "$EXTERNAL_IP" ]; then
+        echo "   Frontend: http://$EXTERNAL_IP"
+        echo "   API: http://$EXTERNAL_IP:8000"
+        echo "   Docs: http://$EXTERNAL_IP:8000/docs"
+    else
+        echo "   Frontend: http://your_server_ip"
+        echo "   API: http://your_server_ip:8000"
+        echo "   Docs: http://your_server_ip:8000/docs"
+    fi
 fi
 echo ""
 print_warning "⚠️ Если добавлен в группу docker - ПЕРЕЛОГИНЬТЕСЬ для применения изменений!"

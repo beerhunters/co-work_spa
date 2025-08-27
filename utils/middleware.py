@@ -7,7 +7,7 @@ import uuid
 from typing import Callable
 from datetime import datetime
 
-from fastapi import Request, Response
+from fastapi import Request, Response, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
@@ -84,8 +84,26 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         return any(path.startswith(pattern) for pattern in skip_patterns)
 
+    def _is_internal_request(self, request: Request) -> bool:
+        """Проверяет, является ли запрос внутренним (от Docker контейнера)"""
+        client_ip = request.client.host if request.client else ""
+        user_agent = request.headers.get("user-agent", "").lower()
+        
+        # Docker внутренние IP
+        internal_ips = ["172.", "127.0.0.1", "localhost"]
+        is_internal_ip = any(client_ip.startswith(ip) for ip in internal_ips)
+        
+        # Python requests из бота
+        is_bot_request = "python" in user_agent or "aiohttp" in user_agent
+        
+        return is_internal_ip and is_bot_request
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if not self.enabled or self._should_skip_rate_limit(request.url.path):
+            return await call_next(request)
+
+        # Пропускаем rate limiting для внутренних запросов
+        if self._is_internal_request(request):
             return await call_next(request)
 
         # Определяем правило rate limiting
@@ -109,15 +127,22 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
             return response
 
-        except Exception as e:
-            # Rate limit exceeded или другая ошибка
-            if hasattr(e, "status_code") and e.status_code == 429:
-                # Это HTTPException от rate limiter
-                raise
+        except HTTPException as e:
+            # Rate limit exceeded - правильно возвращаем 429
+            if e.status_code == 429:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=429,
+                    content=e.detail,
+                    headers=getattr(e, 'headers', {})
+                )
             else:
-                # Другая ошибка - логируем и продолжаем
-                logger.error(f"Rate limit middleware error: {e}")
-                return await call_next(request)
+                # Другая HTTPException - пробрасываем дальше
+                raise
+        except Exception as e:
+            # Непредвиденная ошибка - логируем и продолжаем
+            logger.error(f"Rate limit middleware error: {e}")
+            return await call_next(request)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
