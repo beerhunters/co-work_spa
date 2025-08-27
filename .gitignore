@@ -167,3 +167,5 @@ web/static/
 web/static/adminlte/
 avatars/
 /config/logging_config.json
+.env.local
+.env.production
