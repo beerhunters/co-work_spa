@@ -160,6 +160,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      target: development
       args:
         - REACT_APP_API_BASE_URL=http://localhost:8000/api
         - REACT_APP_FRONTEND_URL=http://localhost

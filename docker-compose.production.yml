@@ -215,6 +215,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
+      target: production
       args:
         - REACT_APP_API_BASE_URL=https://${DOMAIN_NAME}/api
         - REACT_APP_FRONTEND_URL=https://${DOMAIN_NAME}
@@ -229,8 +230,6 @@ services:
       # SSL сертификаты Let's Encrypt
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot
-      # Конфиг nginx с SSL
-      - ./nginx.production.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     depends_on:
       web:

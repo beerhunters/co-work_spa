@@ -19,7 +19,32 @@ COPY frontend/ ./
 # Собираем приложение
 RUN npm run build
 
-# Этап 3: Финальный образ с Nginx
+# Базовый образ для локальной разработки
+FROM nginx:1.29-alpine AS development
+
+# Устанавливаем curl для health checks
+RUN apk add --no-cache curl
+
+# Удаляем дефолтную конфигурацию Nginx
+RUN rm -rf /usr/share/nginx/html/*
+
+# Копируем собранное приложение
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Копируем локальную конфигурацию Nginx
+COPY nginx.local.conf /etc/nginx/conf.d/default.conf
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/ || exit 1
+
+# Открываем порт
+EXPOSE 80
+
+# Команда запуска
+CMD ["nginx", "-g", "daemon off;"]
+
+# Финальный образ для продакшена
 FROM nginx:1.29-alpine AS production
 
 # Устанавливаем curl для health checks
@@ -31,17 +56,15 @@ RUN rm -rf /usr/share/nginx/html/*
 # Копируем собранное приложение
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Копируем конфигурацию Nginx
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Копируем продакшенскую конфигурацию Nginx
+COPY nginx.production.conf /etc/nginx/conf.d/default.conf
 
-# Используем существующего пользователя nginx (он уже есть в nginx:alpine)
-
-# Health check
+# Health check для продакшена (проверяем HTTPS если доступен)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost/ || exit 1
 
-# Открываем порт
-EXPOSE 80
+# Открываем порты
+EXPOSE 80 443
 
-# Команда запуска (nginx автоматически переключится на пользователя nginx согласно конфигурации)
+# Команда запуска
 CMD ["nginx", "-g", "daemon off;"]

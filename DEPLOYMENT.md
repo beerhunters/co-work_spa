@@ -331,10 +331,10 @@ docker-compose -f docker-compose.production.yml exec certbot certbot renew
 ## 🛠 Структура файлов
 
 ```
-├── docker-compose.local.yml      # Локальная разработка
-├── docker-compose.production.yml # Продакшн сервер  
-├── nginx.local.conf             # Nginx для localhost
-├── nginx.production.conf        # Nginx с SSL для продакшена
+├── docker-compose.local.yml      # Локальная разработка (target: development)
+├── docker-compose.production.yml # Продакшн сервер (target: production) 
+├── nginx.local.conf             # Nginx для localhost (встраивается в development образ)
+├── nginx.production.conf        # Nginx с SSL (встраивается в production образ)
 ├── .env.local.example           # Пример переменных для локальной разработки
 ├── .env.production.example      # Пример переменных для продакшена
 ├── setup-ssl.sh                 # Скрипт получения SSL сертификата
@@ -372,6 +372,7 @@ docker-compose -f docker-compose.production.yml exec certbot certbot renew
 6. **Docker:** После добавления в группу docker обязательно перелогиньтесь
 7. **DNS:** Настройка DNS в daemon.json помогает избежать проблем с разрешением имен
 8. **Docker Hub:** Если используете приватные репозитории, выполните `docker login`
+9. **Nginx конфиги:** Автоматически встраиваются в образы (nginx.local.conf для development, nginx.production.conf для production)
 
 ---
 
