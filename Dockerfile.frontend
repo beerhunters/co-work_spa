@@ -57,13 +57,7 @@ RUN rm -rf /usr/share/nginx/html/*
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 # Копируем продакшенскую конфигурацию как шаблон
-COPY nginx.production.conf /etc/nginx/conf.d/default.conf.template
-
-# Создаем скрипт запуска который подставляет переменные
-RUN echo '#!/bin/sh' > /docker-entrypoint-custom.sh && \
-    echo 'envsubst "\$DOMAIN_NAME" < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf' >> /docker-entrypoint-custom.sh && \
-    echo 'exec "$@"' >> /docker-entrypoint-custom.sh && \
-    chmod +x /docker-entrypoint-custom.sh
+COPY nginx.production.conf /etc/nginx/templates/default.conf.template
 
 # Health check для продакшена (проверяем HTTPS если доступен)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -72,6 +66,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Открываем порты
 EXPOSE 80 443
 
-# Используем кастомный entrypoint для подстановки переменных
-ENTRYPOINT ["/docker-entrypoint-custom.sh"]
+# Nginx автоматически обработает шаблоны в /etc/nginx/templates/
 CMD ["nginx", "-g", "daemon off;"]
