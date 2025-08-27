@@ -2,6 +2,14 @@
 # Этап 1: Сборка фронтенда
 FROM node:18-alpine AS builder
 
+# Принимаем build arguments
+ARG REACT_APP_API_BASE_URL=http://localhost:8000/api
+ARG REACT_APP_FRONTEND_URL=http://localhost
+
+# Устанавливаем переменные окружения для React
+ENV REACT_APP_API_BASE_URL=$REACT_APP_API_BASE_URL
+ENV REACT_APP_FRONTEND_URL=$REACT_APP_FRONTEND_URL
+
 WORKDIR /app
 
 # Устанавливаем системные зависимости для Alpine
@@ -16,7 +24,7 @@ RUN npm install && npm cache clean --force
 # Копируем исходный код
 COPY frontend/ ./
 
-# Собираем приложение
+# Собираем приложение с переданными переменными
 RUN npm run build
 
 # Базовый образ для локальной разработки
