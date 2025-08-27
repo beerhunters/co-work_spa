@@ -373,6 +373,7 @@ docker-compose -f docker-compose.production.yml exec certbot certbot renew
 7. **DNS:** Настройка DNS в daemon.json помогает избежать проблем с разрешением имен
 8. **Docker Hub:** Если используете приватные репозитории, выполните `docker login`
 9. **Nginx конфиги:** Автоматически встраиваются в образы (nginx.local.conf для development, nginx.production.conf для production)
+10. **DOMAIN_NAME:** Обязательно укажите в .env.production для корректной работы SSL сертификатов
 
 ---
 
@@ -480,4 +481,16 @@ docker login
 
 # Проверяем настройки proxy (если используете)
 docker info | grep -i proxy
+```
+
+### Проблема: "unknown domain_name variable" в nginx
+```bash
+# Проверяем, что DOMAIN_NAME задан в .env.production
+grep DOMAIN_NAME .env.production
+
+# Если не задан, добавляем
+echo "DOMAIN_NAME=your-domain.com" >> .env.production
+
+# Пересобираем и перезапускаем frontend
+docker-compose -f docker-compose.production.yml --env-file .env.production up -d --build frontend
 ```

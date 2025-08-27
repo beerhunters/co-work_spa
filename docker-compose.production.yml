@@ -223,6 +223,7 @@ services:
       - API_BASE_URL=https://${DOMAIN_NAME}/api
       - FRONTEND_URL=https://${DOMAIN_NAME}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DOMAIN_NAME=${DOMAIN_NAME}
     ports:
       - "80:80"
       - "443:443"

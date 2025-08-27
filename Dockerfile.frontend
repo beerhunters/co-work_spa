@@ -47,8 +47,8 @@ CMD ["nginx", "-g", "daemon off;"]
 # Финальный образ для продакшена
 FROM nginx:1.29-alpine AS production
 
-# Устанавливаем curl для health checks
-RUN apk add --no-cache curl
+# Устанавливаем curl для health checks и gettext для envsubst
+RUN apk add --no-cache curl gettext
 
 # Удаляем дефолтную конфигурацию Nginx
 RUN rm -rf /usr/share/nginx/html/*
@@ -56,8 +56,14 @@ RUN rm -rf /usr/share/nginx/html/*
 # Копируем собранное приложение
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Копируем продакшенскую конфигурацию Nginx
-COPY nginx.production.conf /etc/nginx/conf.d/default.conf
+# Копируем продакшенскую конфигурацию как шаблон
+COPY nginx.production.conf /etc/nginx/conf.d/default.conf.template
+
+# Создаем скрипт запуска который подставляет переменные
+RUN echo '#!/bin/sh' > /docker-entrypoint-custom.sh && \
+    echo 'envsubst "\$DOMAIN_NAME" < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf' >> /docker-entrypoint-custom.sh && \
+    echo 'exec "$@"' >> /docker-entrypoint-custom.sh && \
+    chmod +x /docker-entrypoint-custom.sh
 
 # Health check для продакшена (проверяем HTTPS если доступен)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
@@ -66,5 +72,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Открываем порты
 EXPOSE 80 443
 
-# Команда запуска
+# Используем кастомный entrypoint для подстановки переменных
+ENTRYPOINT ["/docker-entrypoint-custom.sh"]
 CMD ["nginx", "-g", "daemon off;"]
