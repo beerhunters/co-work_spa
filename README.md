@@ -217,14 +217,17 @@ EMAIL_PASSWORD=your_app_password
 ### 3️⃣ Запуск
 
 ```bash
-# Запуск всех сервисов
+# Быстрый старт
+./scripts/start-local.sh
+
+# Или вручную
 docker-compose up -d
 
 # Проверка статуса
-docker-compose ps
+./scripts/status.sh
 
 # Просмотр логов
-docker-compose logs -f web
+./scripts/logs.sh web
 ```
 
 ### 4️⃣ Доступ к системе

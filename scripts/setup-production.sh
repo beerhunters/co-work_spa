@@ -1,11 +1,20 @@
 #!/bin/bash
 
 # 🚀 СКРИПТ АВТОМАТИЧЕСКОЙ НАСТРОЙКИ PRODUCTION СЕРВЕРА
-# Этот скрипт автоматизирует весь процесс настройки
+# Этот скрипт автоматизирует весь процесс настройки для новой унифицированной архитектуры
 
 set -e  # Остановка при любой ошибке
 
 echo "🚀 Начинаем настройку Coworking Management System на production сервере..."
+echo "   Используется новая унифицированная архитектура с environment-specific скриптами"
+echo ""
+
+# Получаем абсолютный путь к проекту (на уровень выше от scripts)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Переходим в корневую директорию проекта
+cd "$PROJECT_DIR"
 
 # Цвета для вывода
 RED='\033[0;31m'
@@ -32,6 +41,7 @@ if [[ $EUID -eq 0 ]]; then
    print_status "Создайте отдельного пользователя:"
    print_status "  adduser coworking"
    print_status "  usermod -aG sudo coworking" 
+   print_status "  usermod -aG docker coworking"
    print_status "  su - coworking"
    print_status "Затем запустите: ./setup-production.sh"
    exit 1
@@ -41,7 +51,7 @@ fi
 if ! sudo -n true 2>/dev/null; then
     print_error "Пользователь $USER не имеет sudo доступа!"
     print_status "Добавьте пользователя в группу sudo:"
-    print_status "  usermod -aG sudo $USER"
+    print_status "  sudo usermod -aG sudo $USER"
     print_status "Затем перелогиньтесь и повторите попытку"
     exit 1
 fi
@@ -58,13 +68,13 @@ check_command() {
 print_status "Обновление системы..."
 if check_command apt; then
     sudo apt update && sudo apt upgrade -y
-    sudo apt install -y curl wget git nano htop unzip software-properties-common
+    sudo apt install -y curl wget git nano htop unzip software-properties-common openssl
 elif check_command yum; then
     sudo yum update -y
-    sudo yum install -y curl wget git nano htop unzip
+    sudo yum install -y curl wget git nano htop unzip openssl
 elif check_command dnf; then
     sudo dnf update -y
-    sudo dnf install -y curl wget git nano htop unzip
+    sudo dnf install -y curl wget git nano htop unzip openssl
 else
     print_error "Неподдерживаемая система пакетов!"
     exit 1
@@ -113,6 +123,7 @@ sudo systemctl enable docker || true
 print_status "Проверка авторизации Docker Hub..."
 if ! docker info >/dev/null 2>&1; then
     print_warning "Docker недоступен (возможно требуется перелогин для применения группы docker)"
+    print_status "После перелогина выполните: docker login"
 elif docker pull hello-world:latest >/dev/null 2>&1; then
     docker rmi hello-world:latest >/dev/null 2>&1
     print_status "Доступ к Docker Hub работает"
@@ -128,19 +139,26 @@ if check_command ufw; then
     sudo ufw allow 443/tcp
     sudo ufw allow 8000/tcp
     sudo ufw --force enable
+    print_status "UFW firewall настроен (разрешены порты: SSH, 80, 443, 8000)"
 elif check_command firewall-cmd; then
     sudo firewall-cmd --permanent --add-service=ssh
     sudo firewall-cmd --permanent --add-port=80/tcp
     sudo firewall-cmd --permanent --add-port=443/tcp
     sudo firewall-cmd --permanent --add-port=8000/tcp
     sudo firewall-cmd --reload
+    print_status "Firewall настроен (разрешены порты: SSH, 80, 443, 8000)"
+else
+    print_warning "Firewall не найден. Убедитесь, что порты 80, 443, 8000 открыты!"
 fi
 
 # 6. Проверка, что мы находимся в директории проекта
-if [ ! -f "docker-compose.production.yml" ] || [ ! -f ".env.production.example" ]; then
+if [ ! -f "docker-compose.yml" ] || [ ! -f ".env" ]; then
     print_error "Скрипт должен запускаться из корневой директории проекта!"
-    print_status "Убедитесь, что вы находитесь в папке с файлами docker-compose.production.yml и .env.production.example"
-    print_status "Например: cd ~/co-work_spa && ./scripts/setup-production.sh"
+    print_status "Убедитесь, что вы находитесь в папке с файлами docker-compose.yml и .env"
+    print_status "Например:"
+    print_status "  git clone <your-repo-url> coworking"
+    print_status "  cd coworking"
+    print_status "  ./setup-production.sh"
     exit 1
 fi
 
@@ -159,199 +177,65 @@ fi
 print_status "Создание директорий для данных..."
 mkdir -p data avatars ticket_photos newsletter_photos logs config
 chmod -R 755 data avatars ticket_photos newsletter_photos logs config
+print_status "Созданы директории: data/, avatars/, ticket_photos/, newsletter_photos/, logs/, config/"
 
 # 9. Настройка переменных окружения
-if [ ! -f ".env.production" ]; then
-    print_status "Создание файла конфигурации..."
-    if [ -f ".env.production.example" ]; then
-        cp .env.production.example .env.production
-    else
-        print_error "Файл .env.production.example не найден!"
-        exit 1
-    fi
-    
-    # Запрос домена
-    echo ""
-    print_status "Настройка SSL сертификата..."
-    read -p "Введите ваш домен (например: example.com): " DOMAIN_NAME
+print_status "Настройка переменных окружения..."
+
+# Создание резервной копии .env если нужно
+if [ -f ".env" ]; then
+    cp .env .env.backup.$(date +%Y%m%d_%H%M%S)
+    print_status "Создана резервная копия .env файла"
+fi
+
+# Запрос домена и email
+echo ""
+print_status "Настройка SSL и домена..."
+read -p "Введите ваш домен (например: example.com, или оставьте пустым для localhost): " DOMAIN_NAME
+if [ -n "$DOMAIN_NAME" ]; then
     read -p "Введите email для Let's Encrypt уведомлений: " SSL_EMAIL
-    
-    if [ -n "$DOMAIN_NAME" ] && [ -n "$SSL_EMAIL" ]; then
-        sed -i "s/your-domain.com/$DOMAIN_NAME/g" .env.production
-        sed -i "s/your-email@example.com/$SSL_EMAIL/g" .env.production
-        sed -i "s|/opt/coworking|$PROJECT_DIR|g" .env.production
-        print_status "Домен установлен: $DOMAIN_NAME"
-        print_status "Email установлен: $SSL_EMAIL"
+fi
+
+# Обновление DOMAIN_NAME в .env
+if [ -n "$DOMAIN_NAME" ]; then
+    if grep -q "^DOMAIN_NAME=" .env; then
+        sed -i "s/^DOMAIN_NAME=.*/DOMAIN_NAME=$DOMAIN_NAME/" .env
     else
-        print_warning "Домен или email не указаны. Отредактируйте .env.production вручную."
+        echo "DOMAIN_NAME=$DOMAIN_NAME" >> .env
     fi
-    
-    # Генерация безопасных ключей
+    print_status "Домен установлен: $DOMAIN_NAME"
+else
+    DOMAIN_NAME="localhost"
+    print_status "Используется localhost (без SSL)"
+fi
+
+# Генерация безопасных ключей если они не установлены
+if grep -q "your-super-secret-key-change-in-production" .env; then
+    print_status "Генерация безопасных ключей..."
     SECRET_KEY=$(openssl rand -hex 32)
     SECRET_JWT_KEY=$(openssl rand -hex 32)
     
-    sed -i "s/your-super-secret-key-here/$SECRET_KEY/g" .env.production
-    sed -i "s/your-jwt-secret-key-here/$SECRET_JWT_KEY/g" .env.production
-    
+    sed -i "s/your-super-secret-key-change-in-production/$SECRET_KEY/" .env
+    sed -i "s/your-super-secret-key-change-in-production/$SECRET_JWT_KEY/" .env
     print_status "Секретные ключи сгенерированы и установлены"
-    
-    print_warning "ВАЖНО! Отредактируйте .env.production файл и укажите:"
-    print_warning "- BOT_TOKEN (получите у @BotFather)"
-    print_warning "- ADMIN_TELEGRAM_ID (узнайте у @userinfobot)" 
-    print_warning "- ADMIN_PASSWORD (установите надежный пароль)"
-    print_warning "- Другие необходимые API ключи"
-else
-    print_status "Файл .env.production уже существует"
 fi
 
-# 10. Создание скриптов управления
-print_status "Создание скриптов управления..."
+# 10. Информация о настройке
+echo ""
+print_warning "ВАЖНО! Отредактируйте .env файл и проверьте следующие параметры:"
+print_warning "- BOT_TOKEN (получите у @BotFather)"
+print_warning "- ADMIN_TELEGRAM_ID (узнайте у @userinfobot)" 
+print_warning "- ADMIN_PASSWORD (установите надежный пароль)"
+print_warning "- YOKASSA_* (настройки платежной системы)"
+print_warning "- RUBITIME_* (настройки внешней системы бронирования)"
+echo ""
 
-# Скрипт проверки статуса
-cat > check-status.sh << 'EOF'
-#!/bin/bash
-echo "🏥 Статус сервисов:"
-docker-compose -f docker-compose.production.yml --env-file .env.production ps
+# 11. Установка прав на скрипты
+print_status "Установка прав на управляющие скрипты..."
+chmod +x scripts/*.sh
+print_status "Установлены права на выполнение для всех .sh файлов в папке scripts/"
 
-echo -e "\n📊 Использование ресурсов:"
-docker stats --no-stream --format "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}"
-
-echo -e "\n🔍 Последние логи (ERROR/CRITICAL):"
-docker-compose -f docker-compose.production.yml --env-file .env.production logs --tail=20 | grep -E "(ERROR|CRITICAL)" || echo "Ошибок не найдено"
-
-echo -e "\n🌐 Проверка доступности:"
-curl -s -o /dev/null -w "API Health: %{http_code}\n" http://localhost:8000/ || echo "API недоступен"
-curl -s -o /dev/null -w "Frontend: %{http_code}\n" http://localhost/ || echo "Frontend недоступен"
-
-# Проверка SSL сертификата если есть домен
-if [ -f ".env.production" ]; then
-    DOMAIN=$(grep "DOMAIN_NAME=" .env.production | cut -d'=' -f2)
-    if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "your-domain.com" ]; then
-        echo -e "\n🔒 Проверка SSL сертификата:"
-        curl -s -o /dev/null -w "HTTPS Status: %{http_code}\n" https://$DOMAIN || echo "HTTPS недоступен"
-        echo "SSL cert expires: $(openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null | cut -d'=' -f2 || echo 'Не удается проверить')"
-    fi
-fi
-EOF
-
-chmod +x check-status.sh
-
-# Скрипт бэкапа
-cat > backup-system.sh << 'EOF'
-#!/bin/bash
-BACKUP_DIR="\$PROJECT_DIR/backups"
-DATE=$(date +"%Y%m%d_%H%M%S")
-
-mkdir -p $BACKUP_DIR
-
-echo "📦 Создание бэкапа системы..."
-
-# Бэкап конфигурации
-cp .env $BACKUP_DIR/env_backup_$DATE
-
-# Архивация данных
-tar -czf $BACKUP_DIR/data_backup_$DATE.tar.gz \
-    data/ logs/ config/ \
-    --exclude='*.log' \
-    --exclude='logs/app.log.*' 2>/dev/null || true
-
-# Бэкап базы данных через контейнер
-docker-compose -f docker-compose.production.yml --env-file .env.production exec -T web python -c "
-import sys
-sys.path.append('/app')
-try:
-    from utils.backup_manager import create_backup
-    import asyncio
-    asyncio.run(create_backup())
-    print('✅ Бэкап базы данных создан')
-except Exception as e:
-    print(f'❌ Ошибка бэкапа БД: {e}')
-" 2>/dev/null || echo "⚠️ Бэкап БД пропущен (контейнер не запущен)"
-
-# Удаление старых бэкапов (старше 30 дней)
-find $BACKUP_DIR -name "*_backup_*.tar.gz" -mtime +30 -delete 2>/dev/null || true
-
-echo "✅ Бэкап завершен: $BACKUP_DIR/data_backup_$DATE.tar.gz"
-ls -lh $BACKUP_DIR/data_backup_$DATE.tar.gz 2>/dev/null || true
-EOF
-
-chmod +x backup-system.sh
-
-# Скрипт обновления
-cat > update-system.sh << 'EOF'
-#!/bin/bash
-echo "🔄 Начинаем обновление системы..."
-
-# Создание бэкапа перед обновлением
-echo "📦 Создание бэкапа..."
-./backup-system.sh
-
-# Остановка сервисов
-echo "⏹️ Остановка сервисов..."
-docker-compose -f docker-compose.production.yml --env-file .env.production down
-
-# Получение обновлений
-echo "⬇️ Загрузка обновлений..."
-git stash push -m "Pre-update stash $(date)"
-git pull origin main
-git stash pop || echo "⚠️ Конфликты при восстановлении изменений"
-
-# Пересборка и перезапуск
-echo "🔨 Пересборка образов..."
-docker-compose -f docker-compose.production.yml --env-file .env.production build --no-cache
-
-echo "🚀 Запуск сервисов..."
-docker-compose -f docker-compose.production.yml --env-file .env.production up -d
-
-# Проверка статуса
-echo "⏱️ Ожидание запуска сервисов..."
-sleep 15
-./check-status.sh
-
-echo "✅ Обновление завершено!"
-EOF
-
-chmod +x update-system.sh
-
-# Скрипты быстрого запуска/остановки
-cat > start.sh << 'EOF'
-#!/bin/bash
-echo "🚀 Запуск Coworking Management System..."
-docker-compose -f docker-compose.production.yml --env-file .env.production up -d
-echo "⏱️ Ожидание запуска сервисов..."
-sleep 10
-./check-status.sh
-EOF
-
-cat > stop.sh << 'EOF'
-#!/bin/bash
-echo "⏹️ Остановка Coworking Management System..."
-docker-compose -f docker-compose.production.yml --env-file .env.production down
-echo "✅ Сервисы остановлены"
-EOF
-
-cat > restart.sh << 'EOF'
-#!/bin/bash
-echo "🔄 Перезапуск Coworking Management System..."
-./stop.sh
-sleep 5
-./start.sh
-EOF
-
-cat > logs.sh << 'EOF'
-#!/bin/bash
-if [ "$1" = "" ]; then
-    echo "📋 Все логи:"
-    docker-compose -f docker-compose.production.yml --env-file .env.production logs -f
-else
-    echo "📋 Логи сервиса $1:"
-    docker-compose -f docker-compose.production.yml --env-file .env.production logs -f $1
-fi
-EOF
-
-chmod +x start.sh stop.sh restart.sh logs.sh
-
-# 11. Создание systemd сервиса
+# 12. Создание systemd сервиса для автозапуска
 print_status "Создание systemd сервиса для автозапуска..."
 sudo tee /etc/systemd/system/coworking.service > /dev/null <<EOF
 [Unit]
@@ -363,8 +247,8 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=$PROJECT_DIR
-ExecStart=/usr/local/bin/docker-compose -f docker-compose.production.yml --env-file .env.production up -d
-ExecStop=/usr/local/bin/docker-compose -f docker-compose.production.yml --env-file .env.production down
+ExecStart=$PROJECT_DIR/scripts/start-prod.sh
+ExecStop=$PROJECT_DIR/scripts/stop.sh
 TimeoutStartSec=0
 User=$USER
 Group=$USER
@@ -375,84 +259,107 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable coworking.service
+print_status "Systemd сервис создан и включен для автозапуска"
 
-# 12. Настройка автоматических бэкапов
+# 13. Настройка автоматических бэкапов
 print_status "Настройка автоматических бэкапов..."
-(crontab -l 2>/dev/null | grep -v "backup-system.sh"; echo "0 2 * * * $PROJECT_DIR/backup-system.sh >> $PROJECT_DIR/logs/backup.log 2>&1") | crontab - || true
+# Создаем cron задачу для ежедневного бэкапа в 2:00
+(crontab -l 2>/dev/null | grep -v "coworking backup"; echo "0 2 * * * cd $PROJECT_DIR && docker-compose exec -T web python -c \"import sys; sys.path.append('/app'); from utils.backup_manager import create_backup; import asyncio; asyncio.run(create_backup())\" >> $PROJECT_DIR/logs/backup.log 2>&1") | crontab - || true
+print_status "Автоматические бэкапы настроены (ежедневно в 2:00)"
 
-# 13. Финальная проверка
-print_status "Проверка настройки Docker группы..."
+# 14. Проверка групп пользователя
+print_status "Проверка настройки групп пользователя..."
 if groups $USER | grep -q docker; then
     print_status "✅ Пользователь $USER добавлен в группу docker"
 else
     print_warning "⚠️ Пользователь $USER НЕ в группе docker. Требуется перелогиниться!"
+    print_status "Выполните: sudo usermod -aG docker $USER && su - $USER"
 fi
 
-# Завершение
+if groups $USER | grep -q sudo; then
+    print_status "✅ Пользователь $USER имеет sudo права"
+else
+    print_warning "⚠️ Пользователь $USER НЕ имеет sudo права"
+fi
+
+# 15. Завершение и инструкции
 echo ""
-print_status "🎉 Настройка сервера завершена!"
+echo "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉"
+print_status "       НАСТРОЙКА PRODUCTION СЕРВЕРА ЗАВЕРШЕНА!"
+echo "🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉🎉"
 echo ""
 echo "📋 СЛЕДУЮЩИЕ ШАГИ:"
-echo "1. Отредактируйте файл .env.production:"
-echo "   nano .env.production"
 echo ""
-echo "2. Обязательно укажите в .env.production:"
-echo "   - BOT_TOKEN=ваш_токен_бота"
-echo "   - ADMIN_TELEGRAM_ID=ваш_telegram_id"
-echo "   - ADMIN_PASSWORD=надежный_пароль"
+echo "1. 📝 ОБЯЗАТЕЛЬНО отредактируйте .env файл:"
+echo "   nano .env"
 echo ""
-echo "3. Получите SSL сертификаты (если используете домен):"
-echo "   ./setup-ssl.sh"
+echo "2. 🔑 Проверьте и установите следующие параметры в .env:"
+echo "   ✓ BOT_TOKEN=ваш_токен_от_BotFather"
+echo "   ✓ ADMIN_TELEGRAM_ID=ваш_telegram_id"
+echo "   ✓ ADMIN_PASSWORD=надежный_пароль"
+echo "   ✓ SECRET_KEY (уже сгенерирован)"
+echo "   ✓ SECRET_KEY_JWT (уже сгенерирован)"
+echo "   ✓ DOMAIN_NAME=$DOMAIN_NAME"
 echo ""
-echo "4. Запустите систему:"
-echo "   docker-compose -f docker-compose.production.yml --env-file .env.production up -d"
+
+if [ "$DOMAIN_NAME" != "localhost" ]; then
+    echo "3. 🔒 Получите SSL сертификаты:"
+    echo "   ./scripts/setup-ssl.sh"
+    echo ""
+fi
+
+echo "4. 🚀 Запустите систему:"
+echo "   ./scripts/start-prod.sh"
 echo ""
-echo "5. Проверьте статус:"
-echo "   ./check-status.sh"
+echo "5. 🏥 Проверьте статус:"
+echo "   ./scripts/status.sh"
 echo ""
-echo "📁 Полезные команды:"
-echo "   ./start.sh            - запуск системы"
-echo "   ./stop.sh             - остановка системы"
-echo "   ./restart.sh          - перезапуск системы"
-echo "   ./check-status.sh     - проверка статуса"
-echo "   ./logs.sh [service]   - просмотр логов"
-echo "   ./backup-system.sh    - создание бэкапа"
-echo "   ./update-system.sh    - обновление системы"
+echo "📁 ДОСТУПНЫЕ КОМАНДЫ:"
+echo "   ./scripts/start-prod.sh       - запуск в продакшн режиме"
+echo "   ./scripts/start-local.sh      - запуск в локальном режиме"
+echo "   ./scripts/stop.sh             - остановка всех сервисов"
+echo "   ./scripts/restart.sh          - перезапуск сервисов"
+echo "   ./scripts/status.sh           - проверка статуса системы"
+echo "   ./scripts/logs.sh [service]   - просмотр логов"
+echo "   ./scripts/cleanup.sh          - полная очистка системы"
 echo ""
-print_status "🌐 После запуска система будет доступна на:"
+echo "🌐 ПОСЛЕ ЗАПУСКА СИСТЕМА БУДЕТ ДОСТУПНА НА:"
 
 # Определяем URL на основе настроек
-if [ -f ".env.production" ] && grep -q "DOMAIN_NAME=" .env.production; then
-    DOMAIN=$(grep "DOMAIN_NAME=" .env.production | cut -d'=' -f2)
-    if [ -n "$DOMAIN" ] && [ "$DOMAIN" != "your-domain.com" ]; then
-        echo "   Frontend: https://$DOMAIN"
-        echo "   API: https://$DOMAIN/api"
-        echo "   Docs: https://$DOMAIN/docs"
+if [ "$DOMAIN_NAME" != "localhost" ] && [ -n "$DOMAIN_NAME" ]; then
+    if [ -n "$SSL_EMAIL" ]; then
+        echo "   🔒 Frontend: https://$DOMAIN_NAME"
+        echo "   🔒 API: https://$DOMAIN_NAME/api"
+        echo "   🔒 Docs: https://$DOMAIN_NAME/docs"
         echo ""
-        print_warning "Не забудьте получить SSL сертификат: ./setup-ssl.sh"
+        print_warning "   Не забудьте получить SSL сертификат: ./scripts/setup-ssl.sh"
     else
-        if [ -n "$EXTERNAL_IP" ]; then
-            echo "   Frontend: http://$EXTERNAL_IP"
-            echo "   API: http://$EXTERNAL_IP:8000"
-            echo "   Docs: http://$EXTERNAL_IP:8000/docs"
-        else
-            echo "   Frontend: http://your_server_ip"
-            echo "   API: http://your_server_ip:8000"
-            echo "   Docs: http://your_server_ip:8000/docs"
-        fi
+        echo "   📱 Frontend: http://$DOMAIN_NAME"
+        echo "   🔧 API: http://$DOMAIN_NAME:8000/api"
+        echo "   📚 Docs: http://$DOMAIN_NAME:8000/docs"
     fi
 else
-    if [ -n "$EXTERNAL_IP" ]; then
-        echo "   Frontend: http://$EXTERNAL_IP"
-        echo "   API: http://$EXTERNAL_IP:8000"
-        echo "   Docs: http://$EXTERNAL_IP:8000/docs"
-    else
-        echo "   Frontend: http://your_server_ip"
-        echo "   API: http://your_server_ip:8000"
-        echo "   Docs: http://your_server_ip:8000/docs"
-    fi
+    # Пытаемся определить внешний IP
+    EXTERNAL_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s ipecho.net/plain 2>/dev/null || echo "your_server_ip")
+    echo "   📱 Frontend: http://$EXTERNAL_IP"
+    echo "   🔧 API: http://$EXTERNAL_IP:8000/api"
+    echo "   📚 Docs: http://$EXTERNAL_IP:8000/docs"
 fi
+
 echo ""
-print_warning "⚠️ Если добавлен в группу docker - ПЕРЕЛОГИНЬТЕСЬ для применения изменений!"
+echo "⚠️ ВАЖНЫЕ НАПОМИНАНИЯ:"
+if ! groups $USER | grep -q docker; then
+    print_warning "   🔄 ПЕРЕЛОГИНЬТЕСЬ для применения прав группы docker:"
+    print_warning "      exit && ssh user@server"
+fi
+print_warning "   🐳 Выполните docker login если требуется доступ к приватным образам"
+print_warning "   🔐 Измените пароли по умолчанию в .env файле"
+print_warning "   🔥 Настройте backup стратегию для продакшена"
 echo ""
-print_status "✨ Удачного деплоя!"
+echo "🎯 АВТОМАТИЗАЦИЯ:"
+echo "   ✅ Systemd сервис: sudo systemctl start coworking"
+echo "   ✅ Автозапуск при перезагрузке: включен"  
+echo "   ✅ Автоматические бэкапы: настроены (2:00 каждый день)"
+echo ""
+print_status "✨ Готово к продакшн деплою! Удачи! ✨"
+echo ""

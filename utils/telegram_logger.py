@@ -134,11 +134,13 @@ class TelegramLogHandler(logging.Handler):
 
 def _is_telegram_logging_enabled() -> bool:
     """Проверяет, включено ли логирование в Telegram"""
-    return (
-        bool(os.getenv("TELEGRAM_LOGGING_ENABLED", "false").lower() == "true") and
-        bool(FOR_LOGS) and
-        bool(BOT_TOKEN)
-    )
+    telegram_enabled = os.getenv("TELEGRAM_LOGGING_ENABLED", "false").lower() == "true"
+    has_for_logs = bool(FOR_LOGS)
+    has_bot_token = bool(BOT_TOKEN)
+    
+    logger.debug(f"Telegram logging check: enabled={telegram_enabled}, for_logs={has_for_logs}, bot_token={has_bot_token}")
+    
+    return telegram_enabled and has_for_logs and has_bot_token
 
 
 async def send_log_message(message: str, level: str = "INFO") -> bool:
@@ -231,12 +233,17 @@ async def send_startup_notification() -> bool:
     """Отправляет уведомление о запуске приложения"""
     try:
         if not _is_telegram_logging_enabled():
+            logger.warning("Telegram logging disabled - startup notification not sent")
             return False
         
         env_text = "🏭 PRODUCTION" if ENVIRONMENT == "production" else "🧪 DEVELOPMENT"
         
+        # Используем московское время
+        from config import MOSCOW_TZ
+        moscow_time = datetime.now(MOSCOW_TZ)
+        
         message = f"🚀 **ЗАПУСК ПРИЛОЖЕНИЯ** {env_text}\n\n"
-        message += f"🕐 **Время**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        message += f"🕐 **Время**: {moscow_time.strftime('%Y-%m-%d %H:%M:%S')} (МСК)\n"
         message += f"📊 **Среда**: {ENVIRONMENT}\n"
         message += f"📝 **Логирование**: включено\n"
         
@@ -251,12 +258,17 @@ async def send_shutdown_notification() -> bool:
     """Отправляет уведомление об остановке приложения"""
     try:
         if not _is_telegram_logging_enabled():
+            logger.warning("Telegram logging disabled - shutdown notification not sent")
             return False
         
         env_text = "🏭 PRODUCTION" if ENVIRONMENT == "production" else "🧪 DEVELOPMENT"
         
+        # Используем московское время
+        from config import MOSCOW_TZ
+        moscow_time = datetime.now(MOSCOW_TZ)
+        
         message = f"⏹️ **ОСТАНОВКА ПРИЛОЖЕНИЯ** {env_text}\n\n"
-        message += f"🕐 **Время**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        message += f"🕐 **Время**: {moscow_time.strftime('%Y-%m-%d %H:%M:%S')} (МСК)\n"
         message += f"📊 **Среда**: {ENVIRONMENT}\n"
         
         return await send_log_message(message, "INFO")

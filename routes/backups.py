@@ -3,6 +3,9 @@ API для управления системой резервного копир
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import json
+import os
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel, Field
@@ -20,6 +23,54 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/backups", tags=["backups"])
+
+# Путь к файлу конфигурации бэкапов
+BACKUP_CONFIG_FILE = Path("config") / "backup_config.json"
+
+
+async def _save_backup_settings(settings: Dict[str, Any]) -> bool:
+    """Сохраняет настройки бэкапов в файл"""
+    try:
+        # Создаем директорию config если не существует
+        BACKUP_CONFIG_FILE.parent.mkdir(exist_ok=True)
+        
+        # Загружаем существующие настройки или создаем новые
+        existing_settings = {}
+        if BACKUP_CONFIG_FILE.exists():
+            with open(BACKUP_CONFIG_FILE, 'r') as f:
+                existing_settings = json.load(f)
+        
+        # Обновляем настройки
+        existing_settings.update(settings)
+        
+        # Сохраняем в файл
+        with open(BACKUP_CONFIG_FILE, 'w') as f:
+            json.dump(existing_settings, f, indent=2)
+        
+        # Обновляем переменные окружения для текущей сессии
+        for key, value in settings.items():
+            os.environ[key] = value
+            
+        logger.info(f"Backup settings saved to {BACKUP_CONFIG_FILE}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to save backup settings: {e}")
+        return False
+
+
+async def _load_backup_settings() -> Dict[str, Any]:
+    """Загружает настройки бэкапов из файла"""
+    try:
+        if BACKUP_CONFIG_FILE.exists():
+            with open(BACKUP_CONFIG_FILE, 'r') as f:
+                settings = json.load(f)
+            logger.info(f"Backup settings loaded from {BACKUP_CONFIG_FILE}")
+            return settings
+        return {}
+    except Exception as e:
+        logger.error(f"Failed to load backup settings: {e}")
+        return {}
 
 
 class BackupCreateRequest(BaseModel):
@@ -562,7 +613,7 @@ async def update_backup_settings(
         
         updated_settings = {}
         
-        # Обновляем настройки (в реальном приложении здесь была бы база данных)
+        # Обновляем настройки и сохраняем в файл
         if settings.backup_enabled is not None:
             updated_settings["BACKUP_ENABLED"] = str(settings.backup_enabled).lower()
             
@@ -587,6 +638,9 @@ async def update_backup_settings(
         if settings.max_backup_size_mb is not None:
             updated_settings["MAX_BACKUP_SIZE_MB"] = str(settings.max_backup_size_mb)
         
+        # Сохраняем настройки в конфигурационный файл
+        await _save_backup_settings(updated_settings)
+        
         # Логируем изменения
         logger.info(
             f"Backup settings updated by super admin: {current_admin.login}",
@@ -602,12 +656,22 @@ async def update_backup_settings(
             extra={"updated_settings": updated_settings}
         )
         
+        # Перезапускаем планировщик бэкапов с новыми настройками
+        try:
+            from utils.backup_manager import restart_backup_scheduler
+            await restart_backup_scheduler()
+            scheduler_restarted = True
+        except Exception as e:
+            logger.warning(f"Failed to restart backup scheduler: {e}")
+            scheduler_restarted = False
+
         return {
             "message": "Backup settings updated successfully",
             "updated_settings": updated_settings,
             "updated_by": current_admin.login,
             "updated_at": datetime.utcnow().isoformat(),
-            "note": "Settings will take effect after application restart"
+            "scheduler_restarted": scheduler_restarted,
+            "note": "Settings are now active" if scheduler_restarted else "Settings saved but scheduler restart failed - restart app to apply"
         }
         
     except HTTPException:

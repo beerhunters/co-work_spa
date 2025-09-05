@@ -10,6 +10,13 @@ echo "🏥 Статус Coworking Management System"
 echo "===================================="
 echo ""
 
+# Получаем абсолютный путь к проекту (на уровень выше от scripts)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Переходим в корневую директорию проекта
+cd "$PROJECT_DIR"
+
 # Показываем статус всех контейнеров
 echo "📊 Статус контейнеров:"
 docker-compose ps
@@ -55,8 +62,8 @@ docker system df
 
 echo ""
 echo "📋 Полезные команды:"
-echo "  ./logs.sh [service] [follow]  # Просмотр логов"
-echo "  ./restart.sh                  # Перезапуск"
-echo "  ./stop.sh                     # Остановка"
+echo "  ./scripts/logs.sh [service] [follow]  # Просмотр логов"
+echo "  ./scripts/restart.sh                  # Перезапуск"
+echo "  ./scripts/stop.sh                     # Остановка"
 echo "  docker-compose exec web bash  # Подключиться к API контейнеру"
 echo "  docker-compose exec bot bash  # Подключиться к Bot контейнеру"

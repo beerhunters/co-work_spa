@@ -6,6 +6,13 @@
 
 set -e
 
+# Получаем абсолютный путь к проекту (на уровень выше от scripts)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Переходим в корневую директорию проекта
+cd "$PROJECT_DIR"
+
 SERVICE=${1:-all}
 FOLLOW=${2:-false}
 

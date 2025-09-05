@@ -15,8 +15,12 @@ if [[ $EUID -eq 0 ]]; then
    exit 1
 fi
 
-# Получаем абсолютный путь к проекту
-PROJECT_DIR=$(pwd)
+# Получаем абсолютный путь к проекту (на уровень выше от scripts)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Переходим в корневую директорию проекта
+cd "$PROJECT_DIR"
 
 # Проверяем наличие .env файла
 if [ ! -f ".env" ]; then

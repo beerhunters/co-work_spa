@@ -66,15 +66,20 @@ async def lifespan(app: FastAPI):
     
     # Отправляем уведомление о запуске в Telegram
     try:
+        logger.info("🔄 Попытка отправить уведомление о запуске в Telegram...")
         from utils.telegram_logger import send_startup_notification
-        await send_startup_notification()
+        result = await send_startup_notification()
+        logger.info(f"📱 Результат отправки уведомления о запуске: {result}")
     except Exception as e:
         logger.warning(f"Не удалось отправить уведомление о запуске: {e}")
+        import traceback
+        logger.error(f"Трассировка ошибки уведомления: {traceback.format_exc()}")
 
     # Загружаем сохраненную конфигурацию логирования
     try:
         from pathlib import Path
         import json
+        import os
         config_file = Path("config") / "logging_config.json"
         logger.info(f"Проверяем наличие файла конфигурации: {config_file.absolute()}")
         
@@ -152,6 +157,28 @@ async def lifespan(app: FastAPI):
         logger.info("Кэш-менеджер запущен")
     except Exception as e:
         logger.error(f"Ошибка запуска кэш-менеджера: {e}")
+
+    # Загружаем настройки бэкапов из конфигурационного файла
+    try:
+        from pathlib import Path
+        import json
+        import os
+        backup_config_file = Path("config") / "backup_config.json"
+        if backup_config_file.exists():
+            with open(backup_config_file, 'r') as f:
+                backup_settings = json.load(f)
+            
+            # Применяем сохраненные настройки к переменным окружения
+            for key, value in backup_settings.items():
+                old_value = os.getenv(key)
+                os.environ[key] = str(value)
+                logger.info(f"Загружена настройка бэкапов {key}: {old_value} -> {value}")
+            
+            logger.info("✅ Настройки бэкапов успешно загружены из файла")
+        else:
+            logger.info("Файл настроек бэкапов не найден, используются настройки по умолчанию")
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки настроек бэкапов: {e}")
 
     # Запускаем систему автоматических бэкапов
     try:

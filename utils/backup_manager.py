@@ -510,6 +510,44 @@ async def stop_backup_scheduler():
     await backup_manager.stop_scheduler()
 
 
+async def restart_backup_scheduler():
+    """Перезапуск планировщика бэкапов с перезагрузкой конфигурации"""
+    global backup_manager
+    try:
+        # Останавливаем текущий планировщик
+        await backup_manager.stop_scheduler()
+        logger.info("Backup scheduler stopped")
+        
+        # Ждем немного перед перезапуском
+        import asyncio
+        await asyncio.sleep(1)
+        
+        # Перезагружаем конфигурацию из файла
+        from pathlib import Path
+        import json
+        config_file = Path("config") / "backup_config.json"
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                saved_config = json.load(f)
+            
+            # Обновляем переменные окружения
+            for key, value in saved_config.items():
+                os.environ[key] = value
+            logger.info("Backup configuration reloaded from file")
+        
+        # Создаем новый экземпляр менеджера с новой конфигурацией
+        backup_manager = BackupManager()
+        
+        # Запускаем планировщик с новыми настройками
+        await backup_manager.start_scheduler()
+        logger.info("Backup scheduler restarted with new configuration")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to restart backup scheduler: {e}")
+        return False
+
+
 def create_manual_backup() -> Optional[Dict[str, Any]]:
     """Создание ручного бэкапа"""
     return backup_manager.create_backup("manual")
