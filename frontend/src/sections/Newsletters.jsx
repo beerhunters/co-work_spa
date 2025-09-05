@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -51,6 +51,7 @@ import {
   AlertDialogContent,
   AlertDialogOverlay,
   useDisclosure,
+  Collapse,
 } from '@chakra-ui/react';
 import {
   FiUsers,
@@ -65,7 +66,9 @@ import {
   FiUnderline,
   FiRefreshCw,
   FiTrash2,
-  FiTrash
+  FiTrash,
+  FiChevronDown,
+  FiChevronRight
 } from 'react-icons/fi';
 import { newsletterApi, userApi } from '../utils/api';
 
@@ -79,13 +82,27 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const [isSending, setIsSending] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isUserModalOpen, setUserModalOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Состояния для аккордеонов
+  const [isNewNewsletterOpen, setIsNewNewsletterOpen] = useState(() => {
+    const saved = localStorage.getItem('newsletter_form_open');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [isHistoryOpen, setIsHistoryOpen] = useState(() => {
+    const saved = localStorage.getItem('newsletter_history_open');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
 
   const toast = useToast();
   const bgColor = useColorModeValue('gray.50', 'gray.900');
   const cardBg = useColorModeValue('white', 'gray.800');
+
+  // Мемоизируем количество пользователей для предотвращения ререндеров
+  const totalUsersWithTelegram = React.useMemo(() => {
+    return users.filter(u => u.telegram_id).length;
+  }, [users]);
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isClearOpen, onOpen: onClearOpen, onClose: onClearClose } = useDisclosure();
@@ -122,6 +139,16 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       fetchUsers();
     }
   }, [canSendNewsletters]);
+
+  // Сохранение состояний аккордеонов в localStorage
+  useEffect(() => {
+    localStorage.setItem('newsletter_form_open', JSON.stringify(isNewNewsletterOpen));
+  }, [isNewNewsletterOpen]);
+
+  useEffect(() => {
+    localStorage.setItem('newsletter_history_open', JSON.stringify(isHistoryOpen));
+  }, [isHistoryOpen]);
+
 
   const fetchUsers = async () => {
     try {
@@ -343,16 +370,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     setPhotos(photos.filter(p => p.id !== photoId));
   };
 
-  // Фильтрованные пользователи для модального окна
-  const filteredUsers = users.filter(user => {
-    const query = searchQuery.toLowerCase();
-    return (
-      user.full_name?.toLowerCase().includes(query) ||
-      user.username?.toLowerCase().includes(query) ||
-      user.email?.toLowerCase().includes(query) ||
-      user.phone?.includes(query)
-    );
-  });
 
   // Отправка рассылки
   const handleSendNewsletter = async () => {
@@ -436,64 +453,94 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     }
   };
 
-  // Компонент выбора пользователей
-  const UserSelectionModal = () => (
-    <Modal isOpen={isUserModalOpen} onClose={() => setUserModalOpen(false)} size="xl">
-      <ModalOverlay />
-      <ModalContent maxH="80vh" bg={cardBg}>
-        <ModalHeader>Выбор получателей</ModalHeader>
-        <ModalCloseButton />
-        <ModalBody>
-          <VStack spacing={4} align="stretch">
-            <Input
-              placeholder="Поиск по имени, username, email или телефону..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              mb={2}
-            />
+  // Мемоизированный компонент выбора пользователей с изолированным поиском
+  const UserSelectionModal = React.memo(() => {
+    const [searchQuery, setSearchQuery] = useState('');
 
-            <Box maxH="400px" overflowY="auto">
-              <CheckboxGroup value={selectedUsers} onChange={setSelectedUsers}>
-                <VStack align="stretch" spacing={2}>
-                  {filteredUsers.map(user => (
-                    <Checkbox
-                      key={user.id}
-                      value={user.telegram_id?.toString()}
-                      isDisabled={!user.telegram_id}
-                    >
-                      <HStack spacing={3} flex={1}>
-                        <Text fontWeight="medium">
-                          {user.full_name || 'Без имени'}
-                        </Text>
-                        {user.username && (
-                          <Badge colorScheme="blue">@{user.username}</Badge>
-                        )}
-                        {!user.telegram_id && (
-                          <Badge colorScheme="red">Нет Telegram ID</Badge>
-                        )}
-                      </HStack>
-                    </Checkbox>
-                  ))}
-                </VStack>
-              </CheckboxGroup>
-            </Box>
+    // Локальная фильтрация пользователей
+    const filteredUsers = useMemo(() => {
+      if (!searchQuery.trim()) return users;
+      
+      const query = searchQuery.toLowerCase();
+      return users.filter(user => {
+        return (
+          user.full_name?.toLowerCase().includes(query) ||
+          user.username?.toLowerCase().includes(query) ||
+          user.email?.toLowerCase().includes(query) ||
+          user.phone?.includes(query)
+        );
+      });
+    }, [users, searchQuery]);
 
-            <Text fontSize="sm" color="gray.600">
-              Выбрано: {selectedUsers.length} из {users.filter(u => u.telegram_id).length} пользователей
-            </Text>
-          </VStack>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="ghost" mr={3} onClick={() => setUserModalOpen(false)}>
-            Отмена
-          </Button>
-          <Button colorScheme="purple" onClick={() => setUserModalOpen(false)}>
-            Применить
-          </Button>
-        </ModalFooter>
-      </ModalContent>
-    </Modal>
-  );
+    // Обработчик изменения поиска
+    const handleSearchChange = useCallback((e) => {
+      setSearchQuery(e.target.value);
+    }, []);
+
+    // Сброс поиска при закрытии модального окна
+    const handleCloseModal = useCallback(() => {
+      setSearchQuery('');
+      setUserModalOpen(false);
+    }, []);
+
+    return (
+      <Modal isOpen={isUserModalOpen} onClose={handleCloseModal} size="xl">
+        <ModalOverlay />
+        <ModalContent maxH="80vh" bg={cardBg}>
+          <ModalHeader>Выбор получателей</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Input
+                placeholder="Поиск по имени, username, email или телефону..."
+                value={searchQuery}
+                onChange={handleSearchChange}
+                mb={2}
+              />
+
+              <Box maxH="400px" overflowY="auto">
+                <CheckboxGroup value={selectedUsers} onChange={setSelectedUsers}>
+                  <VStack align="stretch" spacing={2}>
+                    {filteredUsers.map(user => (
+                      <Checkbox
+                        key={user.id}
+                        value={user.telegram_id?.toString()}
+                        isDisabled={!user.telegram_id}
+                      >
+                        <HStack spacing={3} flex={1}>
+                          <Text fontWeight="medium">
+                            {user.full_name || 'Без имени'}
+                          </Text>
+                          {user.username && (
+                            <Badge colorScheme="blue">@{user.username}</Badge>
+                          )}
+                          {!user.telegram_id && (
+                            <Badge colorScheme="red">Нет Telegram ID</Badge>
+                          )}
+                        </HStack>
+                      </Checkbox>
+                    ))}
+                  </VStack>
+                </CheckboxGroup>
+              </Box>
+
+              <Text fontSize="sm" color="gray.600">
+                Выбрано: {selectedUsers.length} из {totalUsersWithTelegram} пользователей
+              </Text>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={handleCloseModal}>
+              Отмена
+            </Button>
+            <Button colorScheme="purple" onClick={handleCloseModal}>
+              Применить
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    );
+  });
 
   // Получение цвета статуса
   const getStatusColor = (status) => {
@@ -543,15 +590,28 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
         {/* Форма отправки - показываем только если есть права */}
         {canSendNewsletters && (
           <Card bg={cardBg} borderRadius="lg" boxShadow="sm">
-            <CardHeader>
-              <Heading size="md" color="purple.600">
-                <HStack>
-                  <Icon as={FiSend} />
-                  <Text>Новая рассылка</Text>
-                </HStack>
-              </Heading>
+            <CardHeader 
+              cursor="pointer"
+              onClick={() => setIsNewNewsletterOpen(!isNewNewsletterOpen)}
+              _hover={{ bg: useColorModeValue('gray.50', 'gray.700') }}
+              transition="all 0.2s"
+            >
+              <HStack justify="space-between" align="center">
+                <Heading size="md" color="purple.600">
+                  <HStack>
+                    <Icon as={FiSend} />
+                    <Text>Новая рассылка</Text>
+                  </HStack>
+                </Heading>
+                <Icon 
+                  as={isNewNewsletterOpen ? FiChevronDown : FiChevronRight} 
+                  color="gray.500"
+                  transition="transform 0.2s"
+                />
+              </HStack>
             </CardHeader>
-            <CardBody>
+            <Collapse in={isNewNewsletterOpen} animateOpacity>
+              <CardBody>
               <VStack spacing={4} align="stretch">
                 {/* Выбор получателей */}
                 <FormControl>
@@ -592,7 +652,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                   </HStack>
                   <FormHelperText>
                     {recipientType === 'all'
-                      ? `Будет отправлено всем ${users.filter(u => u.telegram_id).length} пользователям`
+                      ? `Будет отправлено всем ${totalUsersWithTelegram} пользователям`
                       : `Выбрано ${selectedUsers.length} получателей`}
                   </FormHelperText>
                 </FormControl>
@@ -726,21 +786,34 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                   Отправить рассылку
                 </Button>
               </VStack>
-            </CardBody>
+              </CardBody>
+            </Collapse>
           </Card>
         )}
 
         {/* История рассылок */}
         <Card bg={cardBg} borderRadius="lg" boxShadow="sm">
-          <CardHeader>
+          <CardHeader 
+            cursor="pointer"
+            onClick={() => setIsHistoryOpen(!isHistoryOpen)}
+            _hover={{ bg: useColorModeValue('gray.50', 'gray.700') }}
+            transition="all 0.2s"
+          >
             <HStack justify="space-between">
-              <Heading size="md">
-                <HStack>
-                  <Icon as={FiUsers} color="blue.500" />
-                  <Text>История рассылок</Text>
-                </HStack>
-              </Heading>
-              <HStack spacing={2}>
+              <HStack>
+                <Heading size="md" color="blue.500">
+                  <HStack>
+                    <Icon as={FiUsers} />
+                    <Text>История рассылок</Text>
+                  </HStack>
+                </Heading>
+                <Icon 
+                  as={isHistoryOpen ? FiChevronDown : FiChevronRight} 
+                  color="gray.500"
+                  transition="transform 0.2s"
+                />
+              </HStack>
+              <HStack spacing={2} onClick={(e) => e.stopPropagation()}>
                 <IconButton
                   icon={<FiRefreshCw />}
                   size="sm"
@@ -764,7 +837,8 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
               </HStack>
             </HStack>
           </CardHeader>
-          <CardBody>
+          <Collapse in={isHistoryOpen} animateOpacity>
+            <CardBody>
             {isLoading ? (
               <Box textAlign="center" py={8}>
                 <Spinner size="lg" color="purple.500" />
@@ -855,7 +929,8 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                 </Table>
               </TableContainer>
             )}
-          </CardBody>
+            </CardBody>
+          </Collapse>
         </Card>
       </VStack>
 

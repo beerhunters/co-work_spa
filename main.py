@@ -164,26 +164,42 @@ async def lifespan(app: FastAPI):
         import json
         import os
         backup_config_file = Path("config") / "backup_config.json"
+        logger.info(f"📂 Проверяем файл конфигурации бэкапов: {backup_config_file.absolute()}")
+        
         if backup_config_file.exists():
             with open(backup_config_file, 'r') as f:
                 backup_settings = json.load(f)
+            
+            logger.info(f"📂 Найден файл конфигурации бэкапов с настройками: {list(backup_settings.keys())}")
             
             # Применяем сохраненные настройки к переменным окружения
             for key, value in backup_settings.items():
                 old_value = os.getenv(key)
                 os.environ[key] = str(value)
-                logger.info(f"Загружена настройка бэкапов {key}: {old_value} -> {value}")
+                logger.info(f"📂 Загружена настройка бэкапов {key}: {old_value} -> {value}")
             
             logger.info("✅ Настройки бэкапов успешно загружены из файла")
         else:
-            logger.info("Файл настроек бэкапов не найден, используются настройки по умолчанию")
+            logger.info("📂 Файл настроек бэкапов не найден, используются настройки по умолчанию")
     except Exception as e:
         logger.error(f"❌ Ошибка загрузки настроек бэкапов: {e}")
+        import traceback
+        logger.error(f"Трассировка: {traceback.format_exc()}")
+
+    # Пересоздаем backup_manager с новыми настройками
+    try:
+        from utils.backup_manager import backup_manager, DatabaseBackupManager
+        # Пересоздаем глобальный экземпляр с обновленными настройками
+        import utils.backup_manager
+        utils.backup_manager.backup_manager = DatabaseBackupManager()
+        logger.info("📂 Backup manager recreated with updated settings")
+    except Exception as e:
+        logger.error(f"❌ Ошибка пересоздания backup manager: {e}")
 
     # Запускаем систему автоматических бэкапов
     try:
         await start_backup_scheduler()
-        logger.info("Планировщик бэкапов запущен")
+        logger.info("📂 Планировщик бэкапов запущен")
     except Exception as e:
         logger.error(f"Ошибка запуска планировщика бэкапов: {e}")
 
@@ -194,10 +210,14 @@ async def lifespan(app: FastAPI):
     
     # Отправляем уведомление об остановке в Telegram
     try:
+        logger.info("🔄 Попытка отправить уведомление об остановке в Telegram...")
         from utils.telegram_logger import send_shutdown_notification
-        await send_shutdown_notification()
+        result = await send_shutdown_notification()
+        logger.info(f"📱 Результат отправки уведомления об остановке: {result}")
     except Exception as e:
         logger.warning(f"Не удалось отправить уведомление об остановке: {e}")
+        import traceback
+        logger.error(f"Трассировка ошибки уведомления об остановке: {traceback.format_exc()}")
 
     try:
         await stop_cache_cleanup()

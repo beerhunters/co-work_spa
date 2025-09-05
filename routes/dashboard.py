@@ -217,17 +217,36 @@ async def get_available_periods(_: str = Depends(verify_token)):
 
                 result = session.execute(date_ranges_query).fetchone()
 
+                # Всегда возвращаем 12 месяцев (текущий + 11 предыдущих)
+                current_date = datetime.now()
+                periods = []
+                
+                month_names = {
+                    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+                    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+                    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+                }
+                
+                # Генерируем 12 месяцев: текущий + 11 предыдущих
+                for i in range(12):
+                    # Вычисляем месяц и год
+                    target_month = current_date.month - i
+                    target_year = current_date.year
+                    
+                    # Корректируем если месяц стал отрицательным
+                    while target_month <= 0:
+                        target_month += 12
+                        target_year -= 1
+                    
+                    periods.append({
+                        "year": target_year,
+                        "month": target_month,
+                        "display": f"{month_names[target_month]} {target_year}",
+                    })
+                
                 if not result or not result.min_date:
-                    # Если нет данных, возвращаем текущий месяц
-                    current_date = datetime.now()
                     return {
-                        "periods": [
-                            {
-                                "year": current_date.year,
-                                "month": current_date.month,
-                                "display": f"Август 2025",  # Жестко кодируем для отладки
-                            }
-                        ],
+                        "periods": periods,
                         "current": {
                             "year": current_date.year,
                             "month": current_date.month,
@@ -251,52 +270,8 @@ async def get_available_periods(_: str = Depends(verify_token)):
                             return datetime.now()
                     return date_val
 
-                min_date = parse_date(result.min_date)
-                max_date = (
-                    parse_date(result.max_date) if result.max_date else datetime.now()
-                )
-
-                # Генерируем список доступных месяцев
-                periods = []
-                current_date = datetime(min_date.year, min_date.month, 1)
-                end_date = datetime(max_date.year, max_date.month, 1)
-
-                month_names = {
-                    1: "Январь",
-                    2: "Февраль",
-                    3: "Март",
-                    4: "Апрель",
-                    5: "Май",
-                    6: "Июнь",
-                    7: "Июль",
-                    8: "Август",
-                    9: "Сентябрь",
-                    10: "Октябрь",
-                    11: "Ноябрь",
-                    12: "Декабрь",
-                }
-
-                while current_date <= end_date:
-                    periods.append(
-                        {
-                            "year": current_date.year,
-                            "month": current_date.month,
-                            "display": f"{month_names[current_date.month]} {current_date.year}",
-                        }
-                    )
-
-                    # Переходим к следующему месяцу
-                    if current_date.month == 12:
-                        current_date = datetime(current_date.year + 1, 1, 1)
-                    else:
-                        current_date = datetime(
-                            current_date.year, current_date.month + 1, 1
-                        )
-
-                # Сортируем по убыванию (новые месяцы сверху)
-                periods.reverse()
-
-                # Текущий период
+                # Используем уже созданный список periods (12 месяцев)
+                # Текущий период  
                 now = datetime.now()
                 current_period = {"year": now.year, "month": now.month}
 

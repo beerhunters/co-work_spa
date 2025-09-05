@@ -5,13 +5,15 @@
 import asyncio
 import os
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict
+import hashlib
 
 import pytz
 from aiogram import Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import TelegramObject, CallbackQuery, Message, Update
+from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 
 from bot.hndlrs.booking_hndlr import register_book_handlers
 from bot.hndlrs.registration_hndlr import register_reg_handlers
@@ -22,6 +24,55 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 LOGS_CHAT_ID = os.getenv("FOR_LOGS")
+
+# Система дедупликации ошибок
+error_cache = {}
+ERROR_CACHE_TTL = 300  # 5 минут
+NETWORK_ERROR_COOLDOWN = 60  # 1 минута для сетевых ошибок
+
+
+def should_send_error(error_type: str, error_msg: str, is_network_error: bool = False) -> bool:
+    """
+    Проверяет, нужно ли отправлять уведомление об ошибке.
+    Предотвращает спам одинаковыми ошибками.
+    """
+    now = datetime.now()
+    
+    # Создаем хэш ошибки для дедупликации
+    error_hash = hashlib.md5(f"{error_type}:{error_msg}".encode()).hexdigest()
+    
+    # Проверяем кэш на наличие такой ошибки
+    if error_hash in error_cache:
+        last_sent, count = error_cache[error_hash]
+        
+        # Определяем период охлаждения
+        cooldown = NETWORK_ERROR_COOLDOWN if is_network_error else ERROR_CACHE_TTL
+        
+        # Если прошло недостаточно времени - не отправляем
+        if now - last_sent < timedelta(seconds=cooldown):
+            error_cache[error_hash] = (last_sent, count + 1)
+            return False
+    
+    # Обновляем кэш и разрешаем отправку
+    error_cache[error_hash] = (now, 1)
+    
+    # Очистка старых записей из кэша
+    cleanup_error_cache()
+    
+    return True
+
+
+def cleanup_error_cache():
+    """Очищает старые записи из кэша ошибок"""
+    now = datetime.now()
+    expired_keys = []
+    
+    for error_hash, (last_sent, count) in error_cache.items():
+        if now - last_sent > timedelta(seconds=ERROR_CACHE_TTL):
+            expired_keys.append(error_hash)
+    
+    for key in expired_keys:
+        del error_cache[key]
 
 
 class ErrorLoggingMiddleware(BaseMiddleware):
@@ -90,16 +141,34 @@ class ErrorLoggingMiddleware(BaseMiddleware):
                 exc_info=True,
             )
 
-            # Отправляем уведомление в группу, если FOR_LOGS задан
-            if LOGS_CHAT_ID:
-                try:
-                    await bot.send_message(
-                        chat_id=LOGS_CHAT_ID, text=error_message, parse_mode="HTML"
-                    )
-                except Exception as send_error:
-                    logger.error(
-                        f"Не удалось отправить ошибку в группу {LOGS_CHAT_ID}: {str(send_error)}"
-                    )
+            # Проверяем, является ли это сетевой ошибкой
+            is_network_error = isinstance(e, (TelegramNetworkError, TelegramServerError, ConnectionError))
+            
+            # Проверяем, нужно ли отправлять уведомление
+            error_type = type(e).__name__
+            error_msg = str(e)
+            
+            if should_send_error(error_type, error_msg, is_network_error):
+                # Добавляем информацию о повторах, если есть
+                error_hash = hashlib.md5(f"{error_type}:{error_msg}".encode()).hexdigest()
+                repeat_count = error_cache.get(error_hash, (None, 1))[1]
+                
+                if repeat_count > 1:
+                    error_message += f"\n🔄 <b>Повторов:</b> {repeat_count}"
+                
+                # Отправляем уведомление в группу, если FOR_LOGS задан
+                if LOGS_CHAT_ID:
+                    try:
+                        await bot.send_message(
+                            chat_id=LOGS_CHAT_ID, text=error_message, parse_mode="HTML"
+                        )
+                    except Exception as send_error:
+                        logger.error(
+                            f"Не удалось отправить ошибку в группу {LOGS_CHAT_ID}: {str(send_error)}"
+                        )
+            else:
+                # Логируем, что ошибка была подавлена
+                logger.debug(f"Уведомление об ошибке {error_type} подавлено (дедупликация)")
 
             # Пропускаем исключение дальше
             raise
@@ -155,10 +224,54 @@ async def main() -> None:
     except Exception as e:
         logger.error(f"Не удалось создать файл инициализации: {e}")
 
-    # Запускаем polling
+    # Запускаем polling с обработкой сетевых ошибок
     try:
         logger.info("Бот успешно запущен и ожидает сообщений...")
-        await dp.start_polling(bot)
+        
+        while True:
+            try:
+                await dp.start_polling(bot)
+                break  # Выходим из цикла при нормальном завершении
+            except (TelegramNetworkError, TelegramServerError, ConnectionError) as net_error:
+                error_type = type(net_error).__name__
+                error_msg = str(net_error)
+                
+                # Используем дедупликацию для сетевых ошибок
+                if should_send_error(error_type, error_msg, is_network_error=True):
+                    moscow_tz = pytz.timezone("Europe/Moscow")
+                    error_time = datetime.now(moscow_tz).strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    network_error_message = (
+                        f"🔴 🧪 <b>DEV ERROR</b>\n\n"
+                        f"📍 <b>Модуль:</b> dispatcher\n"
+                        f"⚙️ <b>Функция:</b> start_polling\n"
+                        f"📄 <b>Строка:</b> polling loop\n"
+                        f"🕐 <b>Время:</b> {error_time}\n\n"
+                        f"💬 <b>Сообщение:</b>\n{error_msg}\n\n"
+                        f"🔄 <b>Попытка переподключения через 30 секунд...</b>"
+                    )
+                    
+                    if LOGS_CHAT_ID:
+                        try:
+                            await bot.send_message(
+                                chat_id=LOGS_CHAT_ID,
+                                text=network_error_message,
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass  # Игнорируем ошибки отправки уведомлений
+                
+                logger.error(f"Сетевая ошибка polling: {error_type}: {error_msg}")
+                
+                # Ждем перед переподключением
+                await asyncio.sleep(30)
+                logger.info("Попытка переподключения...")
+                
+            except Exception as e:
+                # Для других ошибок просто логируем и выходим
+                logger.error(f"Критическая ошибка polling: {type(e).__name__}: {str(e)}", exc_info=True)
+                break
+                
     finally:
         # Закрываем соединения при остановке
         await close_api_client()

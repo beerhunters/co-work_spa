@@ -22,32 +22,25 @@ logger = get_logger(__name__)
 class BackupConfig:
     """Конфигурация системы бэкапов"""
 
-    # Основные настройки
-    BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "true").lower() == "true"
-    BACKUP_INTERVAL_HOURS = int(
-        os.getenv("BACKUP_INTERVAL_HOURS", "6")
-    )  # Каждые 6 часов
-    BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/app/data/backups"))
+    def __init__(self):
+        # Основные настройки (читаем динамически при создании экземпляра)
+        self.BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "true").lower() == "true"
+        self.BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))  # Каждые 6 часов
+        self.BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/app/data/backups"))
 
-    # Ротация бэкапов
-    KEEP_HOURLY_BACKUPS = int(os.getenv("KEEP_HOURLY_BACKUPS", "48"))  # 2 дня почасовых
-    KEEP_DAILY_BACKUPS = int(
-        os.getenv("KEEP_DAILY_BACKUPS", "30")
-    )  # 30 дней ежедневных
-    KEEP_WEEKLY_BACKUPS = int(
-        os.getenv("KEEP_WEEKLY_BACKUPS", "12")
-    )  # 12 недель еженедельных
-    KEEP_MONTHLY_BACKUPS = int(
-        os.getenv("KEEP_MONTHLY_BACKUPS", "6")
-    )  # 6 месяцев ежемесячных
+        # Ротация бэкапов
+        self.KEEP_HOURLY_BACKUPS = int(os.getenv("KEEP_HOURLY_BACKUPS", "48"))  # 2 дня почасовых
+        self.KEEP_DAILY_BACKUPS = int(os.getenv("KEEP_DAILY_BACKUPS", "30"))  # 30 дней ежедневных
+        self.KEEP_WEEKLY_BACKUPS = int(os.getenv("KEEP_WEEKLY_BACKUPS", "12"))  # 12 недель еженедельных
+        self.KEEP_MONTHLY_BACKUPS = int(os.getenv("KEEP_MONTHLY_BACKUPS", "6"))  # 6 месяцев ежемесячных
 
-    # Сжатие и безопасность
-    COMPRESS_BACKUPS = os.getenv("COMPRESS_BACKUPS", "true").lower() == "true"
-    BACKUP_ENCRYPTION = os.getenv("BACKUP_ENCRYPTION", "false").lower() == "true"
-    MAX_BACKUP_SIZE_MB = int(os.getenv("MAX_BACKUP_SIZE_MB", "1000"))  # 1GB лимит
+        # Сжатие и безопасность
+        self.COMPRESS_BACKUPS = os.getenv("COMPRESS_BACKUPS", "true").lower() == "true"
+        self.BACKUP_ENCRYPTION = os.getenv("BACKUP_ENCRYPTION", "false").lower() == "true"
+        self.MAX_BACKUP_SIZE_MB = int(os.getenv("MAX_BACKUP_SIZE_MB", "1000"))  # 1GB лимит
 
-    # База данных
-    DB_PATH = Path(os.getenv("DB_PATH", "/app/data/coworking.db"))
+        # База данных
+        self.DB_PATH = Path(os.getenv("DB_PATH", "/app/data/coworking.db"))
 
 
 class BackupMetadata:
@@ -416,7 +409,7 @@ class DatabaseBackupManager:
     async def start_scheduler(self):
         """Запуск планировщика автоматических бэкапов"""
         if not self.config.BACKUP_ENABLED:
-            logger.info("Backup scheduler disabled by configuration")
+            logger.info("📂 Backup scheduler disabled by configuration")
             return
 
         if self._scheduler_running:
@@ -426,7 +419,7 @@ class DatabaseBackupManager:
         self._scheduler_running = True
 
         logger.info(
-            f"Starting backup scheduler: interval {self.config.BACKUP_INTERVAL_HOURS}h"
+            f"📂 Starting backup scheduler: interval {self.config.BACKUP_INTERVAL_HOURS}h"
         )
 
         # Создаем первый бэкап при запуске
@@ -536,7 +529,7 @@ async def restart_backup_scheduler():
             logger.info("Backup configuration reloaded from file")
         
         # Создаем новый экземпляр менеджера с новой конфигурацией
-        backup_manager = BackupManager()
+        backup_manager = DatabaseBackupManager()
         
         # Запускаем планировщик с новыми настройками
         await backup_manager.start_scheduler()
