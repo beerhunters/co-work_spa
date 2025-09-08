@@ -68,15 +68,16 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🔄 Настройка централизованной системы уведомлений...")
         from utils.init_notifications import init_error_notifications
-        from utils.error_notifier import send_startup_notification
+        from utils.system_status import register_component_startup, cleanup_system_status
         
         # Настраиваем централизованную систему
         init_success = init_error_notifications()
         logger.info(f"📋 Инициализация системы уведомлений: {'успешно' if init_success else 'неудачно'}")
         
-        # Отправляем уведомление о запуске
-        result = await send_startup_notification()
-        logger.info(f"📱 Результат отправки уведомления о запуске: {result}")
+        # Очищаем старый статус и регистрируем готовность web компонента
+        cleanup_system_status()
+        register_component_startup("web")
+        logger.info("📱 Web компонент зарегистрирован как готовый")
     except Exception as e:
         logger.warning(f"Ошибка настройки системы уведомлений: {e}")
         import traceback
@@ -215,14 +216,14 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Завершение приложения...")
     
-    # Отправляем уведомление об остановке в Telegram
+    # Отправляем уведомление об остановке системы в Telegram
     try:
-        logger.info("🔄 Попытка отправить уведомление об остановке в Telegram...")
-        from utils.error_notifier import send_shutdown_notification
-        result = await send_shutdown_notification()
-        logger.info(f"📱 Результат отправки уведомления об остановке: {result}")
+        logger.info("🔄 Попытка отправить уведомление об остановке системы в Telegram...")
+        from utils.system_status import send_system_shutdown_notification
+        result = await send_system_shutdown_notification()
+        logger.info(f"📱 Результат отправки уведомления об остановке системы: {result}")
     except Exception as e:
-        logger.warning(f"Не удалось отправить уведомление об остановке: {e}")
+        logger.warning(f"Не удалось отправить уведомление об остановке системы: {e}")
         import traceback
         logger.error(f"Трассировка ошибки уведомления об остановке: {traceback.format_exc()}")
 

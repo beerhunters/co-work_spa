@@ -235,8 +235,18 @@ def notify_error(exc_info: tuple = None,
     except Exception as e:
         logger.error(f"Ошибка в notify_error: {e}")
 
+# Глобальная переменная для предотвращения дублирования запуска
+_startup_notification_sent = False
+
 async def send_startup_notification() -> bool:
-    """Отправляет уведомление о запуске приложения"""
+    """Отправляет уведомление о запуске приложения (только один раз)"""
+    global _startup_notification_sent
+    
+    # Если уведомление уже было отправлено, не отправляем повторно
+    if _startup_notification_sent:
+        logger.debug("Уведомление о запуске уже было отправлено")
+        return True
+    
     if not _error_notifier._is_enabled():
         return False
     
@@ -259,6 +269,10 @@ async def send_startup_notification() -> bool:
             parse_mode='HTML',
             disable_web_page_preview=True
         )
+        
+        # Помечаем, что уведомление отправлено
+        _startup_notification_sent = True
+        logger.info("Уведомление о запуске отправлено")
         
         return True
         

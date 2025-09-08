@@ -123,9 +123,9 @@ async def main() -> None:
     from utils.telegram_filter import block_all_telegram_logging
     block_all_telegram_logging()
     
-    # Отправляем уведомление о запуске (НЕ настраиваем handlers здесь)  
-    from utils.error_notifier import send_startup_notification
-    await send_startup_notification()
+    # Регистрируем готовность bot компонента
+    from utils.system_status import register_component_startup
+    register_component_startup("bot")
     
     # Создаем файл-индикатор для healthcheck
     try:

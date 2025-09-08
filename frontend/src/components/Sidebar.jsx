@@ -42,12 +42,19 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
   // Проверяем, выбран ли какой-либо административный раздел
   const isAdminSectionActive = adminMenuItems.some(item => item.section === section);
   
-  // Если выбран административный раздел, открываем аккордеон автоматически
+  // Проверяем, выбран ли какой-либо основной раздел  
+  const isMainSectionActive = mainMenuItems.some(item => item.section === section);
+  
+  // Управляем состоянием аккордеона автоматически
   React.useEffect(() => {
     if (isAdminSectionActive) {
+      // Если выбран административный раздел, открываем аккордеон
       setIsAdminAccordionOpen(true);
+    } else if (isMainSectionActive) {
+      // Если выбран основной раздел, закрываем аккордеон  
+      setIsAdminAccordionOpen(false);
     }
-  }, [isAdminSectionActive]);
+  }, [isAdminSectionActive, isMainSectionActive]);
 
   return (
     <Box
