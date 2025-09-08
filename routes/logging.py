@@ -387,10 +387,10 @@ async def test_telegram_notification(current_admin: CachedAdmin = Depends(verify
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     
     try:
-        from utils.telegram_logger import send_test_notification, _is_telegram_logging_enabled
+        from utils.error_notifier import send_test_notification, _error_notifier
         
         # Проверяем конфигурацию Telegram
-        if not _is_telegram_logging_enabled():
+        if not _error_notifier._is_enabled():
             logger.warning("Telegram уведомления отключены в конфигурации")
             return {
                 "success": False, 

@@ -64,16 +64,23 @@ async def lifespan(app: FastAPI):
     log_startup_info()
     logger.info("Запуск приложения...")
     
-    # Отправляем уведомление о запуске в Telegram
+    # Инициализируем новую централизованную систему уведомлений
     try:
-        logger.info("🔄 Попытка отправить уведомление о запуске в Telegram...")
-        from utils.telegram_logger import send_startup_notification
+        logger.info("🔄 Настройка централизованной системы уведомлений...")
+        from utils.init_notifications import init_error_notifications
+        from utils.error_notifier import send_startup_notification
+        
+        # Настраиваем централизованную систему
+        init_success = init_error_notifications()
+        logger.info(f"📋 Инициализация системы уведомлений: {'успешно' if init_success else 'неудачно'}")
+        
+        # Отправляем уведомление о запуске
         result = await send_startup_notification()
         logger.info(f"📱 Результат отправки уведомления о запуске: {result}")
     except Exception as e:
-        logger.warning(f"Не удалось отправить уведомление о запуске: {e}")
+        logger.warning(f"Ошибка настройки системы уведомлений: {e}")
         import traceback
-        logger.error(f"Трассировка ошибки уведомления: {traceback.format_exc()}")
+        logger.error(f"Трассировка ошибки: {traceback.format_exc()}")
 
     # Загружаем сохраненную конфигурацию логирования
     try:
@@ -211,7 +218,7 @@ async def lifespan(app: FastAPI):
     # Отправляем уведомление об остановке в Telegram
     try:
         logger.info("🔄 Попытка отправить уведомление об остановке в Telegram...")
-        from utils.telegram_logger import send_shutdown_notification
+        from utils.error_notifier import send_shutdown_notification
         result = await send_shutdown_notification()
         logger.info(f"📱 Результат отправки уведомления об остановке: {result}")
     except Exception as e:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field
 
 from utils.logger import get_logger
+from utils.error_notifier import notify_error
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="", tags=["frontend-logs"])
@@ -70,22 +71,34 @@ async def receive_frontend_logs(
         if log_entry.stack and log_entry.level.upper() == "ERROR":
             extra_data["frontend_stack"] = log_entry.stack
         
-        # Логируем на backend
-        log_func(message, extra=extra_data)
-        
-        # Для критичных ошибок дополнительно логируем с event_type
+        # Логируем на backend ОДИН раз, объединяя все данные
         if log_entry.level.upper() == "ERROR":
-            logger.error(
-                f"Frontend error in {log_entry.context}: {log_entry.message}",
-                extra={
-                    "event_type": "frontend_error",
+            # Для ошибок добавляем дополнительную информацию
+            extra_data.update({
+                "event_type": "frontend_error",
+                "error_data": log_entry.data,
+                "frontend_stack": log_entry.stack if log_entry.stack else None
+            })
+        
+        # Для ERROR уровня отправляем через централизованную систему
+        if log_entry.level.upper() == "ERROR":
+            # Отправляем ОДНО уведомление через централизованную систему
+            notify_error(
+                exc_info=None,
+                message=f"Frontend [{log_entry.context}]: {log_entry.message}",
+                context={
+                    "source": "frontend",
                     "client_ip": client_ip,
-                    "url": log_entry.url,
                     "user_agent": log_entry.user_agent,
-                    "error_data": log_entry.data,
-                    "context": log_entry.context
+                    "url": log_entry.url,
+                    "component": log_entry.context,
+                    "frontend_data": log_entry.data,
+                    "frontend_stack": log_entry.stack
                 }
             )
+        
+        # Логируем локально БЕЗ отправки в Telegram для всех уровней
+        log_func(message, extra={**extra_data, "telegram_skip": True})
         
         return {"status": "logged", "level": log_entry.level}
         

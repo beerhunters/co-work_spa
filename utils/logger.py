@@ -29,11 +29,11 @@ except ImportError:
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
 # Импорт после инициализации основных настроек
-def _import_telegram_logger():
-    """Ленивый импорт для избежания циклических зависимостей"""
+def _import_telegram_handler():
+    """Ленивый импорт новой системы уведомлений"""
     try:
-        from utils.telegram_logger import setup_telegram_logging
-        return setup_telegram_logging
+        from utils.simple_telegram_handler import setup_simple_telegram_logging
+        return setup_simple_telegram_logging
     except ImportError:
         return None
 
@@ -206,16 +206,12 @@ class UnifiedLogger:
         self.logger.addHandler(file_handler)
     
     def _add_telegram_handler(self):
-        """Добавляет Telegram обработчик для критических ошибок"""
+        """Отключает старые Telegram handlers (новая система работает через notify_error)"""
         try:
-            setup_telegram_logging = _import_telegram_logger()
-            if setup_telegram_logging:
-                telegram_handler = setup_telegram_logging(
-                    min_level="ERROR",
-                    rate_limit_minutes=5
-                )
-                if telegram_handler:
-                    self.logger.addHandler(telegram_handler)
+            setup_simple_telegram_logging = _import_telegram_handler()
+            if setup_simple_telegram_logging:
+                # Только отключаем старые handlers, НЕ добавляем новые
+                setup_simple_telegram_logging(min_level="ERROR")
         except Exception as e:
             # Не логируем ошибку через self.logger чтобы избежать рекурсии
             print(f"Warning: Could not initialize Telegram logging: {e}")
