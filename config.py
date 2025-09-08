@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Базовые настройки
-APP_NAME = "Coworking API"
-APP_VERSION = "1.0.0"
+APP_NAME = os.getenv("APP_NAME", "Coworking API")
+APP_VERSION = os.getenv("APP_VERSION", "1.0.0")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # Директории
@@ -91,12 +91,7 @@ CORS_ORIGINS = os.getenv(
     "CORS_ORIGINS", f"http://{HOST},http://localhost:3000,http://localhost:5173"
 ).split(",")
 
-# Email (если потребуется в будущем)
-EMAIL_HOST = os.getenv("EMAIL_HOST")
-EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
-EMAIL_USER = os.getenv("EMAIL_USER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+# Email настройки удалены - не используются в приложении
 
 # Настройки рассылки
 NEWSLETTER_MAX_PHOTOS = int(os.getenv("NEWSLETTER_MAX_PHOTOS", "10"))
