@@ -17,9 +17,19 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # Переходим в корневую директорию проекта
 cd "$PROJECT_DIR"
 
+# Определяем команду Docker Compose
+if docker compose version > /dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+elif docker-compose --version > /dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+else
+    echo "❌ Docker Compose не найден!"
+    exit 1
+fi
+
 # Показываем статус всех контейнеров
 echo "📊 Статус контейнеров:"
-docker-compose ps
+$COMPOSE_CMD ps
 
 echo ""
 echo "🔍 Проверка доступности сервисов:"
@@ -44,7 +54,7 @@ fi
 
 # Проверяем Redis
 echo -n "  Redis (localhost:6379): "
-REDIS_STATUS=$(docker-compose exec -T redis redis-cli ping 2>/dev/null || echo "FAIL")
+REDIS_STATUS=$($COMPOSE_CMD exec -T redis redis-cli ping 2>/dev/null || echo "FAIL")
 if [ "$REDIS_STATUS" = "PONG" ]; then
     echo "✅ Доступен"
 else
@@ -65,5 +75,5 @@ echo "📋 Полезные команды:"
 echo "  ./scripts/logs.sh [service] [follow]  # Просмотр логов"
 echo "  ./scripts/restart.sh                  # Перезапуск"
 echo "  ./scripts/stop.sh                     # Остановка"
-echo "  docker-compose exec web bash  # Подключиться к API контейнеру"
-echo "  docker-compose exec bot bash  # Подключиться к Bot контейнеру"
+echo "  $COMPOSE_CMD exec web bash  # Подключиться к API контейнеру"
+echo "  $COMPOSE_CMD exec bot bash  # Подключиться к Bot контейнеру"

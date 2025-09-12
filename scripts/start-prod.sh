@@ -22,6 +22,16 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # Переходим в корневую директорию проекта
 cd "$PROJECT_DIR"
 
+# Определяем команду Docker Compose
+if docker compose version > /dev/null 2>&1; then
+    COMPOSE_CMD="docker compose"
+elif docker-compose --version > /dev/null 2>&1; then
+    COMPOSE_CMD="docker-compose"
+else
+    echo "❌ Docker Compose не найден!"
+    exit 1
+fi
+
 # Проверяем наличие .env файла
 if [ ! -f ".env" ]; then
     echo "❌ Файл .env не найден!"
@@ -106,7 +116,7 @@ fi
 
 # Запускаем Docker Compose с профилем production (включает certbot)
 echo "🚀 Запуск продакшн сервисов..."
-docker-compose --profile production up -d --build
+$COMPOSE_CMD --profile production up -d --build
 
 # Ждем запуска сервисов
 echo "⏱️ Ожидание запуска сервисов..."
@@ -114,7 +124,7 @@ sleep 15
 
 # Проверяем статус
 echo "🏥 Проверка статуса сервисов:"
-docker-compose ps
+$COMPOSE_CMD ps
 
 echo ""
 echo "🔍 Проверка доступности:"
@@ -160,9 +170,9 @@ else
 fi
 echo ""
 echo "📋 Полезные команды:"
-echo "  docker-compose logs -f                    # Просмотр логов"
-echo "  docker-compose --profile production ps    # Статус сервисов"
-echo "  docker-compose --profile production down  # Остановка"
+echo "  $COMPOSE_CMD logs -f                    # Просмотр логов"
+echo "  $COMPOSE_CMD --profile production ps    # Статус сервисов"
+echo "  $COMPOSE_CMD --profile production down  # Остановка"
 echo "  ./setup-ssl.sh                            # Настройка SSL"
 echo ""
 echo "🏠 Для локальной разработки используйте: ./start-local.sh"
