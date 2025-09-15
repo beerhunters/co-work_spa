@@ -180,6 +180,16 @@ sudo systemctl enable fail2ban
 sudo systemctl start fail2ban
 print_status "Fail2ban активирован"
 
+# Оптимизация памяти для Redis и производительности
+print_info "Настраиваем оптимизацию памяти для Redis..."
+if ! grep -q "vm.overcommit_memory = 1" /etc/sysctl.conf 2>/dev/null; then
+    echo "vm.overcommit_memory = 1" | sudo tee -a /etc/sysctl.conf > /dev/null
+    sudo sysctl vm.overcommit_memory=1
+    print_status "Memory overcommit включен (исправляет предупреждения Redis)"
+else
+    print_status "Memory overcommit уже настроен"
+fi
+
 # ЭТАП 4: Подготовка проекта
 print_step "ЭТАП 4: Настройка проекта"
 
