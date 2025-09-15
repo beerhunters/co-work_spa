@@ -52,11 +52,8 @@ export BUILD_TARGET="production"
 export ENVIRONMENT="production"
 export DEBUG="false"
 
-# URL конфигурация для продакшена
+# URL конфигурация для продакшена (будет обновлена после проверки SSL)
 export API_BASE_URL_INTERNAL="http://web:8000"
-export API_BASE_URL_EXTERNAL="https://$DOMAIN_NAME/api"
-export FRONTEND_URL="https://$DOMAIN_NAME"
-export CORS_ORIGINS="https://$DOMAIN_NAME"
 
 # Порты для продакшена
 export WEB_PORT="8000"
@@ -112,6 +109,16 @@ if [ ! -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ]; then
     echo "⚠️ Запуск БЕЗ SSL сертификатов"
     export SSL_CERTS_PATH="/dev/null"
     export SSL_WEBROOT_PATH="/dev/null"
+    
+    # Настройка URL для HTTP (без SSL)
+    export API_BASE_URL_EXTERNAL="http://$DOMAIN_NAME/api"
+    export FRONTEND_URL="http://$DOMAIN_NAME"
+    export CORS_ORIGINS="http://$DOMAIN_NAME"
+else
+    # Настройка URL для HTTPS (с SSL)
+    export API_BASE_URL_EXTERNAL="https://$DOMAIN_NAME/api"
+    export FRONTEND_URL="https://$DOMAIN_NAME"
+    export CORS_ORIGINS="https://$DOMAIN_NAME"
 fi
 
 # Запускаем Docker Compose с профилем production (включает certbot)
@@ -165,8 +172,8 @@ if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/nu
     echo "  🔒 API Docs:        https://$DOMAIN_NAME/docs"
 else
     echo "  📱 Frontend:        http://$DOMAIN_NAME (или http://YOUR_SERVER_IP)"
-    echo "  🔧 API:             http://$DOMAIN_NAME:8000/api"
-    echo "  📚 API Docs:        http://$DOMAIN_NAME:8000/docs"
+    echo "  🔧 API:             http://$DOMAIN_NAME/api"
+    echo "  📚 API Docs:        http://$DOMAIN_NAME/docs"
 fi
 echo ""
 echo "📋 Полезные команды:"

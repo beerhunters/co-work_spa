@@ -205,7 +205,7 @@ if [[ ! -f .env ]]; then
         JWT_KEY=$(python3 -c "import os; print(os.urandom(32).hex())")
         
         sed -i "s/your-secret-key-change-me/$SECRET_KEY/" .env
-        sed -i "s/your-super-secret-key-change-in-production/$JWT_KEY/" .env
+        sed -i "s/your-jwt-secret-key-change-me/$JWT_KEY/" .env
         
         print_status ".env файл создан с безопасными ключами"
     else

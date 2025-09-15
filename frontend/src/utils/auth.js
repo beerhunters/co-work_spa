@@ -1,8 +1,27 @@
 // utils/auth.js
 import axios from 'axios';
 
-// Базовый URL по умолчанию на случай fallback-инициализации
-const DEFAULT_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost/api';
+// Определяем базовый URL в зависимости от окружения
+const getApiBaseUrl = () => {
+  // Если переменная окружения задана, используем её
+  if (process.env.REACT_APP_API_BASE_URL) {
+    return process.env.REACT_APP_API_BASE_URL;
+  }
+  
+  // Иначе определяем автоматически по текущему хосту
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  
+  // Для локальной разработки
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost/api';
+  }
+  
+  // Для продакшена используем тот же домен с HTTPS
+  return `${protocol}//${hostname}/api`;
+};
+
+const DEFAULT_API_BASE_URL = getApiBaseUrl();
 
 
 // Работа с токеном в localStorage

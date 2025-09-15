@@ -22,7 +22,7 @@ export DEBUG="true"
 
 # URL конфигурация для localhost
 export API_BASE_URL_INTERNAL="http://web:8000"
-export API_BASE_URL_EXTERNAL="http://localhost:8000/api"
+export API_BASE_URL_EXTERNAL="http://localhost/api"
 export FRONTEND_URL="http://localhost"
 export CORS_ORIGINS="http://localhost,http://localhost:3000,http://localhost:5173"
 

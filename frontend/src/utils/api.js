@@ -4,7 +4,27 @@ import { createLogger } from './logger.js';
 
 const logger = createLogger('API');
 
-export const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost/api';
+// Определяем базовый URL в зависимости от окружения
+const getApiBaseUrl = () => {
+  // Если переменная окружения задана, используем её
+  if (process.env.REACT_APP_API_BASE_URL) {
+    return process.env.REACT_APP_API_BASE_URL;
+  }
+  
+  // Иначе определяем автоматически по текущему хосту
+  const protocol = window.location.protocol;
+  const hostname = window.location.hostname;
+  
+  // Для локальной разработки
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost/api';
+  }
+  
+  // Для продакшена используем тот же домен с HTTPS
+  return `${protocol}//${hostname}/api`;
+};
+
+export const API_BASE_URL = getApiBaseUrl();
 
 // Создание axios instance с базовыми настройками
 const apiClient = axios.create({
