@@ -310,13 +310,18 @@ async def send_shutdown_notification() -> bool:
         logger.error(f"Ошибка отправки уведомления об остановке: {e}")
         return False
 
-async def send_test_notification(level: str = "TEST") -> bool:
+async def send_test_notification(level: str = "TEST", admin_login: str = "admin") -> bool:
     """Отправляет тестовое уведомление"""
     return await _error_notifier.send_error_notification(
         error_type="TEST",
-        message=f"Тестовое уведомление уровня {level}",
+        message=f"🧪 Тестовое уведомление уровня {level} от администратора {admin_login}",
         module="test",
         function="send_test_notification",
         line_number=1,
-        context={"test": True}
+        context={
+            "test": True,
+            "admin": admin_login,
+            "level": level,
+            "timestamp": datetime.now().isoformat()
+        }
     )
