@@ -144,19 +144,38 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       if (error.message) {
         errorMessage = error.message;
         
-        // Для определенных ошибок меняем статус на предупреждение
+        // Для определенных ошибок меняем статус и заголовок
         if (error.message.includes('нет фото профиля') || 
             error.message.includes('недоступно для загрузки')) {
-          toastStatus = 'warning';
-          duration = 5000;
-        } else if (error.message.includes('не указан Telegram ID')) {
           toastStatus = 'info';
           duration = 4000;
+          // Более дружелюбное сообщение
+          toast({
+            title: 'Аватар недоступен',
+            description: 'У пользователя нет фото профиля в Telegram, либо настройки приватности не позволяют его загрузить',
+            status: toastStatus,
+            duration: duration,
+            isClosable: true,
+            position: 'top',
+          });
+          return;
+        } else if (error.message.includes('не указан Telegram ID')) {
+          toastStatus = 'warning';
+          duration = 4000;
+          toast({
+            title: 'Telegram ID отсутствует',
+            description: 'У пользователя не указан Telegram ID, поэтому нельзя загрузить аватар',
+            status: toastStatus,
+            duration: duration,
+            isClosable: true,
+            position: 'top',
+          });
+          return;
         }
       }
 
       toast({
-        title: 'Не удалось загрузить аватар',
+        title: 'Ошибка загрузки аватара',
         description: errorMessage,
         status: toastStatus,
         duration: duration,

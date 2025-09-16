@@ -328,7 +328,18 @@ export const userApi = {
 
       return res.data;
     } catch (error) {
-      logger.apiError(`/users/${userId}/download-telegram-avatar`, 'POST', error.response?.status || 'unknown', 'Ошибка скачивания аватара из Telegram', error.response?.data);
+      // Определяем, является ли это ошибкой отсутствия аватара (не логируем как error)
+      const isNoAvatarError = error.response?.status === 404 && 
+        (error.response.data?.detail?.includes('no profile photo') || 
+         error.response.data?.detail?.includes('not accessible'));
+      
+      if (!isNoAvatarError) {
+        // Логируем только настоящие ошибки, не отсутствие аватара
+        logger.apiError(`/users/${userId}/download-telegram-avatar`, 'POST', error.response?.status || 'unknown', 'Ошибка скачивания аватара из Telegram', error.response?.data);
+      } else {
+        // Для отсутствия аватара логируем как debug/info
+        logger.debug(`Пользователь ${userId} не имеет аватара в Telegram`);
+      }
 
       // Детальная обработка ошибок
       if (error.response?.status === 404) {
