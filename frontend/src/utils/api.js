@@ -1057,8 +1057,22 @@ export const newsletterApi = {
 // -------------------- API: Дашборд --------------------
 export const dashboardApi = {
   getStats: async () => {
-    const res = await apiClient.get('/dashboard/stats');
-    return res.data;
+    try {
+      const res = await apiClient.get('/dashboard/stats');
+      return res.data;
+    } catch (error) {
+      logger.error('Ошибка получения статистики дашборда:', error);
+      
+      // Логируем детали ошибки для отладки
+      logger.apiError('/dashboard/stats', 'GET', 
+        error.response?.status || 'unknown', 
+        error.message, 
+        error.response?.data
+      );
+      
+      // Пробрасываем ошибку дальше для обработки в компоненте
+      throw error;
+    }
   }
 };
 

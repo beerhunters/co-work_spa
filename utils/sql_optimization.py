@@ -158,7 +158,23 @@ class SQLOptimizer:
 
         except Exception as e:
             logger.error(f"Ошибка выполнения оптимизированного запроса статистики: {e}")
-            raise
+            
+            # Возвращаем базовую статистику при ошибке
+            logger.warning("Возвращаем базовую статистику из-за ошибки SQL запроса")
+            return {
+                "total_users": 0,
+                "total_bookings": 0,
+                "open_tickets": 0,
+                "active_tariffs": 0,
+                "paid_bookings": 0,
+                "total_revenue": 0.0,
+                "ticket_stats": {
+                    "open": 0,
+                    "in_progress": 0,
+                    "closed": 0,
+                },
+                "unread_notifications": 0,
+            }
 
     @staticmethod
     def get_optimized_tickets_with_users(

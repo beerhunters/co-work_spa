@@ -552,6 +552,25 @@ function App() {
           setDashboardStats(stats);
         } catch (err) {
           logger.error('Ошибка получения статистики дашборда:', err);
+          
+          // Показываем уведомление пользователю только если это не ошибка авторизации
+          if (err.response?.status !== 401) {
+            toast({
+              title: 'Ошибка загрузки статистики',
+              description: 'Не удалось загрузить статистику дашборда. Попробуйте обновить страницу.',
+              status: 'error',
+              duration: 5000,
+              isClosable: true,
+              position: 'top-right',
+            });
+          }
+          
+          // Устанавливаем значения по умолчанию
+          setDashboardStats({
+            total_users: 0,
+            total_bookings: 0,
+            open_tickets: 0
+          });
         }
       };
 
@@ -559,7 +578,7 @@ function App() {
       const statsInterval = setInterval(fetchDashboardStats, 30000);
       return () => clearInterval(statsInterval);
     }
-  }, [isAuthenticated, section, currentAdmin]);
+  }, [isAuthenticated, section, currentAdmin, toast, hasPermission]);
 
   // Auto-refresh уведомлений
   useEffect(() => {

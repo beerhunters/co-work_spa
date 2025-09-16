@@ -484,7 +484,7 @@ const Dashboard = ({
                   Всего пользователей
                 </StatLabel>
                 <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
-                  {stats.total_users}
+                  {stats?.total_users || 0}
                 </StatNumber>
                 <StatHelpText opacity={0.9}>
                   <HStack spacing={1}>
@@ -513,7 +513,7 @@ const Dashboard = ({
                   Всего бронирований
                 </StatLabel>
                 <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
-                  {stats.total_bookings}
+                  {stats?.total_bookings || 0}
                 </StatNumber>
                 <StatHelpText opacity={0.9}>
                   <HStack spacing={1}>
@@ -542,7 +542,7 @@ const Dashboard = ({
                   Открытые заявки
                 </StatLabel>
                 <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
-                  {stats.open_tickets}
+                  {stats?.open_tickets || 0}
                 </StatNumber>
                 <StatHelpText opacity={0.9}>
                   <HStack spacing={1}>

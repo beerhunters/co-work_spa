@@ -28,12 +28,36 @@ async def get_dashboard_stats(_: str = Depends(verify_token)):
 
     try:
         # Используем кэш с TTL для дашборда
-        return await cache_manager.get_or_set(
+        result = await cache_manager.get_or_set(
             cache_key, _get_stats, ttl=cache_manager.dashboard_ttl
         )
+        
+        # Дополнительная проверка результата
+        if not isinstance(result, dict):
+            logger.warning(f"Получен некорректный результат статистики: {type(result)}")
+            raise ValueError("Некорректный формат данных статистики")
+            
+        return result
+        
     except Exception as e:
         logger.error(f"Ошибка в get_dashboard_stats: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения статистики")
+        
+        # Возвращаем базовые значения при любой ошибке
+        logger.warning("Возвращаем базовую статистику из-за ошибки")
+        return {
+            "total_users": 0,
+            "total_bookings": 0,
+            "open_tickets": 0,
+            "active_tariffs": 0,
+            "paid_bookings": 0,
+            "total_revenue": 0.0,
+            "ticket_stats": {
+                "open": 0,
+                "in_progress": 0,
+                "closed": 0,
+            },
+            "unread_notifications": 0,
+        }
 
 
 @router.get("/chart-data")
