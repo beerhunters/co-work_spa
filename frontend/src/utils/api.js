@@ -265,7 +265,7 @@ export const userApi = {
     if (res.data.avatar_url) {
       try {
         const img = document.createElement('img');
-        img.src = `/api${res.data.avatar_url}`;
+        img.src = res.data.avatar_url;
         img.style.display = 'none';
         document.body.appendChild(img);
         // Удаляем элемент после загрузки
@@ -294,7 +294,7 @@ export const userApi = {
       if (res.data.avatar_url) {
         try {
           const img = document.createElement('img');
-          img.src = `/api${res.data.avatar_url}`;
+          img.src = res.data.avatar_url;
           img.style.display = 'none';
           document.body.appendChild(img);
           // Удаляем элемент после загрузки

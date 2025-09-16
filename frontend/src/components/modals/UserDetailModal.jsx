@@ -51,12 +51,12 @@ const API_BASE_URL = getApiBaseUrl();
 const getAvatarUrl = (avatar, forceRefresh = false) => {
   // ИСПРАВЛЕНИЕ: Если аватар отсутствует или null, всегда возвращаем placeholder
   if (!avatar || avatar === 'placeholder_avatar.png' || avatar === null) {
-    return `${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`;
+    return `/avatars/placeholder_avatar.png?v=${Date.now()}`;
   }
 
   // Добавляем timestamp для предотвращения кэширования
   const timestamp = forceRefresh ? Date.now() : new Date().getTime();
-  return `${API_BASE_URL}/avatars/${avatar}?v=${timestamp}`;
+  return `/avatars/${avatar}?v=${timestamp}`;
 };
 
 const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
@@ -242,7 +242,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
     // Если это не placeholder, устанавливаем placeholder
     if (!e.target.src.includes('placeholder_avatar.png')) {
-      e.target.src = `${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`;
+      e.target.src = `/avatars/placeholder_avatar.png?v=${Date.now()}`;
     }
   };
 
@@ -269,7 +269,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                   boxSize="120px"
                   borderRadius="full"
                   objectFit="cover"
-                  fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`}
+                  fallbackSrc={`/avatars/placeholder_avatar.png?v=${Date.now()}`}
                   mx="auto"
                   mb={4}
                   cursor="pointer"
@@ -498,7 +498,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 alt="Аватар в полном размере"
                 boxSize="300px"
                 objectFit="contain"
-                fallbackSrc={`${API_BASE_URL}/avatars/placeholder_avatar.png?v=${Date.now()}`}
+                fallbackSrc={`/avatars/placeholder_avatar.png?v=${Date.now()}`}
                 mx="auto"
                 onError={handleImageError}
                 loading="eager"
