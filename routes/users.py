@@ -549,6 +549,111 @@ async def download_telegram_avatar(
         )
 
 
+@router.post("/bulk-download-avatars")
+async def bulk_download_telegram_avatars(
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.EDIT_USERS])
+    ),
+):
+    """Массовая загрузка аватаров всех пользователей из Telegram."""
+    try:
+        def _get_users_without_avatars(session):
+            # Получаем пользователей с Telegram ID, но без аватара (или с placeholder)
+            users = session.query(User).filter(
+                User.telegram_id.isnot(None),
+                User.telegram_id != "",
+                # Пользователи без аватара или с placeholder
+                (User.avatar.is_(None) | (User.avatar == "placeholder_avatar.png") | (User.avatar == ""))
+            ).all()
+            
+            return [{
+                "id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name,
+                "avatar": user.avatar
+            } for user in users]
+
+        users_data = DatabaseManager.safe_execute(_get_users_without_avatars)
+        bot = get_bot()
+
+        if not bot:
+            raise HTTPException(status_code=503, detail="Bot not available")
+
+        logger.info(f"Начинаем массовую загрузку аватаров для {len(users_data)} пользователей, инициатор: {current_admin.login}")
+
+        results = {
+            "total_users": len(users_data),
+            "successful_downloads": 0,
+            "failed_downloads": 0,
+            "no_avatar_users": 0,
+            "error_details": []
+        }
+
+        for user_data in users_data:
+            try:
+                profile_photos = await bot.get_user_profile_photos(
+                    user_id=user_data["telegram_id"], limit=1
+                )
+
+                if not profile_photos.photos:
+                    results["no_avatar_users"] += 1
+                    logger.debug(f"Пользователь {user_data['telegram_id']} ({user_data.get('full_name', 'Unknown')}) не имеет аватара")
+                    continue
+
+                photo = profile_photos.photos[0][-1]
+                file = await bot.get_file(photo.file_id)
+
+                avatar_filename = f"{user_data['telegram_id']}.jpg"
+                avatar_path = AVATARS_DIR / avatar_filename
+
+                AVATARS_DIR.mkdir(parents=True, exist_ok=True)
+
+                # Удаляем старый файл если есть
+                if avatar_path.exists():
+                    avatar_path.unlink()
+
+                await bot.download_file(file.file_path, destination=avatar_path)
+
+                # Обновляем пользователя в БД
+                def _update_avatar(session):
+                    user_obj = session.query(User).filter(User.id == user_data["id"]).first()
+                    if user_obj:
+                        user_obj.avatar = avatar_filename
+                        session.commit()
+                        return True
+                    return False
+
+                if DatabaseManager.safe_execute(_update_avatar):
+                    results["successful_downloads"] += 1
+                    logger.debug(f"Аватар загружен для пользователя {user_data['telegram_id']} ({user_data.get('full_name', 'Unknown')})")
+                else:
+                    results["failed_downloads"] += 1
+                    results["error_details"].append(f"Не удалось обновить БД для пользователя {user_data['id']}")
+
+            except Exception as e:
+                results["failed_downloads"] += 1
+                error_msg = f"Ошибка для пользователя {user_data['telegram_id']} ({user_data.get('full_name', 'Unknown')}): {str(e)}"
+                results["error_details"].append(error_msg)
+                logger.debug(error_msg)
+
+        logger.info(f"Массовая загрузка завершена. Успешно: {results['successful_downloads']}, "
+                   f"Ошибки: {results['failed_downloads']}, Без аватара: {results['no_avatar_users']}")
+
+        return {
+            "message": "Массовая загрузка аватаров завершена",
+            "results": results
+        }
+
+    except HTTPException as e:
+        logger.warning(f"HTTP ошибка при массовой загрузке аватаров: {e.status_code} - {e.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при массовой загрузке аватаров: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Внутренняя ошибка сервера при массовой загрузке аватаров"
+        )
+
+
 @router.delete("/{user_id}")
 async def delete_user(
     user_id: int,

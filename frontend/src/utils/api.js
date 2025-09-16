@@ -364,6 +364,36 @@ export const userApi = {
       throw new Error(error.response?.data?.detail || 'Не удалось скачать аватар из Telegram');
     }
   },
+
+  // Массовая загрузка аватаров из Telegram  
+  bulkDownloadTelegramAvatars: async () => {
+    try {
+      logger.debug('Запуск массовой загрузки аватаров из Telegram');
+      const res = await apiClient.post('/users/bulk-download-avatars');
+      logger.info('Массовая загрузка аватаров завершена', { results: res.data.results });
+      return res.data;
+    } catch (error) {
+      logger.error('Ошибка массовой загрузки аватаров:', error);
+      
+      // Логируем детали ошибки
+      logger.apiError('/users/bulk-download-avatars', 'POST', 
+        error.response?.status || 'unknown', 
+        'Ошибка массовой загрузки аватаров', 
+        error.response?.data
+      );
+      
+      // Детальная обработка ошибок
+      if (error.response?.status === 403) {
+        throw new Error('Недостаточно прав для массовой загрузки аватаров');
+      } else if (error.response?.status === 503) {
+        throw new Error('Бот Telegram недоступен для массовой загрузки');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Ошибка сервера при массовой загрузке. Попробуйте позже');
+      }
+      
+      throw new Error(error.response?.data?.detail || 'Не удалось выполнить массовую загрузку аватаров');
+    }
+  },
 };
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {

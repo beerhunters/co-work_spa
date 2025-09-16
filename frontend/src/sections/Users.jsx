@@ -31,7 +31,7 @@ import {
   Checkbox,
   Icon
 } from '@chakra-ui/react';
-import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare } from 'react-icons/fi';
+import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare, FiDownload } from 'react-icons/fi';
 import { userApi } from '../utils/api';
 
 const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
@@ -43,6 +43,8 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
   // Состояния для массового выбора
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState(new Set());
+  // Состояние для массовой загрузки аватаров
+  const [isBulkDownloading, setIsBulkDownloading] = useState(false);
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
@@ -207,6 +209,49 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
     }
   };
 
+  // Функция массовой загрузки аватаров
+  const handleBulkDownloadAvatars = async () => {
+    setIsBulkDownloading(true);
+    try {
+      const result = await userApi.bulkDownloadTelegramAvatars();
+      
+      const { results } = result;
+      const successMsg = `Загрузка завершена!\n` +
+        `• Обработано пользователей: ${results.total_users}\n` +
+        `• Успешно загружено: ${results.successful_downloads}\n` +
+        `• Без аватара: ${results.no_avatar_users}\n` +
+        `• Ошибок: ${results.failed_downloads}`;
+
+      toast({
+        title: 'Массовая загрузка аватаров',
+        description: successMsg,
+        status: results.successful_downloads > 0 ? 'success' : 'info',
+        duration: 8000,
+        isClosable: true,
+        position: 'top',
+      });
+
+      // Обновляем данные пользователей
+      if (onUpdate && results.successful_downloads > 0) {
+        await onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка массовой загрузки аватаров:', error);
+      
+      toast({
+        title: 'Ошибка массовой загрузки',
+        description: error.message || 'Не удалось выполнить массовую загрузку аватаров',
+        status: 'error',
+        duration: 6000,
+        isClosable: true,
+        position: 'top',
+      });
+    } finally {
+      setIsBulkDownloading(false);
+    }
+  };
+
   const isAllSelected = currentUsers.length > 0 && selectedUsers.size === currentUsers.length;
   const isIndeterminate = selectedUsers.size > 0 && selectedUsers.size < currentUsers.length;
 
@@ -253,6 +298,23 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
               <Text fontSize="sm" color="gray.500">
                 Показано: {currentUsers.length} из {filteredUsers.length}
               </Text>
+              
+              {/* Кнопка массовой загрузки аватаров */}
+              <Tooltip label="Загрузить аватары из Telegram для всех пользователей без аватара" hasArrow>
+                <Button
+                  size="sm"
+                  leftIcon={<Icon as={FiDownload} />}
+                  onClick={handleBulkDownloadAvatars}
+                  colorScheme="blue"
+                  variant="outline"
+                  isLoading={isBulkDownloading}
+                  loadingText="Загружаем..."
+                  isDisabled={currentUsers.length === 0}
+                >
+                  Загрузить аватары
+                </Button>
+              </Tooltip>
+              
               {canDeleteUsers && (
                 <Button
                   size="sm"
