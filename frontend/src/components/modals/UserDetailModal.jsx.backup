@@ -238,9 +238,12 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   // Функция для форсированной перезагрузки изображения
   const handleImageError = (e) => {
-    console.log('Ошибка загрузки изображения, используем fallbackSrc');
-    // Предотвращаем бесконечный цикл - не меняем src, полагаемся на fallbackSrc
-    e.preventDefault();
+    console.log('Ошибка загрузки изображения, переключаемся на placeholder');
+
+    // Если это не placeholder, устанавливаем placeholder
+    if (!e.target.src.includes('placeholder_avatar.png')) {
+      e.target.src = `/avatars/placeholder_avatar.png?v=${Date.now()}`;
+    }
   };
 
   if (!currentUser) return null;

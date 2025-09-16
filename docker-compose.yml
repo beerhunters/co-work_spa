@@ -203,6 +203,10 @@ services:
       - "${FRONTEND_HTTP_PORT:-80}:80"
       - "${FRONTEND_HTTPS_PORT:-443}:443"
     volumes:
+      # Статические файлы для аватаров
+      - ./avatars:/app/avatars
+      - ./ticket_photos:/app/ticket_photos
+      - ./newsletter_photos:/app/newsletter_photos
       # SSL сертификаты (только для production)
       - ${SSL_CERTS_PATH:-/dev/null}:/etc/letsencrypt:ro
       - ${SSL_WEBROOT_PATH:-/dev/null}:/var/www/certbot
