@@ -425,7 +425,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
                 except Exception as e:
                     logger.error(f"Ошибка создания ссылки на группу: {e}")
 
-            # Формируем сообщение успешной регистрации
+            # Первое сообщение - информация о регистрации
             success_msg = (
                 "✅ <b>Регистрация успешно завершена!</b>\n\n"
                 "🛜 WiFi: <b>Parta</b> Пароль: <code>Parta2024</code>\n\n"
@@ -433,7 +433,13 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
                 f"👤 Имя: {full_name}\n"
                 f"📞 Телефон: {phone}\n"
                 f"📧 Email: {email}\n\n"
-                f"🎉 Теперь вам доступны все функции бота!\n\n"
+                f"🎉 Теперь вам доступны все функции бота!"
+            )
+
+            await message.answer(success_msg, parse_mode="HTML")
+
+            # Второе сообщение - действия с клавиатурой
+            actions_msg = (
                 f"💡 <b>Что дальше?</b>\n"
                 f"• Забронируйте рабочее место или переговорную\n"
                 f"• Пригласите друзей и получите бонусы\n"
@@ -441,7 +447,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             )
 
             await message.answer(
-                success_msg, parse_mode="HTML", reply_markup=create_invite_keyboard()
+                actions_msg, parse_mode="HTML", reply_markup=create_invite_keyboard()
             )
 
             # Отправляем уведомление админу в Telegram
