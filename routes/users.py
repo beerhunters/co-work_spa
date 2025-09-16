@@ -559,12 +559,13 @@ async def bulk_download_telegram_avatars(
     try:
         def _get_users_without_avatars(session):
             # Получаем пользователей с Telegram ID, но без аватара (или с placeholder)
+            # Ограничиваем количество до 50 пользователей за раз для избежания timeout
             users = session.query(User).filter(
                 User.telegram_id.isnot(None),
                 User.telegram_id != "",
                 # Пользователи без аватара или с placeholder
                 (User.avatar.is_(None) | (User.avatar == "placeholder_avatar.png") | (User.avatar == ""))
-            ).all()
+            ).limit(50).all()  # Ограничение для избежания timeout
             
             return [{
                 "id": user.id,
@@ -586,10 +587,15 @@ async def bulk_download_telegram_avatars(
             "successful_downloads": 0,
             "failed_downloads": 0,
             "no_avatar_users": 0,
-            "error_details": []
+            "error_details": [],
+            "limited_batch": len(users_data) == 50  # Флаг ограниченной пачки
         }
 
-        for user_data in users_data:
+        for i, user_data in enumerate(users_data):
+            # Логируем прогресс каждые 10 пользователей
+            if i % 10 == 0 and i > 0:
+                logger.info(f"Обработано {i}/{len(users_data)} пользователей. Успешно: {results['successful_downloads']}, Без аватара: {results['no_avatar_users']}")
+                
             try:
                 profile_photos = await bot.get_user_profile_photos(
                     user_id=user_data["telegram_id"], limit=1

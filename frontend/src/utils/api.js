@@ -387,6 +387,8 @@ export const userApi = {
         throw new Error('Недостаточно прав для массовой загрузки аватаров');
       } else if (error.response?.status === 503) {
         throw new Error('Бот Telegram недоступен для массовой загрузки');
+      } else if (error.response?.status === 504) {
+        throw new Error('Операция превысила лимит времени. Попробуйте еще раз - возможно, часть аватаров уже загружена');
       } else if (error.response?.status >= 500) {
         throw new Error('Ошибка сервера при массовой загрузке. Попробуйте позже');
       }
