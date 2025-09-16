@@ -135,11 +135,28 @@ export const notificationApi = {
       });
       return res.data;
     } catch (error) {
-      if (error.response?.status === 503) {
-        logger.warn('Database temporarily unavailable for notifications check');
+      logger.error('Ошибка проверки новых уведомлений:', error);
+      
+      // Логируем детали ошибки для отладки
+      logger.apiError('/notifications/check_new', 'GET', 
+        error.response?.status || 'unknown', 
+        error.message, 
+        error.response?.data
+      );
+      
+      // Возвращаем безопасные значения по умолчанию при любой ошибке
+      if (error.response?.status === 503 || error.response?.status >= 500) {
+        logger.warn('Server temporarily unavailable for notifications check');
         return { has_new: false, recent_notifications: [] };
       }
-      throw error;
+      
+      // Для ошибок авторизации (401, 403) пробрасываем дальше
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        throw error;
+      }
+      
+      // Для остальных ошибок возвращаем пустой результат
+      return { has_new: false, recent_notifications: [] };
     }
   },
 

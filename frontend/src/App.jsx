@@ -606,6 +606,18 @@ function App() {
           }
         } catch (err) {
           logger.error('Ошибка получения уведомлений:', err);
+          
+          // Показываем уведомление пользователю только если это не ошибка авторизации
+          if (err.response?.status !== 401) {
+            toast({
+              title: 'Ошибка загрузки уведомлений',
+              description: 'Не удалось загрузить новые уведомления. Проверьте соединение.',
+              status: 'error',
+              duration: 3000,
+              isClosable: true,
+              position: 'top-right',
+            });
+          }
         }
       };
 

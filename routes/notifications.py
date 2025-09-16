@@ -43,29 +43,39 @@ async def check_new_notifications(
     _: str = Depends(verify_token),
 ):
     """Проверка новых уведомлений с определенного ID."""
-    query = db.query(Notification).order_by(Notification.created_at.desc())
+    try:
+        query = db.query(Notification).order_by(Notification.created_at.desc())
 
-    if since_id > 0:
-        query = query.filter(Notification.id > since_id)
+        if since_id > 0:
+            query = query.filter(Notification.id > since_id)
 
-    notifications = query.limit(5).all()
+        notifications = query.limit(5).all()
 
-    return {
-        "has_new": len(notifications) > 0,
-        "recent_notifications": [
-            {
-                "id": n.id,
-                "user_id": n.user_id,
-                "message": n.message,
-                "booking_id": n.booking_id,
-                "ticket_id": n.ticket_id,
-                "target_url": n.target_url,
-                "is_read": n.is_read,
-                "created_at": n.created_at.isoformat(),
-            }
-            for n in notifications
-        ],
-    }
+        return {
+            "has_new": len(notifications) > 0,
+            "recent_notifications": [
+                {
+                    "id": n.id,
+                    "user_id": n.user_id,
+                    "message": n.message,
+                    "booking_id": n.booking_id,
+                    "ticket_id": n.ticket_id,
+                    "target_url": n.target_url,
+                    "is_read": n.is_read,
+                    "created_at": n.created_at.isoformat(),
+                }
+                for n in notifications
+            ],
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка при проверке новых уведомлений: {e}")
+        
+        # Возвращаем безопасные значения по умолчанию
+        return {
+            "has_new": False,
+            "recent_notifications": [],
+        }
 
 
 @router.post("/mark_read/{notification_id}")
