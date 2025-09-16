@@ -558,14 +558,13 @@ async def bulk_download_telegram_avatars(
     """Массовая загрузка аватаров всех пользователей из Telegram."""
     try:
         def _get_users_without_avatars(session):
-            # Получаем пользователей с Telegram ID, но без аватара (или с placeholder)
-            # Ограничиваем количество до 50 пользователей за раз для избежания timeout
+            # Получаем всех пользователей с Telegram ID, но без аватара (или с placeholder)
             users = session.query(User).filter(
                 User.telegram_id.isnot(None),
                 User.telegram_id != "",
                 # Пользователи без аватара или с placeholder
                 (User.avatar.is_(None) | (User.avatar == "placeholder_avatar.png") | (User.avatar == ""))
-            ).limit(50).all()  # Ограничение для избежания timeout
+            ).all()  # Убираем лимит - обрабатываем всех
             
             return [{
                 "id": user.id,
@@ -588,13 +587,18 @@ async def bulk_download_telegram_avatars(
             "failed_downloads": 0,
             "no_avatar_users": 0,
             "error_details": [],
-            "limited_batch": len(users_data) == 50  # Флаг ограниченной пачки
+            "limited_batch": False  # Больше не ограничиваем пачку
         }
 
         for i, user_data in enumerate(users_data):
             # Логируем прогресс каждые 10 пользователей
             if i % 10 == 0 and i > 0:
                 logger.info(f"Обработано {i}/{len(users_data)} пользователей. Успешно: {results['successful_downloads']}, Без аватара: {results['no_avatar_users']}")
+            
+            # Добавляем паузу между запросами для избежания rate limit
+            if i > 0:  # Пауза со второго пользователя
+                import asyncio
+                await asyncio.sleep(0.5)  # Пауза 500ms между запросами
                 
             try:
                 profile_photos = await bot.get_user_profile_photos(
