@@ -138,16 +138,30 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       console.error('Ошибка при скачивании аватара:', error);
 
       let errorMessage = 'Произошла ошибка при скачивании аватара из Telegram';
+      let toastStatus = 'error';
+      let duration = 6000;
+
       if (error.message) {
         errorMessage = error.message;
+        
+        // Для определенных ошибок меняем статус на предупреждение
+        if (error.message.includes('нет фото профиля') || 
+            error.message.includes('недоступно для загрузки')) {
+          toastStatus = 'warning';
+          duration = 5000;
+        } else if (error.message.includes('не указан Telegram ID')) {
+          toastStatus = 'info';
+          duration = 4000;
+        }
       }
 
       toast({
         title: 'Не удалось загрузить аватар',
         description: errorMessage,
-        status: 'error',
-        duration: 6000,
+        status: toastStatus,
+        duration: duration,
         isClosable: true,
+        position: 'top',
       });
     } finally {
       setIsDownloadingAvatar(false);

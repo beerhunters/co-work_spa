@@ -538,12 +538,14 @@ async def download_telegram_avatar(
             "telegram_id": updated_user_data["telegram_id"],
         }
 
-    except HTTPException:
+    except HTTPException as e:
+        # Логируем HTTPException с деталями
+        logger.warning(f"HTTP ошибка при скачивании аватара пользователя {user_id}: {e.status_code} - {e.detail}")
         raise
     except Exception as e:
-        logger.error(f"Ошибка при скачивании аватара пользователя {user_id}: {e}")
+        logger.error(f"Неожиданная ошибка при скачивании аватара пользователя {user_id}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Error downloading avatar: {str(e)}"
+            status_code=500, detail=f"Внутренняя ошибка сервера при загрузке аватара"
         )
 
 

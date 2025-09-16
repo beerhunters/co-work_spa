@@ -332,15 +332,22 @@ export const userApi = {
 
       // Детальная обработка ошибок
       if (error.response?.status === 404) {
-        if (error.response.data?.detail?.includes('no profile photo')) {
-          throw new Error('У пользователя нет фото профиля в Telegram или оно недоступно');
+        if (error.response.data?.detail?.includes('no profile photo') || 
+            error.response.data?.detail?.includes('not accessible')) {
+          throw new Error('У пользователя нет фото профиля в Telegram или оно недоступно для загрузки');
         } else if (error.response.data?.detail?.includes('User not found')) {
-          throw new Error('Пользователь не найден');
+          throw new Error('Пользователь не найден в системе');
+        } else {
+          throw new Error('Ресурс не найден или недоступен');
         }
       } else if (error.response?.status === 400) {
-        throw new Error('У пользователя нет Telegram ID');
+        throw new Error('У пользователя не указан Telegram ID');
+      } else if (error.response?.status === 403) {
+        throw new Error('Недостаточно прав для загрузки аватара');
       } else if (error.response?.status === 503) {
-        throw new Error('Бот Telegram недоступен');
+        throw new Error('Бот Telegram временно недоступен. Попробуйте позже');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Ошибка сервера. Попробуйте позже');
       }
 
       throw new Error(error.response?.data?.detail || 'Не удалось скачать аватар из Telegram');
