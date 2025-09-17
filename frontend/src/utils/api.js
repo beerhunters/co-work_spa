@@ -135,9 +135,16 @@ export const notificationApi = {
       });
       return res.data;
     } catch (error) {
+      // Специальная обработка Network Error - не логируем как ошибку
+      if (error.message === 'Network Error') {
+        logger.debug('Network Error при проверке уведомлений - временные проблемы с сетью');
+        // Не логируем apiError для Network Error
+        return { has_new: false, recent_notifications: [] };
+      }
+      
       logger.error('Ошибка проверки новых уведомлений:', error);
       
-      // Логируем детали ошибки для отладки
+      // Логируем детали ошибки для отладки только для не-сетевых ошибок
       logger.apiError('/notifications/check_new', 'GET', 
         error.response?.status || 'unknown', 
         error.message, 

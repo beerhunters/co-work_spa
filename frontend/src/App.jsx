@@ -583,10 +583,16 @@ function App() {
   // Auto-refresh уведомлений
   useEffect(() => {
     if (isAuthenticated && hasPermission('view_notifications')) {
+      let retryCount = 0;
+      const maxRetries = 3;
+      
       const fetchUpdates = async () => {
         try {
           const res = await notificationApi.checkNew(lastNotificationId);
           const newNotifications = res.recent_notifications?.filter(n => !n.is_read) || [];
+
+          // Сбрасываем счетчик ретраев при успешном запросе
+          retryCount = 0;
 
           if (newNotifications.length > 0) {
             setNotifications(prev => [...newNotifications, ...prev]);
@@ -605,10 +611,22 @@ function App() {
             });
           }
         } catch (err) {
+          // Увеличиваем счетчик ретраев
+          retryCount++;
+          
+          // Не логируем Network Error как ошибки - это обычные сетевые проблемы
+          if (err.message === 'Network Error') {
+            logger.debug(`Network Error при проверке уведомлений (попытка ${retryCount}/${maxRetries})`);
+            
+            // Не показываем toast при Network Error - это слишком шумно
+            return;
+          }
+          
           logger.error('Ошибка получения уведомлений:', err);
           
-          // Показываем уведомление пользователю только если это не ошибка авторизации
-          if (err.response?.status !== 401) {
+          // Показываем уведомление пользователю только если это не ошибка авторизации 
+          // и не Network Error, и мы исчерпали попытки
+          if (err.response?.status !== 401 && retryCount >= maxRetries) {
             toast({
               title: 'Ошибка загрузки уведомлений',
               description: 'Не удалось загрузить новые уведомления. Проверьте соединение.',
