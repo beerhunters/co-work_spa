@@ -73,11 +73,11 @@ async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
         file: File = await bot.get_file(photo.file_id)
 
         # Создаем директорию для аватаров если её нет
-        avatars_dir = "avatars"
-        Path(avatars_dir).mkdir(exist_ok=True)
+        avatars_dir = Path("avatars")
+        avatars_dir.mkdir(exist_ok=True)
 
         # Формируем путь к файлу
-        file_path = os.path.join(avatars_dir, f"{user_id}.jpg")
+        file_path = avatars_dir / f"{user_id}.jpg"
 
         # Скачиваем файл
         file_content = await bot.download_file(file.file_path)
