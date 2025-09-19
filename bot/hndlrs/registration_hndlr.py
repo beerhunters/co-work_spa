@@ -67,7 +67,7 @@ def format_registration_notification(user, referrer_info=None):
     surname = "Не указана"
     first_name = "Не указано"
     middle_name = "Не указано"
-    
+
     if full_name and full_name != "Не указано":
         name_parts = full_name.strip().split()
         if len(name_parts) >= 1:
@@ -82,11 +82,11 @@ def format_registration_notification(user, referrer_info=None):
 👤 <b>Информация:</b>
 📱 <b>Telegram ID:</b> {telegram_id}
 👤 <b>Username:</b> @{username}
-📝 <b>Фамилия:</b> {surname}
-📝 <b>Имя:</b> {first_name}
-📝 <b>Отчество:</b> {middle_name}
-📞 <b>Телефон:</b> {phone}
-📧 <b>Email:</b> {email}
+📝 <b>Фамилия:</b> <code>{surname}</code>
+📝 <b>Имя:</b> <code>{first_name}</code>
+📝 <b>Отчество:</b> <code>{middle_name}</code>
+📞 <b>Телефон:</b> <code>{phone}</code>
+📧 <b>Email:</b> <code>{email}</code>
 🌍 <b>Язык:</b> {language_code}
 {referrer_text}
 📅 <b>Дата регистрации:</b> {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}
