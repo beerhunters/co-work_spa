@@ -59,19 +59,30 @@ export const initAuth = (axiosInstance) => {
     (error) => Promise.reject(error)
   );
 
-  // RESPONSE: обработка 401
+  // RESPONSE: обработка 401 и истекших токенов
   boundClient.interceptors.response.use(
     (response) => response,
     (error) => {
       const status = error?.response?.status;
       const url = error?.config?.url || '';
+      const errorMessage = error?.response?.data?.detail || '';
 
-      // Чтобы не мешать форме логина при неверных данных — не редиректим на / для /login
+      // Обрабатываем 401 ошибки (включая истекшие токены)
       if (status === 401 && !url.includes('/login')) {
+        console.log('🚨 Token expired or unauthorized - logging out', { url, errorMessage });
+        
+        // Очищаем токен из localStorage
         removeAuthToken();
-        // Можно заменить на роутер-навигацию, если используешь react-router
+        
+        // Для периодических запросов (уведомления) не показываем alert
+        if (!url.includes('/notifications/check_new')) {
+          console.warn('Сессия истекла. Необходимо повторно авторизоваться.');
+        }
+        
+        // Редиректим на главную страницу для повторного логина
         window.location.href = '/';
       }
+      
       return Promise.reject(error);
     }
   );
@@ -102,8 +113,22 @@ export const verifyToken = async () => {
     const response = await client.get('/verify_token');
     return response.data;
   } catch (error) {
-    removeAuthToken();
+    // При ошибке проверки токена всегда очищаем его
+    if (error?.response?.status === 401) {
+      console.log('🚨 Token verification failed - clearing token');
+      removeAuthToken();
+    }
     throw error;
+  }
+};
+
+// Проверка валидности токена без выброса ошибок
+export const isTokenValid = async () => {
+  try {
+    await verifyToken();
+    return true;
+  } catch (error) {
+    return false;
   }
 };
 

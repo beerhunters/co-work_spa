@@ -157,9 +157,11 @@ export const notificationApi = {
         return { has_new: false, recent_notifications: [] };
       }
       
-      // Для ошибок авторизации (401, 403) пробрасываем дальше
+      // Для ошибок авторизации (401, 403) молча возвращаем пустой результат
+      // так как interceptor auth.js уже обработает редирект
       if (error.response?.status === 401 || error.response?.status === 403) {
-        throw error;
+        logger.debug('Ошибка авторизации при проверке уведомлений - interceptor обработает редирект');
+        return { has_new: false, recent_notifications: [] };
       }
       
       // Для остальных ошибок возвращаем пустой результат
