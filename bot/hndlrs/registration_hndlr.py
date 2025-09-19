@@ -63,12 +63,28 @@ def format_registration_notification(user, referrer_info=None):
     email = user.get("email", "Не указан")
     language_code = user.get("language_code", "ru")
 
+    # Разбиваем полное имя на части
+    surname = "Не указана"
+    first_name = "Не указано"
+    middle_name = "Не указано"
+    
+    if full_name and full_name != "Не указано":
+        name_parts = full_name.strip().split()
+        if len(name_parts) >= 1:
+            surname = name_parts[0]
+        if len(name_parts) >= 2:
+            first_name = name_parts[1]
+        if len(name_parts) >= 3:
+            middle_name = " ".join(name_parts[2:])
+
     message = f"""🎉 <b>НОВЫЙ ПОЛЬЗОВАТЕЛЬ ЗАРЕГИСТРИРОВАН!</b>
 
 👤 <b>Информация:</b>
 📱 <b>Telegram ID:</b> {telegram_id}
 👤 <b>Username:</b> @{username}
-📝 <b>Имя:</b> {full_name}
+📝 <b>Фамилия:</b> {surname}
+📝 <b>Имя:</b> {first_name}
+📝 <b>Отчество:</b> {middle_name}
 📞 <b>Телефон:</b> {phone}
 📧 <b>Email:</b> {email}
 🌍 <b>Язык:</b> {language_code}
