@@ -17,30 +17,45 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 @router.get("/stats")
 async def get_dashboard_stats(_: str = Depends(verify_token)):
     """Получение общей статистики для дашборда с кэшированием."""
-
+    logger.info("Dashboard stats request started")
+    
     cache_key = cache_manager.get_cache_key("dashboard", "stats")
 
     def _get_stats():
         def _db_query(session):
-            return SQLOptimizer.get_optimized_dashboard_stats(session)
+            logger.info("Executing dashboard stats database query")
+            try:
+                result = SQLOptimizer.get_optimized_dashboard_stats(session)
+                logger.info(f"Database query completed, result type: {type(result)}")
+                return result
+            except Exception as e:
+                logger.error(f"Error in dashboard stats query: {e}", exc_info=True)
+                raise
 
-        return DatabaseManager.safe_execute(_db_query)
+        logger.info("Starting database transaction for dashboard stats")
+        result = DatabaseManager.safe_execute(_db_query)
+        logger.info(f"Database transaction completed, final result type: {type(result)}")
+        return result
 
     try:
+        logger.info("Getting stats from cache or database")
         # Используем кэш с TTL для дашборда
         result = await cache_manager.get_or_set(
             cache_key, _get_stats, ttl=cache_manager.dashboard_ttl
         )
+        
+        logger.info(f"Stats result type: {type(result)}")
         
         # Дополнительная проверка результата
         if not isinstance(result, dict):
             logger.warning(f"Получен некорректный результат статистики: {type(result)}")
             raise ValueError("Некорректный формат данных статистики")
             
+        logger.info("Dashboard stats request completed successfully")
         return result
         
     except Exception as e:
-        logger.error(f"Ошибка в get_dashboard_stats: {e}")
+        logger.error(f"Ошибка в get_dashboard_stats: {e}", exc_info=True)
         
         # Возвращаем базовые значения при любой ошибке
         logger.warning("Возвращаем базовую статистику из-за ошибки")

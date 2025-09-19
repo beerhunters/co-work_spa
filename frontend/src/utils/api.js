@@ -1132,19 +1132,50 @@ export const newsletterApi = {
 };
 // -------------------- API: Дашборд --------------------
 export const dashboardApi = {
-  getStats: async () => {
+  getStats: async (retryCount = 0) => {
+    const maxRetries = 2;
+    
     try {
-      const res = await apiClient.get('/dashboard/stats');
+      logger.info(`Attempting to fetch dashboard stats (attempt ${retryCount + 1}/${maxRetries + 1})`);
+      const res = await apiClient.get('/dashboard/stats', {
+        timeout: 10000, // 10 секунд таймаут
+      });
+      logger.info('Dashboard stats fetched successfully');
       return res.data;
     } catch (error) {
-      logger.error('Ошибка получения статистики дашборда:', error);
+      logger.error(`Ошибка получения статистики дашборда (attempt ${retryCount + 1}):`, error);
       
       // Логируем детали ошибки для отладки
-      logger.apiError('/dashboard/stats', 'GET', 
-        error.response?.status || 'unknown', 
-        error.message, 
-        error.response?.data
-      );
+      const status = error.response?.status || (error.message === 'Network Error' ? 'network_error' : 'unknown');
+      logger.apiError('/dashboard/stats', 'GET', status, error.message, error.response?.data);
+      
+      // Повторяем запрос для Network Error
+      if ((error.message === 'Network Error' || !error.response) && retryCount < maxRetries) {
+        logger.info(`Retrying dashboard stats request in 1 second (attempt ${retryCount + 2})`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Ожидание 1 секунда
+        return dashboardApi.getStats(retryCount + 1);
+      }
+      
+      // Для Network Error после всех попыток возвращаем fallback данные
+      if (error.message === 'Network Error' || !error.response) {
+        logger.warn('Используем fallback данные для статистики дашборда после всех попыток');
+        return {
+          total_users: 0,
+          total_bookings: 0,
+          open_tickets: 0,
+          active_tariffs: 0,
+          paid_bookings: 0,
+          total_revenue: 0.0,
+          ticket_stats: {
+            open: 0,
+            in_progress: 0,
+            closed: 0,
+          },
+          unread_notifications: 0,
+          _fallback: true,  // Отмечаем, что это fallback данные
+          _error: error.message
+        };
+      }
       
       // Пробрасываем ошибку дальше для обработки в компоненте
       throw error;

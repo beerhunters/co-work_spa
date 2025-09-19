@@ -139,9 +139,19 @@ class SQLOptimizer:
                                """
             )
 
+            from utils.logger import get_logger
+            logger = get_logger(__name__)
+            
+            logger.info("Executing dashboard stats SQL query")
             result = session.execute(stats_query).fetchone()
-
-            return {
+            
+            if not result:
+                logger.warning("No result returned from dashboard stats query")
+                raise ValueError("No data returned from dashboard stats query")
+            
+            logger.info(f"Query returned result with {len(result._fields) if hasattr(result, '_fields') else 'unknown'} fields")
+            
+            stats_data = {
                 "total_users": int(result.total_users or 0),
                 "total_bookings": int(result.total_bookings or 0),
                 "open_tickets": int(result.open_tickets or 0),
@@ -155,6 +165,9 @@ class SQLOptimizer:
                 },
                 "unread_notifications": int(result.unread_notifications or 0),
             }
+            
+            logger.info(f"Successfully parsed dashboard stats: {stats_data}")
+            return stats_data
 
         except Exception as e:
             logger.error(f"Ошибка выполнения оптимизированного запроса статистики: {e}")
