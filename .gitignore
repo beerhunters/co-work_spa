@@ -169,3 +169,4 @@ web/static/
 web/static/adminlte/
 avatars/
 /config/logging_config.json
+/CLAUDE.md
