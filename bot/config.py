@@ -11,38 +11,39 @@ from aiogram.types import (
 
 from config import ADMIN_URL, RULES_URL
 from utils.logger import get_logger
+from bot.utils.localization import get_button_text
 
 logger = get_logger(__name__)
 
 
-def create_user_keyboard() -> InlineKeyboardMarkup:
+def create_user_keyboard(lang="ru") -> InlineKeyboardMarkup:
     """Создание основной клавиатуры пользователя"""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📅 Забронировать", callback_data="book")],
-            [InlineKeyboardButton(text="🎫 Поддержка", callback_data="support")],
+            [InlineKeyboardButton(text=get_button_text(lang, "book"), callback_data="book")],
+            [InlineKeyboardButton(text=get_button_text(lang, "support_button"), callback_data="support")],
             [
                 InlineKeyboardButton(
-                    text="👥 Пригласить друзей", callback_data="invite_friends"
+                    text=get_button_text(lang, "invite_friends"), callback_data="invite_friends"
                 )
             ],
-            [InlineKeyboardButton(text="ℹ️ Информация", callback_data="info")],
+            [InlineKeyboardButton(text=get_button_text(lang, "info_main"), callback_data="info")],
             [
                 InlineKeyboardButton(
-                    text="📱 Связаться с администратором", url=ADMIN_URL
+                    text=get_button_text(lang, "contact_admin"), url=ADMIN_URL
                 )
             ],
-            [InlineKeyboardButton(text="📋 Правила коворкинга", url=RULES_URL)],
+            [InlineKeyboardButton(text=get_button_text(lang, "rules"), url=RULES_URL)],
         ]
     )
     return keyboard
 
 
-def create_back_keyboard() -> InlineKeyboardMarkup:
+def create_back_keyboard(lang="ru") -> InlineKeyboardMarkup:
     """Создание клавиатуры с кнопкой 'Назад'"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="main_menu")]
+            [InlineKeyboardButton(text=get_button_text(lang, "back"), callback_data="main_menu")]
         ]
     )
 

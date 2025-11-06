@@ -15,6 +15,7 @@ from aiogram.types import (
 from utils.logger import get_logger
 from utils.api_client import get_api_client
 from bot.config import create_user_keyboard, save_user_avatar
+from bot.utils.localization import get_text, get_button_text
 
 logger = get_logger(__name__)
 
@@ -25,50 +26,48 @@ BOT_LINK = os.getenv("BOT_LINK")
 INVITE_LINK = os.getenv("INVITE_LINK")
 GROUP_ID = os.getenv("GROUP_ID")
 
-INFO_MESSAGE = (
-    "ℹ️ <b>О PARTA коворкинг</b>\n\n"
-    "PARTA - современное пространство для продуктивной работы в центре города.\n\n"
-    "🏢 <b>Что мы предлагаем:</b>\n"
-    "• Комфортные рабочие места в open space\n"
-    "• Оборудованные переговорные комнаты\n"
-    "• Высокоскоростной интернет (1 Гбит/с)\n"
-    "• Бесплатные кофе, чай и снеки\n"
-    "• Зоны отдыха и нетворкинга\n"
-    "• Печать и сканирование документов\n"
-    "• Парковка для автомобилей\n\n"
-    "⏰ <b>Режим работы:</b>\n"
-    "Круглосуточно 24/7\n\n"
-    "📍 <b>Адрес:</b> г. Санкт-Петербург, Малый проспект ВО, д. 55\n"
-    "📞 <b>Телефон:</b> +7 (812) 990-00-55\n"
-    "🌐 <b>Сайт:</b> parta-works.ru\n\n"
-    "Для начала работы пройдите быструю регистрацию!"
-)
+
+def get_info_message(lang="ru") -> str:
+    """Получает информационное сообщение на нужном языке"""
+    return f"""{get_text(lang, "info.title")}
+
+{get_text(lang, "info.description")}
+
+{get_text(lang, "info.offers")}
+
+{get_text(lang, "info.schedule")}
+
+{get_text(lang, "info.address")}
+{get_text(lang, "info.phone")}
+{get_text(lang, "info.website")}
+
+{get_text(lang, "info.registration_needed")}"""
 
 
-def format_registration_notification(user, referrer_info=None):
+def format_registration_notification(user, referrer_info=None, lang="ru"):
     """Форматирование уведомления о регистрации для админа"""
     referrer_text = ""
     if referrer_info:
         referrer_text = f"""
-🔗 <b>Приглашен пользователем:</b>
-   • Username: @{referrer_info.get('username', 'Не указан')}
-   • ID: {referrer_info.get('telegram_id', 'Не указан')}
+{get_text(lang, "registration.invited_by")}
+   • Username: @{referrer_info.get('username', get_text(lang, 'common.not_specified'))}
+   • ID: {referrer_info.get('telegram_id', get_text(lang, 'common.not_specified'))}
 """
 
     # Безопасное получение данных с fallback значениями
-    telegram_id = user.get("telegram_id", "Не указан")
-    username = user.get("username", "Не указан")
-    full_name = user.get("full_name", "Не указано")
-    phone = user.get("phone", "Не указан")
-    email = user.get("email", "Не указан")
+    telegram_id = user.get("telegram_id", get_text(lang, "common.not_specified"))
+    username = user.get("username", get_text(lang, "common.not_specified"))
+    full_name = user.get("full_name", get_text(lang, "common.not_specified_n"))
+    phone = user.get("phone", get_text(lang, "common.not_specified"))
+    email = user.get("email", get_text(lang, "common.not_specified"))
     language_code = user.get("language_code", "ru")
 
     # Разбиваем полное имя на части
-    surname = "Не указана"
-    first_name = "Не указано"
-    middle_name = "Не указано"
+    surname = get_text(lang, "common.not_specified_f")
+    first_name = get_text(lang, "common.not_specified_n")
+    middle_name = get_text(lang, "common.not_specified_n")
 
-    if full_name and full_name != "Не указано":
+    if full_name and full_name != get_text(lang, "common.not_specified_n"):
         name_parts = full_name.strip().split()
         if len(name_parts) >= 1:
             surname = name_parts[0]
@@ -77,36 +76,37 @@ def format_registration_notification(user, referrer_info=None):
         if len(name_parts) >= 3:
             middle_name = " ".join(name_parts[2:])
 
-    message = f"""🎉 <b>НОВЫЙ ПОЛЬЗОВАТЕЛЬ ЗАРЕГИСТРИРОВАН!</b>
+    message = f"""{get_text(lang, "registration.title")}
 
-👤 <b>Информация:</b>
-📱 <b>Telegram ID:</b> {telegram_id}
-👤 <b>Username:</b> @{username}
-📝 <b>Фамилия:</b> <code>{surname}</code>
-📝 <b>Имя:</b> <code>{first_name}</code>
-📝 <b>Отчество:</b> <code>{middle_name}</code>
-📞 <b>Телефон:</b> <code>{phone}</code>
-📧 <b>Email:</b> <code>{email}</code>
-🌍 <b>Язык:</b> {language_code}
+{get_text(lang, "registration.user_info")}
+{get_text(lang, "registration.telegram_id")} {telegram_id}
+{get_text(lang, "registration.username")} @{username}
+{get_text(lang, "registration.surname")} <code>{surname}</code>
+{get_text(lang, "registration.first_name")} <code>{first_name}</code>
+{get_text(lang, "registration.middle_name")} <code>{middle_name}</code>
+{get_text(lang, "registration.phone")} <code>{phone}</code>
+{get_text(lang, "registration.email")} <code>{email}</code>
+{get_text(lang, "registration.language")} {language_code}
 {referrer_text}
-📅 <b>Дата регистрации:</b> {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}
+{get_text(lang, "registration.reg_date")} {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}
 
-✅ Пользователь прошел полную регистрацию и принял условия соглашения."""
+{get_text(lang, "registration.completed")}"""
     return message
 
 
-def create_register_keyboard() -> InlineKeyboardMarkup:
+def create_register_keyboard(lang="ru") -> InlineKeyboardMarkup:
     """Создание клавиатуры для регистрации"""
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📝 Регистрация", callback_data="start_registration"
+                    text=get_button_text(lang, "register"),
+                    callback_data="start_registration",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="ℹ️ Информация о коворкинге", callback_data="info_reg"
+                    text=get_button_text(lang, "info"), callback_data="info_reg"
                 )
             ],
         ]
@@ -114,34 +114,40 @@ def create_register_keyboard() -> InlineKeyboardMarkup:
     return keyboard
 
 
-def create_agreement_keyboard() -> InlineKeyboardMarkup:
+def create_agreement_keyboard(lang="ru") -> InlineKeyboardMarkup:
     """Создание клавиатуры для соглашения"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="✅ Принимаю условия", callback_data="agree_to_terms"
+                    text=get_button_text(lang, "agree"), callback_data="agree_to_terms"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="📋 Читать правила", url="https://parta-works.ru/main_rules"
+                    text=get_button_text(lang, "read_rules"),
+                    url="https://parta-works.ru/main_rules",
                 )
             ],
         ]
     )
 
 
-def create_invite_keyboard() -> InlineKeyboardMarkup:
+def create_invite_keyboard(lang="ru") -> InlineKeyboardMarkup:
     """Создание клавиатуры для приглашения друзей"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="👥 Пригласить друзей", callback_data="invite_friends"
+                    text=get_button_text(lang, "invite_friends"),
+                    callback_data="invite_friends",
                 )
             ],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")],
+            [
+                InlineKeyboardButton(
+                    text=get_button_text(lang, "main_menu"), callback_data="main_menu"
+                )
+            ],
         ]
     )
 
@@ -153,16 +159,11 @@ class Registration(StatesGroup):
     email = State()
 
 
-welcome_message = (
-    "🎉 <b>Добро пожаловать в PARTA коворкинг!</b>\n\n"
-    "🤖 Я помогу вам:\n"
-    "• 📅 Забронировать рабочее место\n"
-    "• 🏢 Арендовать переговорную комнату\n"
-    "• 🎫 Связаться со службой поддержки\n"
-    "• 🎁 Использовать промокоды для скидок\n"
-    "• 👥 Пригласить друзей и получить бонусы\n\n"
-    "Для использования всех возможностей бота необходимо пройти регистрацию."
-)
+def get_welcome_message(lang="ru") -> str:
+    """Получает приветственное сообщение на нужном языке"""
+    return f"""{get_text(lang, "welcome.title")}
+
+{get_text(lang, "welcome.description")}"""
 
 
 @router.message(CommandStart())
@@ -198,17 +199,15 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
 
         if is_complete:
             # Пользователь полностью зарегистрирован - приветствуем и показываем главное меню
-            full_name = user.get("full_name", "Пользователь")
+            full_name = user.get("full_name", get_text(language_code, "common.user"))
             await message.answer(
-                f"👋 <b>С возвращением, {full_name}!</b>\n\n"
-                "Рад видеть вас снова в PARTA коворкинг.\n"
-                "Выберите нужное действие из меню ниже:",
-                reply_markup=create_user_keyboard(),
+                get_text(language_code, "welcome.returning", name=full_name),
+                reply_markup=create_user_keyboard(language_code),
                 parse_mode="HTML",
             )
         elif is_new:
             # Новый пользователь или не завершена регистрация
-            welcome_text = welcome_message
+            welcome_text = get_welcome_message(language_code)
 
             # Если есть реферер, добавляем информацию о нем
             if ref_id and is_new:
@@ -217,41 +216,46 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
                     referrer_username = (
                         f"@{referrer.get('username')}"
                         if referrer.get("username")
-                        else f"пользователя #{referrer.get('telegram_id')}"
+                        else get_text(language_code, "registration.referrer_user_id", user_id=referrer.get('telegram_id'))
                     )
                     welcome_text = (
-                        f"🎊 Вы перешли по приглашению от {referrer_username}!\n\n"
+                        get_text(
+                            language_code, "welcome.invited", referrer=referrer_username
+                        )
+                        + "\n\n"
                         + welcome_text
                     )
 
             # Показываем приветственное сообщение с предложением зарегистрироваться
             await message.answer(
-                welcome_text, reply_markup=create_register_keyboard(), parse_mode="HTML"
+                welcome_text,
+                reply_markup=create_register_keyboard(language_code),
+                parse_mode="HTML",
             )
         # Если пользователь существует, но регистрация не завершена
         else:
             await message.answer(
-                "Похоже, вы не завершили регистрацию. Давайте продолжим!",
-                reply_markup=create_register_keyboard(),
+                get_text(language_code, "welcome.incomplete"),
+                reply_markup=create_register_keyboard(language_code),
             )
         # Очищаем состояние на всякий случай
         await state.clear()
     except Exception as e:
         logger.error(f"Ошибка при обработке команды /start: {e}")
         await message.answer(
-            "Произошла ошибка. Попробуйте позже или обратитесь в поддержку."
+            get_text(language_code, "errors.general")
         )
 
 
 @router.callback_query(F.data == "start_registration")
 async def start_registration(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Начало процесса регистрации"""
+    # Получаем язык пользователя
+    user_language = callback_query.from_user.language_code or "ru"
+
     await callback_query.message.edit_text(
-        "📋 <b>Пользовательское соглашение</b>\n\n"
-        "Для продолжения регистрации необходимо ознакомиться и принять условия пользовательского соглашения.\n\n"
-        "Нажмите кнопку «Читать правила» для ознакомления с условиями использования коворкинга.\n\n"
-        "После ознакомления нажмите «Принимаю условия» для продолжения регистрации.",
-        reply_markup=create_agreement_keyboard(),
+        f"{get_text(user_language, 'registration.agreement_title')}\n\n{get_text(user_language, 'registration.agreement_text')}",
+        reply_markup=create_agreement_keyboard(user_language),
         parse_mode="HTML",
     )
     await state.set_state(Registration.agreement)
@@ -261,11 +265,14 @@ async def start_registration(callback_query: CallbackQuery, state: FSMContext) -
 @router.callback_query(Registration.agreement, F.data == "agree_to_terms")
 async def agree_to_terms(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Согласие с условиями"""
+    # Получаем язык пользователя
+    user_language = callback_query.from_user.language_code or "ru"
+
     # Сохраняем факт согласия с условиями
     await state.update_data(agreed_to_terms=True)
 
     await callback_query.message.edit_text(
-        "📝 <b>Регистрация - Шаг 1/3</b>\n\n" "Введите ваше полное имя (ФИО):",
+        get_text(user_language, "registration.step_name"),
         parse_mode="HTML",
     )
     await state.set_state(Registration.full_name)
@@ -275,30 +282,30 @@ async def agree_to_terms(callback_query: CallbackQuery, state: FSMContext) -> No
 @router.message(Registration.agreement)
 async def handle_invalid_agreement(message: Message, state: FSMContext) -> None:
     """Обработка неверного ввода на этапе соглашения"""
+    user_language = message.from_user.language_code or "ru"
     await message.answer(
-        "⚠️ Пожалуйста, используйте кнопки для принятия соглашения.",
-        reply_markup=create_agreement_keyboard(),
+        get_text(user_language, "errors.use_buttons"),
+        reply_markup=create_agreement_keyboard(user_language),
     )
 
 
 @router.message(Registration.full_name)
 async def process_full_name(message: Message, state: FSMContext) -> None:
     """Обработка ввода имени"""
+    user_language = message.from_user.language_code or "ru"
     full_name = message.text.strip()
 
     if len(full_name) < 2:
-        await message.answer("⚠️ Имя слишком короткое. Введите полное имя:")
+        await message.answer(get_text(user_language, "registration.name_too_short"))
         return
 
     if len(full_name) > 100:
-        await message.answer("⚠️ Имя слишком длинное. Введите корректное имя:")
+        await message.answer(get_text(user_language, "registration.name_too_long"))
         return
 
     await state.update_data(full_name=full_name)
     await message.answer(
-        "📝 <b>Регистрация - Шаг 2/3</b>\n\n"
-        "Введите ваш номер телефона в формате:\n"
-        "+7XXXXXXXXXX или 8XXXXXXXXXX",
+        get_text(user_language, "registration.step_phone"),
         parse_mode="HTML",
     )
     await state.set_state(Registration.phone)
@@ -315,12 +322,9 @@ async def process_phone(message: Message, state: FSMContext) -> None:
     phone_digits = re.sub(r"[^\d+]", "", phone)
 
     # Проверяем формат
+    user_language = message.from_user.language_code or "ru"
     if not re.match(r"^(\+7|8|7)\d{10}$", phone_digits):
-        await message.answer(
-            "⚠️ Неверный формат номера.\n"
-            "Пожалуйста, введите номер в формате:\n"
-            "+7XXXXXXXXXX или 8XXXXXXXXXX"
-        )
+        await message.answer(get_text(user_language, "registration.phone_invalid"))
         return
 
     # Приводим к единому формату +7
@@ -331,7 +335,7 @@ async def process_phone(message: Message, state: FSMContext) -> None:
 
     await state.update_data(phone=phone_digits)
     await message.answer(
-        "📝 <b>Регистрация - Шаг 3/3</b>\n\n" "Введите ваш email адрес:",
+        get_text(user_language, "registration.step_email"),
         parse_mode="HTML",
     )
     await state.set_state(Registration.email)
@@ -345,8 +349,9 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
     email = message.text.strip().lower()
 
     # Проверяем формат email
+    user_language = message.from_user.language_code or "ru"
     if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
-        await message.answer("⚠️ Неверный формат email. Попробуйте еще раз:")
+        await message.answer(get_text(user_language, "registration.email_invalid"))
         return
     try:
         # Получаем данные из состояния
@@ -400,7 +405,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             if not updated_user.get("telegram_id"):
                 updated_user["telegram_id"] = message.from_user.id
             if not updated_user.get("username"):
-                updated_user["username"] = message.from_user.username or "Не указан"
+                updated_user["username"] = message.from_user.username or get_text(language_code, "common.username_not_set")
 
             # Создаем уведомление для админки через API
             notification_data = {
@@ -426,8 +431,8 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
                 )
                 if referrer:
                     referrer_info = {
-                        "username": referrer.get("username", "Не указан"),
-                        "telegram_id": referrer.get("telegram_id", "Не указан"),
+                        "username": referrer.get("username", get_text("ru", "common.username_not_set")),
+                        "telegram_id": referrer.get("telegram_id", get_text("ru", "common.username_not_set")),
                     }
 
             # Создаем ссылку на группу
@@ -442,35 +447,35 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
                     logger.error(f"Ошибка создания ссылки на группу: {e}")
 
             # Первое сообщение - информация о регистрации
-            success_msg = (
-                "✅ <b>Регистрация успешно завершена!</b>\n\n"
-                "🛜 WiFi: <b>Parta</b> Пароль: <code>Parta2024</code>\n\n"
-                f"📝 <b>Ваши данные:</b>\n"
-                f"👤 Имя: {full_name}\n"
-                f"📞 Телефон: {phone}\n"
-                f"📧 Email: {email}\n\n"
-                f"🎉 Теперь вам доступны все функции бота!"
-            )
+            success_msg = f"""{get_text(user_language, "registration.success_title")}
+
+{get_text(user_language, "registration.wifi_info")}
+
+{get_text(user_language, "registration.your_data")}
+{get_text(user_language, "registration.name_field")} {full_name}
+{get_text(user_language, "registration.phone_field")} {phone}
+{get_text(user_language, "registration.email_field")} {email}
+
+{get_text(user_language, "registration.features_available")}"""
 
             await message.answer(success_msg, parse_mode="HTML")
 
             # Второе сообщение - действия с клавиатурой
             actions_msg = (
-                f"💡 <b>Что дальше?</b>\n"
-                f"• Забронируйте рабочее место или переговорную\n"
-                f"• Пригласите друзей и получите бонусы\n"
-                f"• Присоединяйтесь к нашей группе: {invite_url}"
+                get_text(user_language, "registration.what_next") + " " + invite_url
             )
 
             await message.answer(
-                actions_msg, parse_mode="HTML", reply_markup=create_invite_keyboard()
+                actions_msg,
+                parse_mode="HTML",
+                reply_markup=create_invite_keyboard(user_language),
             )
 
             # Отправляем уведомление админу в Telegram
             if ADMIN_TELEGRAM_ID:
                 # Используем обновленные данные пользователя для уведомления
                 notification = format_registration_notification(
-                    updated_user, referrer_info
+                    updated_user, referrer_info, user_language
                 )
                 try:
                     await bot.send_message(
@@ -482,35 +487,32 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
         await state.clear()
     except Exception as e:
         logger.error(f"Ошибка при завершении регистрации: {e}")
-        await message.answer(
-            "❌ Произошла ошибка при регистрации. Попробуйте позже или обратитесь в поддержку."
-        )
+        await message.answer(get_text(user_language, "registration.error"))
 
 
 @router.callback_query(F.data == "invite_friends")
 async def invite_friends(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Обработка приглашения друзей"""
+    user_language = callback_query.from_user.language_code or "ru"
     user_id = callback_query.from_user.id
     deeplink = f"{INVITE_LINK}?start={user_id}"
 
-    share_text = (
-        f"🚀 Присоединяйся к PARTA коворкинг!\n\n"
-        f"Современное пространство для работы и творчества.\n"
-        f"Используй мою ссылку для регистрации:\n\n"
-        f"{deeplink}"
-    )
+    share_text = get_text(user_language, "invite.text", link=deeplink)
+
     await callback_query.message.edit_text(
-        text="Выберите, с кем поделиться ссылкой:",
+        text=get_text(user_language, "invite.select"),
         reply_markup=InlineKeyboardMarkup(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="Поделиться", switch_inline_query=share_text
+                        text=get_button_text(user_language, "share"),
+                        switch_inline_query=share_text,
                     )
                 ],
                 [
                     InlineKeyboardButton(
-                        text="🏠 Главное меню", callback_data="main_menu"
+                        text=get_button_text(user_language, "main_menu"),
+                        callback_data="main_menu",
                     )
                 ],
             ]
@@ -523,24 +525,8 @@ async def invite_friends(callback_query: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(F.data == "info")
 async def info(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Показ информации о коворкинге"""
-    info_message = INFO_MESSAGE
-
-    await callback_query.message.edit_text(
-        info_message,
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Назад", callback_data="main_menu")],
-            ]
-        ),
-    )
-    await callback_query.answer()
-
-
-@router.callback_query(F.data == "info_reg")
-async def info(callback_query: CallbackQuery, state: FSMContext) -> None:
-    """Показ информации о коворкинге"""
-    info_message = INFO_MESSAGE
+    user_language = callback_query.from_user.language_code or "ru"
+    info_message = get_info_message(user_language)
 
     await callback_query.message.edit_text(
         info_message,
@@ -549,10 +535,39 @@ async def info(callback_query: CallbackQuery, state: FSMContext) -> None:
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="📝 Начать регистрацию", callback_data="start_registration"
+                        text=get_button_text(user_language, "back"),
+                        callback_data="main_menu",
                     )
                 ],
-                [InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_start")],
+            ]
+        ),
+    )
+    await callback_query.answer()
+
+
+@router.callback_query(F.data == "info_reg")
+async def info_reg(callback_query: CallbackQuery, state: FSMContext) -> None:
+    """Показ информации о коворкинге"""
+    user_language = callback_query.from_user.language_code or "ru"
+    info_message = get_info_message(user_language)
+
+    await callback_query.message.edit_text(
+        info_message,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=get_button_text(user_language, "start_registration"),
+                        callback_data="start_registration",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=get_button_text(user_language, "back"),
+                        callback_data="back_to_start",
+                    )
+                ],
             ]
         ),
     )
@@ -562,11 +577,12 @@ async def info(callback_query: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "main_menu")
 async def main_menu(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Возврат в главное меню"""
+    user_language = callback_query.from_user.language_code or "ru"
     await state.clear()
 
     await callback_query.message.edit_text(
-        "🏠 <b>Главное меню</b>\n\n" "Выберите нужное действие:",
-        reply_markup=create_user_keyboard(),
+        get_text(user_language, "menu.main_title"),
+        reply_markup=create_user_keyboard(user_language),
         parse_mode="HTML",
     )
     await callback_query.answer()
@@ -575,8 +591,11 @@ async def main_menu(callback_query: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "back_to_start")
 async def back_to_start(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Возврат к стартовому сообщению"""
+    user_language = callback_query.from_user.language_code or "ru"
     await callback_query.message.edit_text(
-        welcome_message, reply_markup=create_register_keyboard(), parse_mode="HTML"
+        get_welcome_message(user_language),
+        reply_markup=create_register_keyboard(user_language),
+        parse_mode="HTML",
     )
     await callback_query.answer()
 

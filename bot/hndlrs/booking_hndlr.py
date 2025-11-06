@@ -17,8 +17,10 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
+from bot.config import create_user_keyboard
 from utils.api_client import get_api_client
 from utils.logger import get_logger
+from bot.utils.localization import get_text, get_button_text, pluralize_hours
 
 logger = get_logger(__name__)
 router = Router()
@@ -37,7 +39,7 @@ class Booking(StatesGroup):
     STATUS_PAYMENT = State()
 
 
-def format_payment_notification(user, booking_data, status="SUCCESS") -> str:
+def format_payment_notification(user, booking_data, status="SUCCESS", lang="ru") -> str:
     """Форматирует уведомление о платеже для администратора."""
     status_emojis = {
         "SUCCESS": "✅",
@@ -49,13 +51,13 @@ def format_payment_notification(user, booking_data, status="SUCCESS") -> str:
     status_emoji = status_emojis.get(status, "❓")
 
     status_texts = {
-        "SUCCESS": "ПЛАТЕЖ УСПЕШЕН",
-        "FAILED": "ПЛАТЕЖ ОТКЛОНЕН",
-        "PENDING": "ПЛАТЕЖ В ОЖИДАНИИ",
-        "CANCELLED": "ПЛАТЕЖ ОТМЕНЕН",
+        "SUCCESS": get_text(lang, "booking.payment_success"),
+        "FAILED": get_text(lang, "booking.payment_failed"),
+        "PENDING": get_text(lang, "booking.payment_pending"),
+        "CANCELLED": get_text(lang, "booking.payment_cancelled"),
     }
 
-    status_text = status_texts.get(status, "НЕИЗВЕСТНЫЙ СТАТУС")
+    status_text = status_texts.get(status, get_text(lang, "booking.payment_unknown"))
 
     # Правильное форматирование даты
     visit_date = booking_data.get("visit_date")
@@ -72,9 +74,9 @@ def format_payment_notification(user, booking_data, status="SUCCESS") -> str:
                 else:
                     date_str = str(visit_date)
             except:
-                date_str = "Неизвестно"
+                date_str = get_text(lang, "booking.date_unknown")
     else:
-        date_str = "Неизвестно"
+        date_str = get_text(lang, "booking.date_unknown")
 
     # Добавляем время если есть
     if visit_time:
@@ -100,21 +102,21 @@ def format_payment_notification(user, booking_data, status="SUCCESS") -> str:
 
     message = f"""💳 <b>{status_text}</b> {status_emoji}
 
-👤 <b>Клиент:</b> {user.get('full_name') or 'Не указано'}
-📞 <b>Телефон:</b> {user.get('phone') or 'Не указано'}
+👤 <b>{get_text(lang, 'booking.admin_notification.client')}</b> {user.get('full_name') or get_text(lang, 'booking.admin_notification.not_specified')}
+📞 <b>{get_text(lang, 'booking.admin_notification.phone')}</b> {user.get('phone') or get_text(lang, 'booking.admin_notification.not_specified')}
 
-💰 <b>Детали платежа:</b>
-├ <b>Сумма:</b> {booking_data.get('amount', 0):.2f} ₽
-├ <b>Тариф:</b> {booking_data.get('tariff_name', 'Неизвестно')}
-├ <b>Дата брони:</b> {full_date_str}{duration_str}
-└ <b>Payment ID:</b> <code>{booking_data.get('payment_id', 'Неизвестно')}</code>
+💰 <b>{get_text(lang, 'booking.admin_notification.payment_details')}</b>
+├ <b>{get_text(lang, 'booking.amount_label')}</b> {booking_data.get('amount', 0):.2f} ₽
+├ <b>{get_text(lang, 'booking.tariff_label')}</b> {booking_data.get('tariff_name', get_text(lang, 'booking.admin_notification.unknown'))}
+├ <b>{get_text(lang, 'booking.admin_notification.booking_date')}</b> {full_date_str}{duration_str}
+└ <b>{get_text(lang, 'booking.admin_notification.payment_id')}</b> <code>{booking_data.get('payment_id', get_text(lang, 'booking.admin_notification.unknown'))}</code>
 
-⏰ <i>Время: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
+⏰ <i>{get_text(lang, 'booking.admin_notification.time')} {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
 
     return message
 
 
-def format_user_booking_notification(user, booking_data, confirmed: bool) -> str:
+def format_user_booking_notification(user, booking_data, confirmed: bool, lang="ru") -> str:
     """Форматирует уведомление о бронировании для пользователя."""
     tariff_emojis = {
         "опенспейс": "🏢",
@@ -141,40 +143,41 @@ def format_user_booking_notification(user, booking_data, confirmed: bool) -> str
             f"{visit_date.strftime('%d.%m.%Y')} в {visit_time.strftime('%H:%M')}"
         )
     else:
-        datetime_str = f"{visit_date.strftime('%d.%m.%Y')} (весь день)"
+        datetime_str = f"{visit_date.strftime('%d.%m.%Y')} {get_text(lang, 'booking.all_day')}"
 
     discount_info = ""
     if booking_data.get("promocode_name"):
-        promocode_name = booking_data.get("promocode_name", "Неизвестный")
+        promocode_name = booking_data.get("promocode_name", get_text(lang, "booking.unknown_promocode"))
         discount = booking_data.get("discount", 0)
-        discount_info = f"\n🎁 <b>Промокод:</b> {promocode_name} (-{discount}%)"
+        discount_info = f"\n🎁 <b>{get_text(lang, 'booking.promocode_label')}</b> {promocode_name} (-{discount}%)"
 
     duration_info = ""
     if booking_data.get("duration"):
-        duration_info = f"\n⏱ <b>Длительность:</b> {booking_data['duration']} час(ов)"
+        duration = booking_data['duration']
+        duration_info = f"\n⏱ <b>{get_text(lang, 'booking.duration_label')}</b> {duration} {pluralize_hours(duration, lang)}"
 
-    status_text = "Бронь подтверждена ✅" if confirmed else "Ожидайте подтверждения ⏳"
+    status_text = get_text(lang, "booking.booking_confirmed") if confirmed else get_text(lang, "booking.booking_pending")
     status_instruction = (
-        "\n\n💡 <b>Что дальше:</b> Ждем вас в назначенное время!"
+        get_text(lang, "booking.next_steps_confirmed")
         if confirmed
-        else "\n\n💡 <b>Что дальше:</b> Администратор рассмотрит заявку и свяжется с вами."
+        else get_text(lang, "booking.next_steps_pending")
     )
 
-    message = f"""🎉 <b>Ваша бронь создана!</b> {tariff_emoji}
+    message = f"""{get_text(lang, 'booking.your_booking_created')} {tariff_emoji}
 
-📋 <b>Детали брони:</b>
-├ <b>Тариф:</b> {booking_data.get('tariff_name', 'Неизвестно')}
-├ <b>Дата и время:</b> {datetime_str}{duration_info}
-└ <b>Сумма:</b> {booking_data.get('amount', 0):.2f} ₽{discount_info}
+{get_text(lang, 'booking.booking_details')}
+├ <b>{get_text(lang, 'booking.tariff_label')}</b> {booking_data.get('tariff_name', get_text(lang, 'booking.admin_notification.unknown'))}
+├ <b>{get_text(lang, 'booking.admin_new_booking.date_time')}</b> {datetime_str}{duration_info}
+└ <b>{get_text(lang, 'booking.amount_label')}</b> {booking_data.get('amount', 0):.2f} ₽{discount_info}
 
-📌 <b>Статус:</b> {status_text}{status_instruction}
+📌 <b>{get_text(lang, 'booking.status_label')}</b> {status_text}{status_instruction}
 
-⏰ <i>Время создания: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
+⏰ <i>{get_text(lang, 'booking.creation_time')} {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M:%S')}</i>"""
 
     return message
 
 
-def format_booking_notification(user, tariff, booking_data) -> str:
+def format_booking_notification(user, tariff, booking_data, lang="ru") -> str:
     """
     Форматирует уведомление о новом бронировании для админа (версия для бота)
 
@@ -182,6 +185,7 @@ def format_booking_notification(user, tariff, booking_data) -> str:
         user: словарь с данными пользователя
         tariff: словарь с данными тарифа
         booking_data: словарь с данными бронирования
+        lang: язык уведомления (по умолчанию "ru")
     """
     tariff_emojis = {
         "coworking": "🏢",
@@ -191,13 +195,13 @@ def format_booking_notification(user, tariff, booking_data) -> str:
     }
 
     # Безопасное получение данных пользователя
-    user_name = user.get("full_name") or "Не указано"
-    user_phone = user.get("phone") or "Не указано"
-    user_username = f"@{user.get('username')}" if user.get("username") else "Не указано"
-    telegram_id = user.get("telegram_id", "Неизвестно")
+    user_name = user.get("full_name") or get_text(lang, "booking.admin_notification.not_specified")
+    user_phone = user.get("phone") or get_text(lang, "booking.admin_notification.not_specified")
+    user_username = f"@{user.get('username')}" if user.get("username") else get_text(lang, "booking.admin_notification.not_specified")
+    telegram_id = user.get("telegram_id", get_text(lang, "booking.admin_notification.unknown"))
 
     # Безопасное получение данных тарифа
-    tariff_name = tariff.get("name", "Неизвестно")
+    tariff_name = tariff.get("name", get_text(lang, "booking.admin_notification.unknown"))
     tariff_purpose = tariff.get("purpose", "")
 
     purpose = tariff_purpose.lower() if tariff_purpose else ""
@@ -238,41 +242,41 @@ def format_booking_notification(user, tariff, booking_data) -> str:
                 date_str = date_obj.strftime("%d.%m.%Y")
             except:
                 date_str = str(visit_date)
-        datetime_str = f"{date_str} (весь день)"
+        datetime_str = f"{date_str} {get_text(lang, 'booking.all_day')}"
 
     # Информация о промокоде
     discount_info = ""
     promocode_name = booking_data.get("promocode_name")
     if promocode_name:
         discount = booking_data.get("discount", 0)
-        discount_info = f"\n🎁 <b>Промокод:</b> {promocode_name} (-{discount}%)"
+        discount_info = f"\n🎁 <b>{get_text(lang, 'booking.promocode_label')}</b> {promocode_name} (-{discount}%)"
 
     # Информация о длительности
     duration_info = ""
     duration = booking_data.get("duration")
     if duration:
-        duration_info = f"\n⏱ <b>Длительность:</b> {duration} час(ов)"
+        duration_info = f"\n⏱ <b>{get_text(lang, 'booking.duration_label')}</b> {duration} {pluralize_hours(duration, lang)}"
 
     # Сумма
     amount = booking_data.get("amount", 0)
 
-    message = f"""🎯 <b>НОВАЯ БРОНЬ!</b> {tariff_emoji}
+    message = f"""{get_text(lang, 'booking.admin_new_booking.title')} {tariff_emoji}
 
-👤 <b>Клиент:</b> {user_name}
-📱 <b>Телефон:</b> {user_phone}
-💬 <b>Telegram:</b> {user_username}
-🆔 <b>ID:</b> {telegram_id}
+👤 <b>{get_text(lang, 'booking.admin_new_booking.client')}</b> {user_name}
+📱 <b>{get_text(lang, 'booking.admin_new_booking.phone')}</b> {user_phone}
+💬 <b>{get_text(lang, 'booking.admin_new_booking.telegram')}</b> {user_username}
+🆔 <b>{get_text(lang, 'booking.admin_new_booking.telegram_id')}</b> {telegram_id}
 
-📋 <b>Тариф:</b> {tariff_name}
-📅 <b>Дата и время:</b> {datetime_str}{duration_info}{discount_info}
+📋 <b>{get_text(lang, 'booking.tariff_label')}</b> {tariff_name}
+📅 <b>{get_text(lang, 'booking.admin_new_booking.date_time')}</b> {datetime_str}{duration_info}{discount_info}
 
-💰 <b>Сумма:</b> {amount:.0f} ₽
-✅ <b>Статус:</b> Оплачено, ожидает подтверждения"""
+💰 <b>{get_text(lang, 'booking.amount_label')}</b> {amount:.0f} ₽
+✅ <b>{get_text(lang, 'booking.admin_new_booking.status_paid')}</b>"""
 
     return message
 
 
-async def create_tariff_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
+async def create_tariff_keyboard(telegram_id: int, lang: str = "ru") -> InlineKeyboardMarkup:
     """Создаёт инлайн-клавиатуру с активными тарифами, исключая 'Тестовый день' для пользователей с успешными бронированиями."""
     api_client = await get_api_client()
 
@@ -303,12 +307,12 @@ async def create_tariff_keyboard(telegram_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text=button_text, callback_data=f"tariff_{tariff_id}")
         )
 
-    keyboard.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking"))
+    keyboard.row(InlineKeyboardButton(text=get_button_text(lang, "booking.cancel"), callback_data="cancel_booking"))
 
     return keyboard.as_markup()
 
 
-def create_date_keyboard() -> InlineKeyboardMarkup:
+def create_date_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     """Создаёт инлайн-клавиатуру с датами (сегодня + 7 дней)."""
     today = datetime.now(MOSCOW_TZ).date()
     keyboard = InlineKeyboardBuilder()
@@ -321,9 +325,9 @@ def create_date_keyboard() -> InlineKeyboardMarkup:
         callback_data = f"date_{date.strftime('%Y-%m-%d')}"
 
         if i == 0:
-            date_str = f"Сегодня ({date_str})"
+            date_str = f"{get_text(lang, 'booking.today')} ({date_str})"
         elif i == 1:
-            date_str = f"Завтра ({date_str})"
+            date_str = f"{get_text(lang, 'booking.tomorrow')} ({date_str})"
 
         buttons.append(InlineKeyboardButton(text=date_str, callback_data=callback_data))
 
@@ -335,24 +339,24 @@ def create_date_keyboard() -> InlineKeyboardMarkup:
             keyboard.row(buttons[i])
 
     keyboard.row(
-        InlineKeyboardButton(text="🔙 Назад к тарифам", callback_data="back_to_tariffs")
+        InlineKeyboardButton(text=get_button_text(lang, "booking.back_to_tariffs"), callback_data="back_to_tariffs")
     )
-    keyboard.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking"))
+    keyboard.row(InlineKeyboardButton(text=get_button_text(lang, "booking.cancel"), callback_data="cancel_booking"))
 
     return keyboard.as_markup()
 
 
-def create_duration_keyboard() -> InlineKeyboardMarkup:
+def create_duration_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     """Создаёт клавиатуру выбора длительности от 1 до 8 часов."""
     keyboard = InlineKeyboardBuilder()
 
     # Группируем кнопки по 2 в ряд
     buttons = []
     for i in range(1, 9):  # От 1 до 8 часов
-        discount_text = " (скидка 10%)" if i > 2 else ""
+        discount_text = f" {get_text(lang, 'booking.discount_10_percent')}" if i > 2 else ""
         buttons.append(
             InlineKeyboardButton(
-                text=f"{i} час{'а' if i in [2, 3, 4] else 'ов' if i > 4 else ''}{discount_text}",
+                text=f"{i} {pluralize_hours(i, lang)}{discount_text}",
                 callback_data=f"duration_{i}",
             )
         )
@@ -364,38 +368,38 @@ def create_duration_keyboard() -> InlineKeyboardMarkup:
         else:
             keyboard.row(buttons[i])
 
-    keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_time"))
-    keyboard.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking"))
+    keyboard.row(InlineKeyboardButton(text=get_button_text(lang, "booking.back"), callback_data="back_to_time"))
+    keyboard.row(InlineKeyboardButton(text=get_button_text(lang, "booking.cancel"), callback_data="cancel_booking"))
 
     return keyboard.as_markup()
 
 
 def create_payment_keyboard(
-    confirmation_url: str, amount: float
+    confirmation_url: str, amount: float, lang: str = "ru"
 ) -> InlineKeyboardMarkup:
     """Создаёт клавиатуру с кнопкой оплаты и отмены."""
     keyboard = InlineKeyboardBuilder()
 
     keyboard.add(
-        InlineKeyboardButton(text=f"💳 Оплатить {amount:.2f} ₽", url=confirmation_url)
+        InlineKeyboardButton(text=get_button_text(lang, "booking.pay", amount=f"{amount:.0f}"), url=confirmation_url)
     )
     keyboard.row(
-        InlineKeyboardButton(text="❌ Отменить платеж", callback_data="cancel_payment")
+        InlineKeyboardButton(text=get_button_text(lang, "booking.cancel_payment"), callback_data="cancel_payment")
     )
 
     return keyboard.as_markup()
 
 
-def create_promocode_keyboard() -> InlineKeyboardMarkup:
+def create_promocode_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     """Создает клавиатуру для ввода промокода."""
     keyboard = InlineKeyboardBuilder()
 
     keyboard.add(
         InlineKeyboardButton(
-            text="⏭ Пропустить промокод", callback_data="skip_promocode"
+            text=get_button_text(lang, "booking.skip_promocode"), callback_data="skip_promocode"
         )
     )
-    keyboard.row(InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_booking"))
+    keyboard.row(InlineKeyboardButton(text=get_button_text(lang, "booking.cancel"), callback_data="cancel_booking"))
 
     return keyboard.as_markup()
 
@@ -405,12 +409,13 @@ async def start_booking(callback_query: CallbackQuery, state: FSMContext) -> Non
     """Обработчик нажатия кнопки 'Забронировать'. Показывает активные тарифы."""
     await callback_query.answer()
 
+    lang = "ru"  # Default language
     try:
         keyboard = await create_tariff_keyboard(callback_query.from_user.id)
 
         await callback_query.message.edit_text(
-            "🎯 <b>Выберите тариф:</b>\n\n"
-            "📌 Выберите подходящий тариф из списка ниже:",
+            f"{get_text(lang, 'booking.select_tariff_title')}\n\n"
+            f"{get_text(lang, 'booking.select_tariff_description')}",
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -420,7 +425,7 @@ async def start_booking(callback_query: CallbackQuery, state: FSMContext) -> Non
     except Exception as e:
         logger.error(f"Ошибка при показе тарифов: {e}")
         await callback_query.message.edit_text(
-            "❌ Произошла ошибка при загрузке тарифов. Попробуйте позже.",
+            get_text(lang, "booking.tariffs_load_error"),
             reply_markup=None,
         )
 
@@ -430,6 +435,8 @@ async def select_tariff(callback_query: CallbackQuery, state: FSMContext) -> Non
     """Обработка выбора тарифа. Показывает клавиатуру с датами."""
     await callback_query.answer()
 
+    lang = callback_query.from_user.language_code or "ru"
+
     try:
         tariff_id = int(callback_query.data.split("_")[1])
 
@@ -438,7 +445,7 @@ async def select_tariff(callback_query: CallbackQuery, state: FSMContext) -> Non
 
         if not tariff:
             await callback_query.message.edit_text(
-                "❌ Тариф не найден. Попробуйте снова.", reply_markup=None
+                get_text(lang, "booking.tariff_not_found"), reply_markup=None
             )
             return
 
@@ -449,14 +456,15 @@ async def select_tariff(callback_query: CallbackQuery, state: FSMContext) -> Non
             tariff_price=tariff["price"],
             tariff_purpose=tariff["purpose"],
             tariff_service_id=tariff.get("service_id"),
+            lang=lang,
         )
 
         # Показываем календарь для выбора даты
         keyboard = create_date_keyboard()
 
         await callback_query.message.edit_text(
-            f"📅 <b>Выберите дату для '{tariff['name']}':</b>\n\n"
-            "📌 Выберите удобную дату из предложенных:",
+            get_text(lang, "booking.select_date_title", tariff_name=tariff['name']) + "\n\n" +
+            get_text(lang, "booking.select_date_description"),
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -466,7 +474,7 @@ async def select_tariff(callback_query: CallbackQuery, state: FSMContext) -> Non
     except Exception as e:
         logger.error(f"Ошибка при выборе тарифа: {e}")
         await callback_query.message.edit_text(
-            "❌ Произошла ошибка. Попробуйте позже.", reply_markup=None
+            get_text(lang, "booking.general_error"), reply_markup=None
         )
 
 
@@ -484,25 +492,26 @@ async def select_date(callback_query: CallbackQuery, state: FSMContext) -> None:
         data = await state.get_data()
         tariff_purpose = data.get("tariff_purpose", "").lower()
         tariff_name = data["tariff_name"]
+        lang = data.get("lang", "ru")
 
         # ИСПРАВЛЕНО: правильная логика определения типа тарифа
         if tariff_purpose in ["переговорная", "meeting_room", "meeting"]:
             # Для переговорной комнаты запрашиваем время
             await callback_query.message.edit_text(
-                f"⏰ <b>Введите время начала для '{tariff_name}':</b>\n\n"
-                f"📅 Дата: {visit_date.strftime('%d.%m.%Y')}\n\n"
-                "📌 Введите время в формате ЧЧ:ММ (например, 14:30):",
+                get_text(lang, "booking.enter_time_title", tariff_name=tariff_name) + "\n\n" +
+                get_text(lang, "booking.enter_time_date", date=visit_date.strftime('%d.%m.%Y')) + "\n\n" +
+                get_text(lang, "booking.enter_time_format"),
                 parse_mode="HTML",
             )
             await state.set_state(Booking.ENTER_TIME)
         else:
             # Для опенспейса сразу переходим к промокоду
-            keyboard = create_promocode_keyboard()
+            keyboard = create_promocode_keyboard(lang)
             await callback_query.message.edit_text(
-                f"🎁 <b>Есть ли у вас промокод?</b>\n\n"
-                f"📋 Тариф: {tariff_name}\n"
-                f"📅 Дата: {visit_date.strftime('%d.%m.%Y')} (весь день)\n\n"
-                "📌 Введите промокод или пропустите этот шаг:",
+                get_text(lang, "booking.promocode_question") + "\n\n" +
+                f"📋 {get_text(lang, 'booking.tariff_label')} {tariff_name}\n" +
+                f"📅 {get_text(lang, 'booking.date_label')} {visit_date.strftime('%d.%m.%Y')} {get_text(lang, 'booking.all_day')}\n\n" +
+                get_text(lang, "booking.enter_promocode_or_skip"),
                 reply_markup=keyboard,
                 parse_mode="HTML",
             )
@@ -510,31 +519,35 @@ async def select_date(callback_query: CallbackQuery, state: FSMContext) -> None:
 
     except Exception as e:
         logger.error(f"Ошибка при выборе даты: {e}")
+        data = await state.get_data()
+        lang = data.get("lang", "ru")
         await callback_query.message.edit_text(
-            "❌ Произошла ошибка. Попробуйте позже.", reply_markup=None
+            get_text(lang, "booking.general_error"), reply_markup=None
         )
 
 
 @router.message(Booking.ENTER_TIME)
 async def process_time(message: Message, state: FSMContext) -> None:
     """Обработка введённого времени для 'Переговорной'. Запрашивает продолжительность."""
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+
     try:
         visit_time = datetime.strptime(message.text, "%H:%M").time()
 
         await state.update_data(visit_time=visit_time)
 
-        data = await state.get_data()
         tariff_name = data["tariff_name"]
         visit_date = data["visit_date"]
 
         # ИСПРАВЛЕНО: для переговорной ВСЕГДА показываем клавиатуру выбора длительности
-        keyboard = create_duration_keyboard()
+        keyboard = create_duration_keyboard(lang)
 
         await message.answer(
-            f"⏱ <b>Выберите длительность для '{tariff_name}':</b>\n\n"
-            f"📅 Дата: {visit_date.strftime('%d.%m.%Y')}\n"
-            f"⏰ Время: {visit_time.strftime('%H:%M')}\n\n"
-            "📌 При аренде более 2 часов действует скидка 10%:",
+            get_text(lang, "booking.select_duration_title", tariff_name=tariff_name) + "\n\n" +
+            f"📅 {get_text(lang, 'booking.date_label')} {visit_date.strftime('%d.%m.%Y')}\n" +
+            f"⏰ {get_text(lang, 'booking.time_label')} {visit_time.strftime('%H:%M')}\n\n" +
+            get_text(lang, "booking.discount_info"),
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -543,8 +556,8 @@ async def process_time(message: Message, state: FSMContext) -> None:
 
     except ValueError:
         await message.answer(
-            "❌ Неверный формат времени.\n\n"
-            "📌 Введите время в формате ЧЧ:ММ (например, 14:30):"
+            get_text(lang, "booking.time_invalid_format") + "\n\n" +
+            get_text(lang, "booking.enter_time_format")
         )
 
 
@@ -562,17 +575,18 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
         tariff_name = data["tariff_name"]
         visit_date = data["visit_date"]
         visit_time = data["visit_time"]
+        lang = data.get("lang", "ru")
 
         # Показываем ввод промокода
-        keyboard = create_promocode_keyboard()
+        keyboard = create_promocode_keyboard(lang)
 
         await callback_query.message.edit_text(
-            f"🎁 <b>Есть ли у вас промокод?</b>\n\n"
-            f"📋 Тариф: {tariff_name}\n"
-            f"📅 Дата: {visit_date.strftime('%d.%m.%Y')}\n"
-            f"⏰ Время: {visit_time.strftime('%H:%M')}\n"
-            f"⏱ Длительность: {duration} час{'а' if duration in [2, 3, 4] else 'ов' if duration > 4 else ''}\n\n"
-            "📌 Введите промокод или пропустите этот шаг:",
+            get_text(lang, "booking.promocode_question") + "\n\n" +
+            f"📋 {get_text(lang, 'booking.tariff_label')} {tariff_name}\n" +
+            f"📅 {get_text(lang, 'booking.date_label')} {visit_date.strftime('%d.%m.%Y')}\n" +
+            f"⏰ {get_text(lang, 'booking.time_label')} {visit_time.strftime('%H:%M')}\n" +
+            f"⏱ {get_text(lang, 'booking.duration_label')} {duration} {pluralize_hours(duration, lang)}\n\n" +
+            get_text(lang, "booking.enter_promocode_or_skip"),
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -581,8 +595,10 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
 
     except Exception as e:
         logger.error(f"Ошибка при выборе длительности: {e}")
+        data = await state.get_data()
+        lang = data.get("lang", "ru")
         await callback_query.message.edit_text(
-            "❌ Произошла ошибка. Попробуйте позже.", reply_markup=None
+            get_text(lang, "booking.general_error"), reply_markup=None
         )
 
 
@@ -616,6 +632,7 @@ async def process_promocode_final(
     message: Message, state: FSMContext, promocode_name: Optional[str]
 ) -> None:
     """Финальная обработка промокода и создание брони/платежа."""
+    lang = message.from_user.language_code or "ru"
     try:
         api_client = await get_api_client()
         data = await state.get_data()
@@ -626,13 +643,13 @@ async def process_promocode_final(
             if not user:
                 logger.error(f"Пользователь {message.from_user.id} не найден в БД")
                 await message.answer(
-                    "❌ Ошибка: пользователь не найден. Обратитесь к администратору."
+                    get_text(lang, "booking.user_not_found_admin")
                 )
                 return
         except Exception as e:
             logger.error(f"Ошибка получения пользователя {message.from_user.id}: {e}")
             await message.answer(
-                "❌ Ошибка получения данных пользователя. Попробуйте позже."
+                get_text(lang, "booking.user_data_error")
             )
             return
 
@@ -652,11 +669,11 @@ async def process_promocode_final(
                     promocode_id = promocode.get("id")
                     promocode_name_final = promocode.get("name")
                 else:
-                    await message.answer("❌ Промокод не найден или неактивен.")
+                    await message.answer(get_text(lang, "booking.promocode_not_found"))
                     return
             except Exception as e:
                 logger.error(f"Ошибка проверки промокода: {e}")
-                await message.answer("❌ Ошибка при проверке промокода.")
+                await message.answer(get_text(lang, "booking.promocode_error"))
                 return
 
         # ИСПРАВЛЕННАЯ ЛОГИКА расчета стоимости
@@ -731,7 +748,7 @@ async def process_promocode_final(
     except Exception as e:
         logger.error(f"Ошибка при обработке промокода: {e}")
         await message.answer(
-            "❌ Произошла ошибка при обработке промокода. Попробуйте позже."
+            get_text(lang, "booking.promocode_processing_error")
         )
 
 
@@ -739,6 +756,7 @@ async def create_payment_for_booking(
     message: Message, state: FSMContext, user: dict
 ) -> None:
     """Создание платежа для опенспейса."""
+    lang = message.from_user.language_code or "ru"
     try:
         api_client = await get_api_client()
         data = await state.get_data()
@@ -761,9 +779,21 @@ async def create_payment_for_booking(
         duration = data.get("duration")
 
         if visit_time and duration:
-            description = f"Бронь '{tariff_name}' на {visit_date.strftime('%d.%m.%Y')} в {visit_time.strftime('%H:%M')} ({duration}ч)"
+            description = get_text(
+                lang,
+                "booking.payment_description_with_time",
+                tariff_name=tariff_name,
+                date=visit_date.strftime('%d.%m.%Y'),
+                time=visit_time.strftime('%H:%M'),
+                duration=duration
+            )
         else:
-            description = f"Бронь '{tariff_name}' на {visit_date.strftime('%d.%m.%Y')} (весь день)"
+            description = get_text(
+                lang,
+                "booking.payment_description_all_day",
+                tariff_name=tariff_name,
+                date=visit_date.strftime('%d.%m.%Y')
+            )
 
         # Создаем платеж через API
         payment_data = {
@@ -776,7 +806,7 @@ async def create_payment_for_booking(
         payment_result = await api_client.create_payment(payment_data)
 
         if not payment_result or not payment_result.get("payment_id"):
-            await message.answer("❌ Ошибка при создании платежа. Попробуйте позже.")
+            await message.answer(get_text(lang, "booking.payment_create_error"))
             return
 
         payment_id = payment_result["payment_id"]
@@ -786,12 +816,12 @@ async def create_payment_for_booking(
         await state.update_data(payment_id=payment_id)
 
         # Отправляем сообщение с кнопкой оплаты
-        payment_keyboard = create_payment_keyboard(confirmation_url, amount)
+        payment_keyboard = create_payment_keyboard(confirmation_url, amount, lang)
         payment_message = await message.answer(
-            f"💳 <b>Оплата бронирования</b>\n\n"
-            f"📋 {description}\n"
-            f"💰 К оплате: <b>{amount:.2f} ₽</b>\n\n"
-            f"📌 Нажмите кнопку ниже для оплаты:",
+            get_text(lang, "booking.payment_title") + "\n\n" +
+            f"📋 {description}\n" +
+            f"{get_text(lang, 'booking.amount_to_pay')} <b>{amount:.2f} ₽</b>\n\n" +
+            get_text(lang, "booking.click_to_pay"),
             reply_markup=payment_keyboard,
             parse_mode="HTML",
         )
@@ -809,12 +839,13 @@ async def create_payment_for_booking(
     except Exception as e:
         logger.error(f"Ошибка при создании платежа: {e}")
         await message.answer(
-            "❌ Произошла ошибка при создании платежа. Попробуйте позже."
+            get_text(lang, "booking.payment_create_error")
         )
 
 
 async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> None:
     """Проверка статуса платежа с ограничением по времени."""
+    lang = message.from_user.language_code or "ru"
     try:
         api_client = await get_api_client()
         data = await state.get_data()
@@ -854,7 +885,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                     # Дополняем данные для уведомления о платеже
                     payment_data = {
                         "amount": booking_data.get("amount", 0),
-                        "tariff_name": booking_data.get("tariff_name", "Неизвестно"),
+                        "tariff_name": booking_data.get("tariff_name", get_text(lang, "booking.admin_notification.unknown")),
                         "visit_date": booking_data.get("visit_date"),
                         "visit_time": booking_data.get("visit_time"),
                         "duration": booking_data.get("duration"),
@@ -898,8 +929,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                     await bot.edit_message_text(
                         chat_id=message.chat.id,
                         message_id=payment_message_id,
-                        text="❌ <b>Платеж отменен</b>\n\n"
-                        "Вы можете попробовать забронировать снова.",
+                        text=get_text(lang, 'booking.payment_cancelled_text') + get_text(lang, 'booking.try_again_payment'),
                         parse_mode="HTML",
                     )
 
@@ -910,7 +940,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
 
                     payment_data = {
                         "amount": booking_data.get("amount", 0),
-                        "tariff_name": booking_data.get("tariff_name", "Неизвестно"),
+                        "tariff_name": booking_data.get("tariff_name", get_text(lang, "booking.admin_notification.unknown")),
                         "visit_date": booking_data.get("visit_date"),
                         "visit_time": booking_data.get("visit_time"),
                         "duration": booking_data.get("duration"),
@@ -940,8 +970,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
                     await bot.edit_message_text(
                         chat_id=message.chat.id,
                         message_id=payment_message_id,
-                        text="❌ <b>Платеж не прошел</b>\n\n"
-                        "Попробуйте использовать другую карту или способ оплаты.",
+                        text=get_text(lang, 'booking.payment_failed_text') + get_text(lang, 'booking.try_other_card'),
                         parse_mode="HTML",
                     )
 
@@ -952,7 +981,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
 
                     payment_data = {
                         "amount": booking_data.get("amount", 0),
-                        "tariff_name": booking_data.get("tariff_name", "Неизвестно"),
+                        "tariff_name": booking_data.get("tariff_name", get_text(lang, "booking.admin_notification.unknown")),
                         "visit_date": booking_data.get("visit_date"),
                         "visit_time": booking_data.get("visit_time"),
                         "duration": booking_data.get("duration"),
@@ -986,8 +1015,7 @@ async def poll_payment_status(message: Message, state: FSMContext, bot: Bot) -> 
             await bot.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=payment_message_id,
-                text="⏰ <b>Время ожидания платежа истекло</b>\n\n"
-                "Если оплата прошла, свяжитесь с поддержкой.",
+                text=get_text(lang, 'booking.payment_timeout') + get_text(lang, 'booking.contact_support_payment'),
                 parse_mode="HTML",
             )
         except Exception:
@@ -1004,6 +1032,7 @@ async def create_booking_after_payment(
     message: Message, state: FSMContext, user: dict
 ) -> None:
     """Создание бронирования после успешной оплаты."""
+    lang = message.from_user.language_code or "ru"
     try:
         api_client = await get_api_client()
         data = await state.get_data()
@@ -1124,7 +1153,7 @@ async def create_booking_after_payment(
     except Exception as e:
         logger.error(f"Ошибка при создании бронирования после оплаты: {e}")
         await message.answer(
-            "❌ Произошла ошибка при обработке бронирования. Попробуйте позже."
+            get_text(lang, "booking.booking_create_error")
         )
 
 
@@ -1132,6 +1161,7 @@ async def create_booking_without_payment(
     message: Message, state: FSMContext, user: dict
 ) -> None:
     """Создание бронирования переговорной без оплаты - ожидает подтверждения админа."""
+    lang = message.from_user.language_code or "ru"
     try:
         api_client = await get_api_client()
         data = await state.get_data()
@@ -1161,7 +1191,7 @@ async def create_booking_without_payment(
         booking_result = await api_client.create_booking(booking_data)
 
         if not booking_result:
-            await message.answer("❌ Ошибка при создании брони. Попробуйте позже.")
+            await message.answer(get_text(lang, "booking.booking_create_error"))
             return
 
         # Подготовка данных для уведомлений
@@ -1202,7 +1232,7 @@ async def create_booking_without_payment(
     except Exception as e:
         logger.error(f"Ошибка при создании брони переговорной: {e}")
         await message.answer(
-            "❌ Произошла ошибка при создании брони. Попробуйте позже."
+            get_text(lang, "booking.booking_create_error")
         )
 
 
@@ -1210,6 +1240,7 @@ async def create_booking_with_confirmation(
     message: Message, state: FSMContext, user: dict
 ) -> None:
     """Создание бесплатного бронирования с автоподтверждением."""
+    lang = message.from_user.language_code or "ru"
     try:
         api_client = await get_api_client()
         data = await state.get_data()
@@ -1291,7 +1322,7 @@ async def create_booking_with_confirmation(
         booking_result = await api_client.create_booking(booking_data)
 
         if not booking_result:
-            await message.answer("❌ Ошибка при создании брони. Попробуйте позже.")
+            await message.answer(get_text(lang, "booking.booking_create_error"))
             return
 
         # Подготовка данных для уведомлений
@@ -1332,7 +1363,7 @@ async def create_booking_with_confirmation(
     except Exception as e:
         logger.error(f"Ошибка при создании бесплатной брони: {e}")
         await message.answer(
-            "❌ Произошла ошибка при создании брони. Попробуйте позже."
+            get_text(lang, "booking.booking_create_error")
         )
 
 
@@ -1365,6 +1396,7 @@ def format_phone_for_rubitime(phone: str) -> str:
 @router.callback_query(Booking.STATUS_PAYMENT, F.data == "cancel_payment")
 async def cancel_payment(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Обработка отмены платежа."""
+    lang = callback_query.from_user.language_code or "ru"
     await callback_query.answer()
 
     try:
@@ -1386,7 +1418,7 @@ async def cancel_payment(callback_query: CallbackQuery, state: FSMContext) -> No
                 logger.error(f"Ошибка отмены платежа: {e}")
 
         await callback_query.message.edit_text(
-            "❌ <b>Платеж отменен</b>\n\n" "Вы можете попробовать забронировать снова.",
+            get_text(lang, "booking.payment_cancelled_full"),
             parse_mode="HTML",
         )
 
@@ -1395,7 +1427,7 @@ async def cancel_payment(callback_query: CallbackQuery, state: FSMContext) -> No
     except Exception as e:
         logger.error(f"Ошибка при отмене платежа: {e}")
         await callback_query.message.edit_text(
-            "❌ Произошла ошибка при отмене платежа.", parse_mode="HTML"
+            get_text(lang, "booking.payment_create_error"), parse_mode="HTML"
         )
 
 
@@ -1403,11 +1435,11 @@ async def cancel_payment(callback_query: CallbackQuery, state: FSMContext) -> No
 async def cancel_booking(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Обработка отмены бронирования."""
     await callback_query.answer()
-
+    user_language = callback_query.from_user.language_code or "ru"
     await callback_query.message.edit_text(
-        "❌ Бронирование отменено.\n\n"
-        "Возвращайтесь, когда будете готовы забронировать!",
-        reply_markup=None,
+        get_text(user_language, "booking.booking_cancelled"),
+        reply_markup=create_user_keyboard(user_language),
+        parse_mode="HTML",
     )
 
     await state.clear()
@@ -1416,14 +1448,14 @@ async def cancel_booking(callback_query: CallbackQuery, state: FSMContext) -> No
 @router.callback_query(F.data == "back_to_tariffs")
 async def back_to_tariffs(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Возврат к выбору тарифов."""
+    lang = callback_query.from_user.language_code or "ru"
     await callback_query.answer()
 
     try:
         keyboard = await create_tariff_keyboard(callback_query.from_user.id)
 
         await callback_query.message.edit_text(
-            "🎯 <b>Выберите тариф:</b>\n\n"
-            "📌 Выберите подходящий тариф из списка ниже:",
+            f"{get_text(lang, 'booking.select_tariff_title')}\n\n{get_text(lang, 'booking.select_tariff_description')}",
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -1433,13 +1465,14 @@ async def back_to_tariffs(callback_query: CallbackQuery, state: FSMContext) -> N
     except Exception as e:
         logger.error(f"Ошибка при возврате к тарифам: {e}")
         await callback_query.message.edit_text(
-            "❌ Произошла ошибка. Попробуйте позже.", reply_markup=None
+            get_text(lang, "booking.general_error"), reply_markup=None
         )
 
 
 @router.callback_query(F.data == "back_to_time")
 async def back_to_time(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Возврат к вводу времени."""
+    lang = callback_query.from_user.language_code or "ru"
     await callback_query.answer()
 
     data = await state.get_data()
@@ -1448,9 +1481,9 @@ async def back_to_time(callback_query: CallbackQuery, state: FSMContext) -> None
 
     if visit_date:
         await callback_query.message.edit_text(
-            f"⏰ <b>Введите время начала для '{tariff_name}':</b>\n\n"
-            f"📅 Дата: {visit_date.strftime('%d.%m.%Y')}\n\n"
-            "📌 Введите время в формате ЧЧ:ММ (например, 14:30):",
+            f"{get_text(lang, 'booking.enter_time_title', tariff_name=tariff_name)}\n\n"
+            f"{get_text(lang, 'booking.enter_time_date', date=visit_date.strftime('%d.%m.%Y'))}\n\n"
+            f"{get_text(lang, 'booking.enter_time_format')}",
             parse_mode="HTML",
         )
         await state.set_state(Booking.ENTER_TIME)
@@ -1459,10 +1492,11 @@ async def back_to_time(callback_query: CallbackQuery, state: FSMContext) -> None
 @router.callback_query(F.data == "main_menu")
 async def main_menu(callback_query: CallbackQuery, state: FSMContext) -> None:
     """Обработка нажатия кнопки 'Главное меню' в состояниях бронирования."""
+    lang = callback_query.from_user.language_code or "ru"
     await callback_query.answer()
 
     await callback_query.message.edit_text(
-        "🏠 Возвращаемся в главное меню...", reply_markup=None
+        get_text(lang, "booking.returning_main_menu"), reply_markup=None
     )
 
     await state.clear()
