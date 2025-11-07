@@ -405,6 +405,57 @@ export const userApi = {
       throw new Error(error.response?.data?.detail || 'Не удалось выполнить массовую загрузку аватаров');
     }
   },
+
+  // Экспорт пользователей в CSV
+  exportToCSV: async () => {
+    try {
+      logger.debug('Запуск экспорта пользователей в CSV');
+
+      const res = await apiClient.get('/users/export-csv', {
+        responseType: 'blob'
+      });
+
+      // Создаем URL для blob
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+
+      // Генерируем имя файла с текущей датой
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      link.setAttribute('download', `users_export_${timestamp}.csv`);
+
+      // Добавляем в DOM, кликаем и удаляем
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      // Освобождаем память
+      window.URL.revokeObjectURL(url);
+
+      logger.info('Экспорт пользователей в CSV завершен успешно');
+      return { success: true };
+    } catch (error) {
+      logger.error('Ошибка экспорта пользователей в CSV:', error);
+
+      // Логируем детали ошибки
+      logger.apiError('/users/export-csv', 'GET',
+        error.response?.status || 'unknown',
+        'Ошибка экспорта пользователей в CSV',
+        error.response?.data
+      );
+
+      // Детальная обработка ошибок
+      if (error.response?.status === 403) {
+        throw new Error('Недостаточно прав для экспорта пользователей');
+      } else if (error.response?.status === 404) {
+        throw new Error('Нет пользователей для экспорта');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Ошибка сервера при экспорте. Попробуйте позже');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось экспортировать пользователей в CSV');
+    }
+  },
 };
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {

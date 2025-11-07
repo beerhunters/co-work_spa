@@ -1,12 +1,15 @@
 import os
 import time
 import hashlib
+import csv
+import io
 from pathlib import Path
 from typing import List, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from models.models import User, DatabaseManager, Permission
 from dependencies import (
@@ -76,6 +79,104 @@ async def get_users(
     except Exception as e:
         logger.error(f"Ошибка в get_users: {e}")
         raise HTTPException(status_code=500, detail="Ошибка получения пользователей")
+
+
+@router.get("/export-csv")
+async def export_users_to_csv(
+    _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
+):
+    """
+    Экспорт всех пользователей в CSV файл.
+
+    Требует разрешение VIEW_USERS.
+    Возвращает CSV файл со всеми данными пользователей.
+    """
+    try:
+        logger.info("Начало экспорта пользователей в CSV")
+
+        # Получаем всех пользователей из БД
+        def _get_users(session):
+            return session.query(User).order_by(User.first_join_time.desc()).all()
+
+        users = DatabaseManager.safe_execute(_get_users)
+
+        if not users:
+            logger.warning("Нет пользователей для экспорта")
+            raise HTTPException(status_code=404, detail="Нет пользователей для экспорта")
+
+        # Создаем CSV в памяти
+        output = io.StringIO()
+
+        # Добавляем UTF-8 BOM для корректного отображения в Excel
+        output.write('\ufeff')
+
+        writer = csv.writer(output, delimiter=';', quoting=csv.QUOTE_MINIMAL)
+
+        # Заголовки
+        headers = [
+            'ID',
+            'Telegram ID',
+            'ФИО',
+            'Телефон',
+            'Email',
+            'Username',
+            'Успешных бронирований',
+            'Язык',
+            'Приглашено пользователей',
+            'Дата регистрации',
+            'Дата первого входа',
+            'Согласие с условиями',
+            'Аватар',
+            'ID пригласившего'
+        ]
+        writer.writerow(headers)
+
+        # Данные пользователей
+        for user in users:
+            row = [
+                user.id or '',
+                user.telegram_id or '',
+                user.full_name or '',
+                user.phone or '',
+                user.email or '',
+                user.username or '',
+                user.successful_bookings or 0,
+                user.language_code or 'ru',
+                user.invited_count or 0,
+                user.reg_date.strftime('%Y-%m-%d %H:%M:%S') if user.reg_date else '',
+                user.first_join_time.strftime('%Y-%m-%d %H:%M:%S') if user.first_join_time else '',
+                'Да' if user.agreed_to_terms else 'Нет',
+                user.avatar or '',
+                user.referrer_id or ''
+            ]
+            writer.writerow(row)
+
+        # Возвращаем курсор в начало
+        output.seek(0)
+
+        # Генерируем имя файла с текущей датой
+        filename = f"users_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+        logger.info(f"Экспортировано {len(users)} пользователей в файл {filename}")
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Type": "text/csv; charset=utf-8"
+            }
+        )
+
+    except HTTPException as e:
+        logger.warning(f"HTTP ошибка при экспорте CSV: {e.status_code} - {e.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при экспорте пользователей в CSV: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Внутренняя ошибка сервера при экспорте CSV"
+        )
 
 
 @router.get("/{user_id}", response_model=UserBase)

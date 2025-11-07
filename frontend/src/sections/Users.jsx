@@ -45,6 +45,8 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
   const [selectedUsers, setSelectedUsers] = useState(new Set());
   // Состояние для массовой загрузки аватаров
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
+  // Состояние для экспорта в CSV
+  const [isExporting, setIsExporting] = useState(false);
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
@@ -252,6 +254,36 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
     }
   };
 
+  // Обработчик экспорта пользователей в CSV
+  const handleExportToCSV = async () => {
+    setIsExporting(true);
+    try {
+      await userApi.exportToCSV();
+
+      toast({
+        title: 'Экспорт завершен',
+        description: `Файл CSV с данными ${filteredUsers.length} пользователей успешно загружен`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+        position: 'top',
+      });
+    } catch (error) {
+      console.error('Ошибка экспорта в CSV:', error);
+
+      toast({
+        title: 'Ошибка экспорта',
+        description: error.message || 'Не удалось экспортировать данные пользователей',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+        position: 'top',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const isAllSelected = currentUsers.length > 0 && selectedUsers.size === currentUsers.length;
   const isIndeterminate = selectedUsers.size > 0 && selectedUsers.size < currentUsers.length;
 
@@ -314,7 +346,23 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                   Загрузить аватары
                 </Button>
               </Tooltip>
-              
+
+              {/* Кнопка экспорта пользователей в CSV */}
+              <Tooltip label="Экспортировать всех пользователей в CSV файл" hasArrow>
+                <Button
+                  size="sm"
+                  leftIcon={<Icon as={FiDownload} />}
+                  onClick={handleExportToCSV}
+                  colorScheme="green"
+                  variant="outline"
+                  isLoading={isExporting}
+                  loadingText="Экспортируем..."
+                  isDisabled={users.length === 0}
+                >
+                  Экспорт в CSV
+                </Button>
+              </Tooltip>
+
               {canDeleteUsers && (
                 <Button
                   size="sm"
