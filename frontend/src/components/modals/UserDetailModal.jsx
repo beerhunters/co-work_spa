@@ -11,6 +11,7 @@ import {
   Text,
   Button,
   Input,
+  Textarea,
   FormControl,
   FormLabel,
   Badge,
@@ -76,7 +77,8 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
         full_name: user.full_name || '',
         phone: user.phone || '',
         email: user.email || '',
-        language_code: user.language_code || 'ru'
+        language_code: user.language_code || 'ru',
+        admin_comment: user.admin_comment || ''
       });
       // Обновляем версию при изменении пользователя
       setAvatarVersion(Date.now());
@@ -407,6 +409,26 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                       onChange={(e) => setAvatarFile(e.target.files[0])}
                     />
                   </FormControl>
+
+                  <FormControl>
+                    <FormLabel>
+                      Комментарий администратора
+                      <Text as="span" fontSize="sm" color="gray.500" ml={2}>
+                        ({formData.admin_comment?.length || 0}/500)
+                      </Text>
+                    </FormLabel>
+                    <Textarea
+                      value={formData.admin_comment || ''}
+                      onChange={(e) => {
+                        if (e.target.value.length <= 500) {
+                          setFormData({ ...formData, admin_comment: e.target.value });
+                        }
+                      }}
+                      placeholder="Введите комментарий о пользователе..."
+                      rows={4}
+                      resize="vertical"
+                    />
+                  </FormControl>
                 </VStack>
               ) : (
                 <VStack spacing={3} align="stretch">
@@ -463,6 +485,22 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                       {currentUser.agreed_to_terms ? 'Да' : 'Нет'}
                     </Badge>
                   </HStack>
+
+                  {/* Комментарий администратора */}
+                  <Box
+                    bg="yellow.50"
+                    borderLeft="4px solid"
+                    borderColor="yellow.400"
+                    p={3}
+                    borderRadius="md"
+                  >
+                    <Text fontWeight="bold" mb={2}>
+                      Комментарий администратора:
+                    </Text>
+                    <Text color="gray.700" whiteSpace="pre-wrap">
+                      {currentUser.admin_comment || 'Комментарий отсутствует'}
+                    </Text>
+                  </Box>
                 </VStack>
               )}
             </VStack>

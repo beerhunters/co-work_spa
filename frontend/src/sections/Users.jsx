@@ -563,6 +563,12 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                             ✓ Соглашение
                           </Badge>
                         )}
+
+                        {user.admin_comment && (
+                          <Badge colorScheme="yellow" fontSize="xs" title="Есть комментарий администратора">
+                            💬 Комментарий
+                          </Badge>
+                        )}
                       </HStack>
                     </Td>
 

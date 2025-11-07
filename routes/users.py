@@ -70,6 +70,7 @@ async def get_users(
                 "agreed_to_terms": user.agreed_to_terms or False,
                 "avatar": user.avatar,
                 "referrer_id": user.referrer_id,
+                "admin_comment": user.admin_comment,
             }
             users_data.append(user_dict)
         return users_data
@@ -127,7 +128,8 @@ async def export_users_to_csv(
             'Дата первого входа',
             'Согласие с условиями',
             'Аватар',
-            'ID пригласившего'
+            'ID пригласившего',
+            'Комментарий администратора'
         ]
         writer.writerow(headers)
 
@@ -147,7 +149,8 @@ async def export_users_to_csv(
                 user.first_join_time.strftime('%Y-%m-%d %H:%M:%S') if user.first_join_time else '',
                 'Да' if user.agreed_to_terms else 'Нет',
                 user.avatar or '',
-                user.referrer_id or ''
+                user.referrer_id or '',
+                user.admin_comment or ''
             ]
             writer.writerow(row)
 

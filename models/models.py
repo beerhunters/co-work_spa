@@ -594,6 +594,7 @@ class User(Base):
     agreed_to_terms = Column(Boolean, default=False)
     avatar = Column(String, nullable=True)
     referrer_id = Column(BigInteger, nullable=True)  # Убрать ForeignKey пока что
+    admin_comment = Column(Text, nullable=True)  # Комментарий администратора о пользователе
 
     # Связи
     notifications = relationship(

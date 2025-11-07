@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserBase(BaseModel):
@@ -20,6 +20,7 @@ class UserBase(BaseModel):
     agreed_to_terms: bool
     avatar: Optional[str]
     referrer_id: Optional[int]
+    admin_comment: Optional[str]
 
     class Config:
         from_attributes = True
@@ -38,6 +39,7 @@ class UserUpdate(BaseModel):
     reg_date: Optional[str] = None  # ISO строка
     successful_bookings: Optional[int] = None
     invited_count: Optional[int] = None
+    admin_comment: Optional[str] = Field(None, max_length=500)
 
 
 class UserCreate(BaseModel):
