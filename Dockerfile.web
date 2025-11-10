@@ -82,10 +82,12 @@ RUN mkdir -p /app/data /app/logs /app/avatars /app/ticket_photos /app/newsletter
 COPY --chown=appuser:appuser main.py .
 COPY --chown=appuser:appuser config.py .
 COPY --chown=appuser:appuser dependencies.py .
+COPY --chown=appuser:appuser celery_app.py .
 COPY --chown=appuser:appuser utils/ ./utils/
 COPY --chown=appuser:appuser models/ ./models/
 COPY --chown=appuser:appuser routes/ ./routes/
 COPY --chown=appuser:appuser schemas/ ./schemas/
+COPY --chown=appuser:appuser tasks/ ./tasks/
 
 # Переключаемся на непривилегированного пользователя
 USER appuser
