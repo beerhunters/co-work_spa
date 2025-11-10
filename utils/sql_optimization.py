@@ -3,12 +3,153 @@
 """
 
 from typing import Dict, List, Any
+from datetime import datetime, timedelta
 from sqlalchemy import text, Index
 from sqlalchemy.orm import Session
 
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def calculate_change_percentage(current_value: float, previous_value: float) -> float:
+    """
+    Вычисление процента изменения между двумя значениями
+
+    Args:
+        current_value: Текущее значение
+        previous_value: Предыдущее значение
+
+    Returns:
+        Процент изменения (положительный для роста, отрицательный для снижения)
+    """
+    if previous_value == 0:
+        return 100.0 if current_value > 0 else 0.0
+
+    change = ((current_value - previous_value) / previous_value) * 100
+    return round(change, 1)
+
+
+def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
+    """
+    Получение данных для sparkline графиков за последние N дней
+
+    Args:
+        session: Сессия БД
+        days: Количество дней (по умолчанию 7)
+
+    Returns:
+        Dict с массивами данных для каждой метрики
+    """
+    from datetime import datetime, timedelta
+
+    try:
+        # Вычисляем диапазон дат (последние N дней включая сегодня)
+        end_date = datetime.now().replace(hour=23, minute=59, second=59)
+        start_date = (end_date - timedelta(days=days-1)).replace(hour=0, minute=0, second=0)
+
+        logger.info(f"Fetching sparkline data for {days} days: {start_date} - {end_date}")
+
+        # Один оптимизированный запрос для всех метрик
+        sparkline_query = text("""
+            WITH date_range AS (
+                SELECT DATE(:start_date, '+' || value || ' days') as date
+                FROM (
+                    SELECT 0 as value UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL
+                    SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+                )
+            ),
+            daily_data AS (
+                -- Пользователи по дням
+                SELECT
+                    DATE(COALESCE(u.reg_date, u.first_join_time)) as date,
+                    'users' as type,
+                    COUNT(*) as count
+                FROM users u
+                WHERE COALESCE(u.reg_date, u.first_join_time) >= :start_date
+                  AND COALESCE(u.reg_date, u.first_join_time) <= :end_date
+                GROUP BY DATE(COALESCE(u.reg_date, u.first_join_time))
+
+                UNION ALL
+
+                -- Бронирования по дням
+                SELECT
+                    DATE(b.created_at) as date,
+                    'bookings' as type,
+                    COUNT(*) as count
+                FROM bookings b
+                WHERE b.created_at >= :start_date AND b.created_at <= :end_date
+                GROUP BY DATE(b.created_at)
+
+                UNION ALL
+
+                -- Тикеты по дням
+                SELECT
+                    DATE(t.created_at) as date,
+                    'tickets' as type,
+                    COUNT(*) as count
+                FROM tickets t
+                WHERE t.created_at >= :start_date AND t.created_at <= :end_date
+                GROUP BY DATE(t.created_at)
+            )
+            SELECT
+                dr.date,
+                COALESCE(MAX(CASE WHEN dd.type = 'users' THEN dd.count END), 0) as users_count,
+                COALESCE(MAX(CASE WHEN dd.type = 'bookings' THEN dd.count END), 0) as bookings_count,
+                COALESCE(MAX(CASE WHEN dd.type = 'tickets' THEN dd.count END), 0) as tickets_count
+            FROM date_range dr
+            LEFT JOIN daily_data dd ON dr.date = dd.date
+            GROUP BY dr.date
+            ORDER BY dr.date
+        """)
+
+        results = session.execute(sparkline_query, {
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d')
+        }).fetchall()
+
+        # Формируем массивы данных
+        users_data = []
+        bookings_data = []
+        tickets_data = []
+        labels = []
+
+        for row in results:
+            users_data.append(int(row.users_count or 0))
+            bookings_data.append(int(row.bookings_count or 0))
+            tickets_data.append(int(row.tickets_count or 0))
+            # Форматируем метку (день недели сокращённо)
+            date_obj = datetime.strptime(row.date, '%Y-%m-%d')
+            day_names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+            labels.append(day_names[date_obj.weekday()])
+
+        logger.info(f"Sparkline data fetched: {len(users_data)} days")
+
+        return {
+            "users": {
+                "values": users_data,
+                "labels": labels
+            },
+            "bookings": {
+                "values": bookings_data,
+                "labels": labels
+            },
+            "tickets": {
+                "values": tickets_data,
+                "labels": labels
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Ошибка получения данных sparkline: {e}", exc_info=True)
+        # Возвращаем пустые данные при ошибке
+        empty_data = [0] * days
+        empty_labels = [''] * days
+        return {
+            "users": {"values": empty_data, "labels": empty_labels},
+            "bookings": {"values": empty_data, "labels": empty_labels},
+            "tickets": {"values": empty_data, "labels": empty_labels}
+        }
 
 
 class SQLOptimizer:
@@ -187,6 +328,255 @@ class SQLOptimizer:
                     "closed": 0,
                 },
                 "unread_notifications": 0,
+            }
+
+    @staticmethod
+    def get_dashboard_stats_with_comparison(
+        session: Session,
+        period_start: datetime,
+        period_end: datetime
+    ) -> Dict[str, Any]:
+        """
+        Оптимизированная статистика дашборда с сравнением двух периодов
+
+        Args:
+            session: Сессия БД
+            period_start: Начало текущего периода
+            period_end: Конец текущего периода
+
+        Returns:
+            Dict со статистикой и процентами изменения
+        """
+        try:
+            # Вычисляем предыдущий период (той же длительности)
+            period_duration = period_end - period_start
+            prev_period_start = period_start - period_duration
+            prev_period_end = period_start
+
+            logger.info(
+                f"Fetching dashboard stats: current period {period_start} - {period_end}, "
+                f"previous period {prev_period_start} - {prev_period_end}"
+            )
+
+            # Единый оптимизированный запрос с CTE для обоих периодов
+            stats_query = text("""
+                WITH current_period AS (
+                    SELECT
+                        -- Пользователи за текущий период
+                        COUNT(DISTINCT CASE
+                            WHEN COALESCE(u.reg_date, u.first_join_time) >= :period_start
+                            AND COALESCE(u.reg_date, u.first_join_time) < :period_end
+                            THEN u.id END) as users_count,
+
+                        -- Бронирования за текущий период
+                        COUNT(DISTINCT CASE
+                            WHEN b.created_at >= :period_start
+                            AND b.created_at < :period_end
+                            THEN b.id END) as bookings_count,
+
+                        -- Тикеты за текущий период
+                        COUNT(DISTINCT CASE
+                            WHEN t.created_at >= :period_start
+                            AND t.created_at < :period_end
+                            THEN t.id END) as tickets_count,
+
+                        -- Доход за текущий период
+                        COALESCE(SUM(CASE
+                            WHEN b.paid = 1
+                            AND b.created_at >= :period_start
+                            AND b.created_at < :period_end
+                            THEN b.amount ELSE 0 END), 0) as revenue
+                    FROM users u
+                    LEFT JOIN bookings b ON u.id = b.user_id
+                    LEFT JOIN tickets t ON u.id = t.user_id
+                ),
+                previous_period AS (
+                    SELECT
+                        -- Пользователи за предыдущий период
+                        COUNT(DISTINCT CASE
+                            WHEN COALESCE(u.reg_date, u.first_join_time) >= :prev_period_start
+                            AND COALESCE(u.reg_date, u.first_join_time) < :prev_period_end
+                            THEN u.id END) as users_count,
+
+                        -- Бронирования за предыдущий период
+                        COUNT(DISTINCT CASE
+                            WHEN b.created_at >= :prev_period_start
+                            AND b.created_at < :prev_period_end
+                            THEN b.id END) as bookings_count,
+
+                        -- Тикеты за предыдущий период
+                        COUNT(DISTINCT CASE
+                            WHEN t.created_at >= :prev_period_start
+                            AND t.created_at < :prev_period_end
+                            THEN t.id END) as tickets_count,
+
+                        -- Доход за предыдущий период
+                        COALESCE(SUM(CASE
+                            WHEN b.paid = 1
+                            AND b.created_at >= :prev_period_start
+                            AND b.created_at < :prev_period_end
+                            THEN b.amount ELSE 0 END), 0) as revenue
+                    FROM users u
+                    LEFT JOIN bookings b ON u.id = b.user_id
+                    LEFT JOIN tickets t ON u.id = t.user_id
+                ),
+                current_status AS (
+                    SELECT
+                        (SELECT COUNT(*) FROM users) as total_users,
+                        (SELECT COUNT(*) FROM bookings) as total_bookings,
+                        (SELECT COUNT(*) FROM tickets WHERE status != 'CLOSED') as open_tickets,
+                        (SELECT COUNT(*) FROM tariffs WHERE is_active = 1) as active_tariffs,
+                        (SELECT COUNT(*) FROM bookings WHERE paid = 1) as paid_bookings,
+                        (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1) as total_revenue,
+                        (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN') as open_tickets_only,
+                        (SELECT COUNT(*) FROM tickets WHERE status = 'IN_PROGRESS') as in_progress_tickets,
+                        (SELECT COUNT(*) FROM tickets WHERE status = 'CLOSED') as closed_tickets,
+                        (SELECT COUNT(*) FROM notifications WHERE is_read = 0) as unread_notifications
+                )
+                SELECT
+                    cp.users_count as current_users,
+                    cp.bookings_count as current_bookings,
+                    cp.tickets_count as current_tickets,
+                    cp.revenue as current_revenue,
+                    pp.users_count as prev_users,
+                    pp.bookings_count as prev_bookings,
+                    pp.tickets_count as prev_tickets,
+                    pp.revenue as prev_revenue,
+                    cs.total_users,
+                    cs.total_bookings,
+                    cs.open_tickets,
+                    cs.active_tariffs,
+                    cs.paid_bookings,
+                    cs.total_revenue,
+                    cs.open_tickets_only,
+                    cs.in_progress_tickets,
+                    cs.closed_tickets,
+                    cs.unread_notifications
+                FROM current_period cp, previous_period pp, current_status cs
+            """)
+
+            result = session.execute(stats_query, {
+                'period_start': period_start,
+                'period_end': period_end,
+                'prev_period_start': prev_period_start,
+                'prev_period_end': prev_period_end
+            }).fetchone()
+
+            if not result:
+                logger.warning("No result returned from dashboard stats comparison query")
+                raise ValueError("No data returned from dashboard stats comparison query")
+
+            # Вычисляем проценты изменения
+            users_change = calculate_change_percentage(
+                float(result.current_users or 0),
+                float(result.prev_users or 0)
+            )
+            bookings_change = calculate_change_percentage(
+                float(result.current_bookings or 0),
+                float(result.prev_bookings or 0)
+            )
+            tickets_change = calculate_change_percentage(
+                float(result.current_tickets or 0),
+                float(result.prev_tickets or 0)
+            )
+            revenue_change = calculate_change_percentage(
+                float(result.current_revenue or 0),
+                float(result.prev_revenue or 0)
+            )
+
+            # Формируем результат
+            stats_data = {
+                "users": {
+                    "current_value": int(result.current_users or 0),
+                    "previous_value": int(result.prev_users or 0),
+                    "change_percentage": users_change,
+                    "total": int(result.total_users or 0)
+                },
+                "bookings": {
+                    "current_value": int(result.current_bookings or 0),
+                    "previous_value": int(result.prev_bookings or 0),
+                    "change_percentage": bookings_change,
+                    "total": int(result.total_bookings or 0)
+                },
+                "tickets": {
+                    "current_value": int(result.current_tickets or 0),
+                    "previous_value": int(result.prev_tickets or 0),
+                    "change_percentage": tickets_change,
+                    "open": int(result.open_tickets or 0)
+                },
+                "revenue": {
+                    "current_value": float(result.current_revenue or 0),
+                    "previous_value": float(result.prev_revenue or 0),
+                    "change_percentage": revenue_change,
+                    "total": float(result.total_revenue or 0)
+                },
+                # Дополнительная статистика (для обратной совместимости)
+                "active_tariffs": int(result.active_tariffs or 0),
+                "paid_bookings": int(result.paid_bookings or 0),
+                "total_revenue": float(result.total_revenue or 0),
+                "ticket_stats": {
+                    "open": int(result.open_tickets_only or 0),
+                    "in_progress": int(result.in_progress_tickets or 0),
+                    "closed": int(result.closed_tickets or 0)
+                },
+                "unread_notifications": int(result.unread_notifications or 0),
+                "period_info": {
+                    "start": period_start,
+                    "end": period_end,
+                    "previous_start": prev_period_start,
+                    "previous_end": prev_period_end
+                }
+            }
+
+            logger.info(f"Successfully calculated dashboard stats with comparison: "
+                       f"users {users_change:+.1f}%, bookings {bookings_change:+.1f}%, "
+                       f"tickets {tickets_change:+.1f}%, revenue {revenue_change:+.1f}%")
+
+            return stats_data
+
+        except Exception as e:
+            logger.error(f"Ошибка выполнения запроса статистики с сравнением: {e}", exc_info=True)
+            # Возвращаем базовую статистику при ошибке
+            return {
+                "users": {
+                    "current_value": 0,
+                    "previous_value": 0,
+                    "change_percentage": 0.0,
+                    "total": 0
+                },
+                "bookings": {
+                    "current_value": 0,
+                    "previous_value": 0,
+                    "change_percentage": 0.0,
+                    "total": 0
+                },
+                "tickets": {
+                    "current_value": 0,
+                    "previous_value": 0,
+                    "change_percentage": 0.0,
+                    "open": 0
+                },
+                "revenue": {
+                    "current_value": 0.0,
+                    "previous_value": 0.0,
+                    "change_percentage": 0.0,
+                    "total": 0.0
+                },
+                "active_tariffs": 0,
+                "paid_bookings": 0,
+                "total_revenue": 0.0,
+                "ticket_stats": {
+                    "open": 0,
+                    "in_progress": 0,
+                    "closed": 0
+                },
+                "unread_notifications": 0,
+                "period_info": {
+                    "start": period_start,
+                    "end": period_end,
+                    "previous_start": period_start,
+                    "previous_end": period_end
+                }
             }
 
     @staticmethod

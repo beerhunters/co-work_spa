@@ -2,14 +2,69 @@ import React, { useEffect, useState, useCallback } from 'react';
 import {
   Box, VStack, SimpleGrid, Card, CardBody, CardHeader, Flex, Heading,
   Text, HStack, Icon, Stat, StatLabel, StatNumber, StatHelpText,
-  Select, Spinner, Alert, AlertIcon, Badge, Collapse, Button, Grid, GridItem, Tooltip
+  Select, Spinner, Alert, AlertIcon, Badge, Collapse, Button, Grid, GridItem, Tooltip, IconButton, useToast,
+  Skeleton, SkeletonText, SkeletonCircle
 } from '@chakra-ui/react';
-import { FiUsers, FiShoppingBag, FiMessageCircle, FiTrendingUp, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft } from 'react-icons/fi';
+import { FiUsers, FiShoppingBag, FiMessageCircle, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
 import { colors, sizes, styles, typography, spacing } from '../styles/styles';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('Dashboard');
+
+// Компонент Sparkline для миниатюрного графика
+const Sparkline = ({ data = [], width = 80, height = 30, color = '#3B82F6', strokeWidth = 1.5 }) => {
+  if (!data || data.length === 0) {
+    return null;
+  }
+
+  const max = Math.max(...data, 1); // Минимум 1 чтобы избежать деления на 0
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+
+  // Вычисляем точки для SVG path
+  const points = data.map((value, index) => {
+    const x = (index / (data.length - 1 || 1)) * width;
+    const y = height - ((value - min) / range) * height;
+    return `${x},${y}`;
+  }).join(' ');
+
+  const pathD = `M ${points}`;
+
+  return (
+    <svg
+      width={width}
+      height={height}
+      style={{ opacity: 0.7 }}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+    >
+      {/* Область под линией (заливка) */}
+      <defs>
+        <linearGradient id={`gradient-${color}`} x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" style={{ stopColor: color, stopOpacity: 0.3 }} />
+          <stop offset="100%" style={{ stopColor: color, stopOpacity: 0.05 }} />
+        </linearGradient>
+      </defs>
+
+      {/* Заливка под линией */}
+      <path
+        d={`${pathD} L ${width},${height} L 0,${height} Z`}
+        fill={`url(#gradient-${color})`}
+      />
+
+      {/* Линия графика */}
+      <path
+        d={pathD}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
 
 const Dashboard = ({
   stats,
@@ -39,6 +94,11 @@ const Dashboard = ({
   const [bookingsData, setBookingsData] = useState([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [bookingsError, setBookingsError] = useState(null);
+
+  // Состояния для обновления данных
+  const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const toast = useToast();
 
   // Функция для получения токена из разных источников
   const getAuthToken = () => {
@@ -172,6 +232,54 @@ const Dashboard = ({
     if (selectedValue) {
       const [year, month] = selectedValue.split('-').map(Number);
       setSelectedPeriod({ year, month });
+    }
+  };
+
+  // Принудительное обновление всех данных дашборда
+  const handleForceRefresh = async () => {
+    try {
+      setIsRefreshing(true);
+      logger.info('Принудительное обновление данных дашборда');
+
+      // Перезагружаем данные графика
+      if (selectedPeriod.year && selectedPeriod.month) {
+        await loadChartData(selectedPeriod.year, selectedPeriod.month);
+      }
+
+      // Перезагружаем календарь бронирований если открыт
+      if (isCalendarOpen) {
+        await loadBookingsForMonth(calendarDate.getFullYear(), calendarDate.getMonth() + 1);
+      }
+
+      // Триггерим событие для перезагрузки stats в родительском компоненте
+      window.dispatchEvent(new Event('dashboard:forceRefresh'));
+
+      // Обновляем timestamp
+      setLastRefreshTime(new Date());
+
+      // Показываем успешное уведомление
+      toast({
+        title: 'Данные обновлены',
+        description: 'Все данные дашборда успешно обновлены',
+        status: 'success',
+        duration: 2000,
+        isClosable: true,
+        position: 'top-right'
+      });
+
+      logger.info('Данные дашборда успешно обновлены');
+    } catch (error) {
+      logger.error('Ошибка при обновлении данных дашборда:', error);
+      toast({
+        title: 'Ошибка обновления',
+        description: 'Не удалось обновить данные. Попробуйте позже.',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+        position: 'top-right'
+      });
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -465,94 +573,232 @@ const Dashboard = ({
   return (
     <Box p={spacing.lg} bg={colors.background.main} minH={sizes.content.minHeight}>
       <VStack spacing={8} align="stretch">
+        {/* Заголовок с кнопкой обновления и timestamp */}
+        <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
+          <Heading size="lg" color={colors.text.primary}>
+            Дашборд
+          </Heading>
+          <HStack spacing={3}>
+            <VStack spacing={0} align="flex-end">
+              <Text fontSize="xs" color={colors.text.secondary}>
+                Последнее обновление
+              </Text>
+              <Text fontSize="sm" color={colors.text.primary} fontWeight="medium">
+                {lastRefreshTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </VStack>
+            <Tooltip label="Обновить данные" placement="left">
+              <IconButton
+                icon={<Icon as={FiRefreshCw} />}
+                onClick={handleForceRefresh}
+                isLoading={isRefreshing}
+                aria-label="Обновить данные"
+                colorScheme="blue"
+                variant="ghost"
+                size="md"
+                _hover={{
+                  bg: 'blue.50',
+                  transform: 'rotate(180deg)',
+                  transition: 'all 0.3s ease'
+                }}
+              />
+            </Tooltip>
+          </HStack>
+        </Flex>
+
         {/* Статистические карточки */}
         <SimpleGrid columns={{ base: 1, md: 3 }} spacing={spacing.md}>
-          <Card
-            bgGradient={colors.stats.users.gradient}
-            color="white"
-            borderRadius={styles.card.borderRadius}
-            boxShadow="lg"
-            transition="all 0.3s ease"
-            _hover={{
-              transform: styles.card.hoverTransform,
-              boxShadow: styles.card.hoverShadow
-            }}
-          >
-            <CardBody p={spacing.md}>
-              <Stat>
-                <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
-                  Всего пользователей
-                </StatLabel>
-                <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
-                  {stats?.total_users || 0}
-                </StatNumber>
-                <StatHelpText opacity={0.9}>
-                  <HStack spacing={1}>
-                    <Icon as={FiUsers} />
-                    <Text>Активные пользователи</Text>
-                  </HStack>
-                </StatHelpText>
-              </Stat>
-            </CardBody>
-          </Card>
+          {!stats ? (
+            // Skeleton для карточек при загрузке
+            <>
+              {[1, 2, 3].map((index) => (
+                <Card
+                  key={index}
+                  borderRadius={styles.card.borderRadius}
+                  boxShadow="lg"
+                >
+                  <CardBody p={spacing.md}>
+                    <Flex justify="space-between" align="flex-start">
+                      <Box flex="1">
+                        <Skeleton height="16px" width="120px" mb={3} />
+                        <Skeleton height="36px" width="80px" mb={3} />
+                        <SkeletonText noOfLines={1} spacing="2" skeletonHeight="14px" width="140px" />
+                      </Box>
+                      <Skeleton height="40px" width="80px" ml={2} />
+                    </Flex>
+                  </CardBody>
+                </Card>
+              ))}
+            </>
+          ) : (
+            // Реальные карточки с данными
+            <>
+              <Card
+                bgGradient={colors.stats.users.gradient}
+                color="white"
+                borderRadius={styles.card.borderRadius}
+                boxShadow="lg"
+                transition="all 0.3s ease"
+                _hover={{
+                  transform: styles.card.hoverTransform,
+                  boxShadow: styles.card.hoverShadow
+                }}
+              >
+                <CardBody p={spacing.md}>
+                  <Flex justify="space-between" align="flex-start">
+                    <Stat flex="1">
+                      <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
+                        Всего пользователей
+                      </StatLabel>
+                      <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
+                        {stats?.total_users || 0}
+                      </StatNumber>
+                      <StatHelpText opacity={0.9}>
+                        {stats?.users?.trend ? (
+                          <HStack spacing={1}>
+                            <Icon
+                              as={stats.users.trend.direction === 'up' ? FiTrendingUp : stats.users.trend.direction === 'down' ? FiTrendingDown : FiUsers}
+                              color={stats.users.trend.is_positive ? 'green.300' : 'red.300'}
+                            />
+                            <Text color={stats.users.trend.is_positive ? 'green.300' : 'red.300'}>
+                              {stats.users.trend.direction !== 'neutral' && (stats.users.trend.direction === 'up' ? '+' : '-')}
+                              {Math.abs(stats.users.change_percentage || 0).toFixed(1)}% за период
+                            </Text>
+                          </HStack>
+                        ) : (
+                          <HStack spacing={1}>
+                            <Icon as={FiUsers} />
+                            <Text>Активные пользователи</Text>
+                          </HStack>
+                        )}
+                      </StatHelpText>
+                    </Stat>
+                    {stats?.users?.sparkline?.values?.length > 0 && (
+                      <Box ml={2} mt={-1}>
+                        <Sparkline
+                          data={stats.users.sparkline.values}
+                          width={80}
+                          height={40}
+                          color="rgba(255, 255, 255, 0.8)"
+                          strokeWidth={2}
+                        />
+                      </Box>
+                    )}
+                  </Flex>
+                </CardBody>
+              </Card>
 
-          <Card
-            bgGradient={colors.stats.bookings.gradient}
-            color="white"
-            borderRadius={styles.card.borderRadius}
-            boxShadow="lg"
-            transition="all 0.3s ease"
-            _hover={{
-              transform: styles.card.hoverTransform,
-              boxShadow: styles.card.hoverShadow
-            }}
-          >
-            <CardBody p={spacing.md}>
-              <Stat>
-                <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
-                  Всего бронирований
-                </StatLabel>
-                <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
-                  {stats?.total_bookings || 0}
-                </StatNumber>
-                <StatHelpText opacity={0.9}>
-                  <HStack spacing={1}>
-                    <Icon as={FiShoppingBag} />
-                    <Text>Все бронирования</Text>
-                  </HStack>
-                </StatHelpText>
-              </Stat>
-            </CardBody>
-          </Card>
+              <Card
+                bgGradient={colors.stats.bookings.gradient}
+                color="white"
+                borderRadius={styles.card.borderRadius}
+                boxShadow="lg"
+                transition="all 0.3s ease"
+                _hover={{
+                  transform: styles.card.hoverTransform,
+                  boxShadow: styles.card.hoverShadow
+                }}
+              >
+                <CardBody p={spacing.md}>
+                  <Flex justify="space-between" align="flex-start">
+                    <Stat flex="1">
+                      <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
+                        Всего бронирований
+                      </StatLabel>
+                      <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
+                        {stats?.total_bookings || 0}
+                      </StatNumber>
+                      <StatHelpText opacity={0.9}>
+                        {stats?.bookings?.trend ? (
+                          <HStack spacing={1}>
+                            <Icon
+                              as={stats.bookings.trend.direction === 'up' ? FiTrendingUp : stats.bookings.trend.direction === 'down' ? FiTrendingDown : FiShoppingBag}
+                              color={stats.bookings.trend.is_positive ? 'green.300' : 'red.300'}
+                            />
+                            <Text color={stats.bookings.trend.is_positive ? 'green.300' : 'red.300'}>
+                              {stats.bookings.trend.direction !== 'neutral' && (stats.bookings.trend.direction === 'up' ? '+' : '-')}
+                              {Math.abs(stats.bookings.change_percentage || 0).toFixed(1)}% за период
+                            </Text>
+                          </HStack>
+                        ) : (
+                          <HStack spacing={1}>
+                            <Icon as={FiShoppingBag} />
+                            <Text>Все бронирования</Text>
+                          </HStack>
+                        )}
+                      </StatHelpText>
+                    </Stat>
+                    {stats?.bookings?.sparkline?.values?.length > 0 && (
+                      <Box ml={2} mt={-1}>
+                        <Sparkline
+                          data={stats.bookings.sparkline.values}
+                          width={80}
+                          height={40}
+                          color="rgba(255, 255, 255, 0.8)"
+                          strokeWidth={2}
+                        />
+                      </Box>
+                    )}
+                  </Flex>
+                </CardBody>
+              </Card>
 
-          <Card
-            bgGradient={colors.stats.tickets.gradient}
-            color="white"
-            borderRadius={styles.card.borderRadius}
-            boxShadow="lg"
-            transition="all 0.3s ease"
-            _hover={{
-              transform: styles.card.hoverTransform,
-              boxShadow: styles.card.hoverShadow
-            }}
-          >
-            <CardBody p={spacing.md}>
-              <Stat>
-                <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
-                  Открытые заявки
-                </StatLabel>
-                <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
-                  {stats?.open_tickets || 0}
-                </StatNumber>
-                <StatHelpText opacity={0.9}>
-                  <HStack spacing={1}>
-                    <Icon as={FiMessageCircle} />
-                    <Text>Требуют внимания</Text>
-                  </HStack>
-                </StatHelpText>
-              </Stat>
-            </CardBody>
-          </Card>
+              <Card
+                bgGradient={colors.stats.tickets.gradient}
+                color="white"
+                borderRadius={styles.card.borderRadius}
+                boxShadow="lg"
+                transition="all 0.3s ease"
+                _hover={{
+                  transform: styles.card.hoverTransform,
+                  boxShadow: styles.card.hoverShadow
+                }}
+              >
+                <CardBody p={spacing.md}>
+                  <Flex justify="space-between" align="flex-start">
+                    <Stat flex="1">
+                      <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
+                        Открытые заявки
+                      </StatLabel>
+                      <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
+                        {stats?.open_tickets || 0}
+                      </StatNumber>
+                      <StatHelpText opacity={0.9}>
+                        {stats?.tickets?.trend ? (
+                          <HStack spacing={1}>
+                            <Icon
+                              as={stats.tickets.trend.direction === 'up' ? FiTrendingUp : stats.tickets.trend.direction === 'down' ? FiTrendingDown : FiMessageCircle}
+                              color={stats.tickets.trend.is_positive ? 'green.300' : 'red.300'}
+                            />
+                            <Text color={stats.tickets.trend.is_positive ? 'green.300' : 'red.300'}>
+                              {stats.tickets.trend.direction !== 'neutral' && (stats.tickets.trend.direction === 'up' ? '+' : '-')}
+                              {Math.abs(stats.tickets.change_percentage || 0).toFixed(1)}% за период
+                            </Text>
+                          </HStack>
+                        ) : (
+                          <HStack spacing={1}>
+                            <Icon as={FiMessageCircle} />
+                            <Text>Требуют внимания</Text>
+                          </HStack>
+                        )}
+                      </StatHelpText>
+                    </Stat>
+                    {stats?.tickets?.sparkline?.values?.length > 0 && (
+                      <Box ml={2} mt={-1}>
+                        <Sparkline
+                          data={stats.tickets.sparkline.values}
+                          width={80}
+                          height={40}
+                          color="rgba(255, 255, 255, 0.8)"
+                          strokeWidth={2}
+                        />
+                      </Box>
+                    )}
+                  </Flex>
+                </CardBody>
+              </Card>
+            </>
+          )}
         </SimpleGrid>
 
         {/* Аккордеон с графиком */}
@@ -645,27 +891,37 @@ const Dashboard = ({
               )}
 
               <Box h={styles.chart.height} position="relative">
-                {isLoadingChart && (
-                  <Flex
-                    position="absolute"
-                    top="0"
-                    left="0"
-                    right="0"
-                    bottom="0"
-                    align="center"
-                    justify="center"
-                    bg="rgba(255, 255, 255, 0.8)"
-                    zIndex={10}
-                  >
-                    <VStack spacing={2}>
-                      <Spinner size="lg" color="purple.500" />
-                      <Text fontSize="sm" color="gray.600">
-                        Загрузка данных...
-                      </Text>
-                    </VStack>
-                  </Flex>
+                {isLoadingChart ? (
+                  // Skeleton для графика
+                  <VStack spacing={4} align="stretch" h="100%">
+                    <HStack spacing={4} justify="center">
+                      <Skeleton height="12px" width="120px" />
+                      <Skeleton height="12px" width="120px" />
+                      <Skeleton height="12px" width="120px" />
+                    </HStack>
+                    <Box flex="1" position="relative">
+                      <Skeleton height="100%" width="100%" startColor="purple.50" endColor="purple.100" />
+                      <Box position="absolute" bottom="0" left="0" right="0" h="60%" opacity={0.3}>
+                        <svg width="100%" height="100%" viewBox="0 0 400 200" preserveAspectRatio="none">
+                          <path
+                            d="M 0,180 L 50,150 L 100,170 L 150,120 L 200,140 L 250,100 L 300,130 L 350,90 L 400,110"
+                            stroke="purple"
+                            strokeWidth="3"
+                            fill="none"
+                            opacity="0.4"
+                          />
+                        </svg>
+                      </Box>
+                    </Box>
+                    <HStack spacing={4} justify="space-between">
+                      {[...Array(7)].map((_, i) => (
+                        <Skeleton key={i} height="8px" width="30px" />
+                      ))}
+                    </HStack>
+                  </VStack>
+                ) : (
+                  <canvas ref={chartRef}></canvas>
                 )}
-                <canvas ref={chartRef}></canvas>
               </Box>
             </CardBody>
           </Collapse>
@@ -743,29 +999,42 @@ const Dashboard = ({
 
               {/* Календарная сетка */}
               <Box position="relative">
-                {isLoadingBookings && (
-                  <Flex
-                    position="absolute"
-                    top="0"
-                    left="0"
-                    right="0"
-                    bottom="0"
-                    align="center"
-                    justify="center"
-                    bg="rgba(255, 255, 255, 0.8)"
-                    zIndex={10}
-                    borderRadius="md"
-                  >
-                    <VStack spacing={2}>
-                      <Spinner size="lg" color="green.500" />
-                      <Text fontSize="sm" color="gray.600">
-                        Загрузка календаря...
-                      </Text>
-                    </VStack>
-                  </Flex>
-                )}
-
-                <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={2}>
+                {isLoadingBookings ? (
+                  // Skeleton для календаря
+                  <Box>
+                    <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={2}>
+                      {['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'].map((day) => (
+                        <GridItem key={day} p={2} textAlign="center">
+                          <Text fontSize="sm" fontWeight="bold" color="gray.600">
+                            {day}
+                          </Text>
+                        </GridItem>
+                      ))}
+                    </Grid>
+                    <Grid templateColumns="repeat(7, 1fr)" gap={1}>
+                      {[...Array(35)].map((_, index) => (
+                        <GridItem key={index}>
+                          <Box
+                            p={2}
+                            minH="60px"
+                            border="1px"
+                            borderColor="gray.200"
+                            borderRadius="md"
+                            bg="white"
+                          >
+                            <Skeleton height="14px" width="20px" mb={2} />
+                            <VStack spacing={1} align="stretch">
+                              <Skeleton height="20px" width="100%" />
+                              <Skeleton height="20px" width="100%" />
+                            </VStack>
+                          </Box>
+                        </GridItem>
+                      ))}
+                    </Grid>
+                  </Box>
+                ) : (
+                  <>
+                    <Grid templateColumns="repeat(7, 1fr)" gap={1} mb={2}>
                   {['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'].map((day) => (
                     <GridItem key={day} p={2} textAlign="center">
                       <Text fontSize="sm" fontWeight="bold" color="gray.600">
@@ -841,21 +1110,23 @@ const Dashboard = ({
                   })}
                 </Grid>
 
-                {/* Легенда */}
-                <Flex mt={4} gap={4} justify="center" fontSize="sm" color="gray.600">
-                  <Flex align="center" gap={1}>
-                    <Box w={3} h={3} bg="green.100" borderRadius="sm" />
-                    <Text>Подтвержденные</Text>
-                  </Flex>
-                  <Flex align="center" gap={1}>
-                    <Box w={3} h={3} bg="yellow.100" borderRadius="sm" />
-                    <Text>Ожидают подтверждения</Text>
-                  </Flex>
-                  <Flex align="center" gap={1}>
-                    <Box w={3} h={3} bg="blue.50" border="1px" borderColor="blue.300" borderRadius="sm" />
-                    <Text>Сегодня</Text>
-                  </Flex>
-                </Flex>
+                    {/* Легенда */}
+                    <Flex mt={4} gap={4} justify="center" fontSize="sm" color="gray.600">
+                      <Flex align="center" gap={1}>
+                        <Box w={3} h={3} bg="green.100" borderRadius="sm" />
+                        <Text>Подтвержденные</Text>
+                      </Flex>
+                      <Flex align="center" gap={1}>
+                        <Box w={3} h={3} bg="yellow.100" borderRadius="sm" />
+                        <Text>Ожидают подтверждения</Text>
+                      </Flex>
+                      <Flex align="center" gap={1}>
+                        <Box w={3} h={3} bg="blue.50" border="1px" borderColor="blue.300" borderRadius="sm" />
+                        <Text>Сегодня</Text>
+                      </Flex>
+                    </Flex>
+                  </>
+                )}
               </Box>
             </CardBody>
           </Collapse>
