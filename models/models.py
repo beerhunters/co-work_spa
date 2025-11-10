@@ -706,8 +706,10 @@ class Newsletter(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     message = Column(Text, nullable=False)
-    recipient_type = Column(String(50), nullable=False)  # 'all' или 'selected'
+    recipient_type = Column(String(50), nullable=False)  # 'all', 'selected', 'segment'
     recipient_ids = Column(Text)  # Список telegram_id через запятую
+    segment_type = Column(String(100))  # Тип сегмента: 'active_users', 'new_users', 'vip_users' и т.д.
+    segment_params = Column(Text)  # JSON с параметрами сегментации
     total_count = Column(Integer, default=0)
     success_count = Column(Integer, default=0)
     failed_count = Column(Integer, default=0)
@@ -721,6 +723,24 @@ class Newsletter(Base):
 
     def __repr__(self):
         return f"<Newsletter(id={self.id}, status={self.status}, recipients={self.total_count})>"
+
+
+class NewsletterRecipient(Base):
+    """Модель для детального трекинга отправки каждому получателю."""
+
+    __tablename__ = "newsletter_recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    newsletter_id = Column(Integer, ForeignKey("newsletters.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    full_name = Column(String(255))
+    status = Column(String(20), nullable=False)  # 'success', 'failed'
+    error_message = Column(Text)  # Детали ошибки, если status='failed'
+    sent_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), index=True)
+
+    def __repr__(self):
+        return f"<NewsletterRecipient(id={self.id}, newsletter_id={self.newsletter_id}, telegram_id={self.telegram_id}, status={self.status})>"
 
 
 class TicketStatus(enum.Enum):

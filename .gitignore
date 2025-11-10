@@ -170,4 +170,5 @@ web/static/adminlte/
 avatars/
 /config/logging_config.json
 /CLAUDE.md
-/promt.md
+/newsletters.md
+/newsletter_photos/

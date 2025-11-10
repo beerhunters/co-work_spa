@@ -227,7 +227,7 @@ services:
     image: redis:7.2-alpine
     restart: unless-stopped
     command: >
-      redis-server 
+      redis-server
       --maxmemory ${REDIS_MAXMEMORY:-512mb}
       --maxmemory-policy allkeys-lru
       --save 60 1000
@@ -249,6 +249,69 @@ services:
           memory: ${REDIS_MEMORY_LIMIT:-512M}
         reservations:
           memory: ${REDIS_MEMORY_RESERVATION:-256M}
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      target: ${BUILD_TARGET:-production}
+    user: "1000:1000"
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 --queues=newsletters
+    environment:
+      # Основные настройки
+      - DEBUG=${DEBUG:-false}
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-8000}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+
+      # Безопасность
+      - SECRET_KEY=${SECRET_KEY}
+      - SECRET_KEY_JWT=${SECRET_KEY_JWT}
+      - ADMIN_LOGIN=${ADMIN_LOGIN}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+
+      # Telegram Bot
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_TELEGRAM_ID=${ADMIN_TELEGRAM_ID}
+      - BOT_LINK=${BOT_LINK}
+      - INVITE_LINK=${INVITE_LINK}
+      - GROUP_ID=${GROUP_ID}
+      - FOR_LOGS=${FOR_LOGS}
+
+      # Кэширование и очереди
+      - REDIS_URL=redis://redis:6379/0
+
+      # Логирование
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+      - LOG_TO_FILE=${LOG_TO_FILE:-true}
+      - TELEGRAM_LOGGING_ENABLED=${TELEGRAM_LOGGING_ENABLED:-true}
+      - TELEGRAM_LOG_MIN_LEVEL=${TELEGRAM_LOG_MIN_LEVEL:-ERROR}
+
+      # Внешние URL
+      - ADMIN_URL=${ADMIN_URL}
+      - RULES_URL=${RULES_URL}
+    volumes:
+      - ./data:/app/data
+      - ./avatars:/app/avatars
+      - ./ticket_photos:/app/ticket_photos
+      - ./newsletter_photos:/app/newsletter_photos
+      - ./logs:/app/logs
+      - ./config:/app/config
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      - coworking_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   # Certbot для автообновления SSL сертификатов (только для production)
   certbot:

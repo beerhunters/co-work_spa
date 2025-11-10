@@ -68,9 +68,28 @@ import {
   FiTrash2,
   FiTrash,
   FiChevronDown,
-  FiChevronRight
+  FiChevronRight,
+  FiEye,
+  FiLink,
+  FiBarChart2,
+  FiDownload
 } from 'react-icons/fi';
 import { newsletterApi, userApi } from '../utils/api';
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
 const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => {
   const [newsletters, setNewsletters] = useState(initialNewsletters);
@@ -84,10 +103,30 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const [isUserModalOpen, setUserModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Состояния для сегментации
+  const [segmentType, setSegmentType] = useState('active_users');
+  const [segmentParams, setSegmentParams] = useState({ days: 30 });
+
+  // Состояния для фильтров истории
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterRecipientType, setFilterRecipientType] = useState('');
+  const [filterSearch, setFilterSearch] = useState('');
+
+  // Состояние для модального окна статистики
+  const [selectedNewsletter, setSelectedNewsletter] = useState(null);
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+  const [recipientDetails, setRecipientDetails] = useState(null);
+  const [isLoadingRecipients, setIsLoadingRecipients] = useState(false);
 
   // Состояния для аккордеонов
   const [isNewNewsletterOpen, setIsNewNewsletterOpen] = useState(() => {
     const saved = localStorage.getItem('newsletter_form_open');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [isAnalyticsOpen, setIsAnalyticsOpen] = useState(() => {
+    const saved = localStorage.getItem('newsletter_analytics_open');
     return saved !== null ? JSON.parse(saved) : true;
   });
   const [isHistoryOpen, setIsHistoryOpen] = useState(() => {
@@ -103,6 +142,79 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const totalUsersWithTelegram = React.useMemo(() => {
     return users.filter(u => u.telegram_id).length;
   }, [users]);
+
+  // Аналитика рассылок
+  const analyticsData = useMemo(() => {
+    if (!newsletters || newsletters.length === 0) {
+      return {
+        kpis: {
+          total: 0,
+          successRate: 0,
+          totalRecipients: 0,
+          avgSuccessRate: 0,
+        },
+        statusDistribution: [],
+        successRateOverTime: [],
+        newslettersByDate: [],
+      };
+    }
+
+    // KPI расчеты
+    const total = newsletters.length;
+    const successCount = newsletters.filter(n => n.status === 'success').length;
+    const totalRecipients = newsletters.reduce((sum, n) => sum + (n.total_count || 0), 0);
+    const totalSuccess = newsletters.reduce((sum, n) => sum + (n.success_count || 0), 0);
+    const avgSuccessRate = totalRecipients > 0 ? ((totalSuccess / totalRecipients) * 100).toFixed(1) : 0;
+
+    // Распределение по статусам для Pie Chart
+    const statusCounts = newsletters.reduce((acc, n) => {
+      acc[n.status] = (acc[n.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    const statusDistribution = [
+      { name: 'Успешно', value: statusCounts['success'] || 0, color: '#48BB78' },
+      { name: 'Частично', value: statusCounts['partial'] || 0, color: '#ECC94B' },
+      { name: 'Ошибка', value: statusCounts['failed'] || 0, color: '#F56565' },
+    ].filter(item => item.value > 0);
+
+    // Успешность по времени для Line Chart (последние 30 дней)
+    const last30Days = newsletters
+      .slice(0, 30)
+      .reverse()
+      .map((n, index) => ({
+        name: new Date(n.created_at).toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' }),
+        'Процент успеха': n.total_count > 0 ? ((n.success_count / n.total_count) * 100).toFixed(1) : 0,
+        'Отправлено': n.total_count,
+      }));
+
+    // Количество рассылок по дням для Bar Chart
+    const newslettersByDate = newsletters.reduce((acc, n) => {
+      const date = new Date(n.created_at).toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' });
+      const existing = acc.find(item => item.date === date);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        acc.push({ date, count: 1 });
+      }
+      return acc;
+    }, []);
+
+    // Сортируем и берем последние 14 дней
+    const sortedByDate = newslettersByDate.slice(0, 14).reverse();
+
+    return {
+      kpis: {
+        total,
+        successRate: total > 0 ? ((successCount / total) * 100).toFixed(1) : 0,
+        totalRecipients,
+        avgSuccessRate,
+      },
+      statusDistribution,
+      successRateOverTime: last30Days,
+      newslettersByDate: sortedByDate,
+    };
+  }, [newsletters]);
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isClearOpen, onOpen: onClearOpen, onClose: onClearClose } = useDisclosure();
@@ -140,14 +252,48 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     }
   }, [canSendNewsletters]);
 
+  // Перезагрузка при изменении фильтров
+  useEffect(() => {
+    fetchNewsletters();
+  }, [filterStatus, filterRecipientType, filterSearch]);
+
   // Сохранение состояний аккордеонов в localStorage
   useEffect(() => {
     localStorage.setItem('newsletter_form_open', JSON.stringify(isNewNewsletterOpen));
   }, [isNewNewsletterOpen]);
 
   useEffect(() => {
+    localStorage.setItem('newsletter_analytics_open', JSON.stringify(isAnalyticsOpen));
+  }, [isAnalyticsOpen]);
+
+  useEffect(() => {
     localStorage.setItem('newsletter_history_open', JSON.stringify(isHistoryOpen));
   }, [isHistoryOpen]);
+
+  // Загрузка детальной информации о получателях при открытии статистики
+  useEffect(() => {
+    if (selectedNewsletter && isStatsModalOpen) {
+      const fetchRecipients = async () => {
+        setIsLoadingRecipients(true);
+        try {
+          const data = await newsletterApi.getRecipients(selectedNewsletter.id);
+          setRecipientDetails(data);
+        } catch (error) {
+          console.error('Ошибка загрузки получателей:', error);
+          toast({
+            title: 'Ошибка',
+            description: 'Не удалось загрузить список получателей',
+            status: 'error',
+            duration: 3000,
+          });
+        } finally {
+          setIsLoadingRecipients(false);
+        }
+      };
+      fetchRecipients();
+    }
+  }, [selectedNewsletter, isStatsModalOpen]);
+
 
 
   const fetchUsers = async () => {
@@ -169,7 +315,13 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const fetchNewsletters = async () => {
     setIsLoading(true);
     try {
-      const data = await newsletterApi.getHistory();
+      // Формируем параметры запроса с фильтрами
+      const params = {};
+      if (filterStatus) params.status = filterStatus;
+      if (filterRecipientType) params.recipient_type = filterRecipientType;
+      if (filterSearch) params.search = filterSearch;
+
+      const data = await newsletterApi.getHistory(params);
       setNewsletters(data);
     } catch (error) {
       console.error('Ошибка загрузки истории:', error);
@@ -289,6 +441,77 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     }
   };
 
+  // Открытие модального окна статистики
+  const handleOpenStats = (newsletter) => {
+    setSelectedNewsletter(newsletter);
+    setIsStatsModalOpen(true);
+  };
+
+  const handleCloseStats = () => {
+    setSelectedNewsletter(null);
+    setIsStatsModalOpen(false);
+    setRecipientDetails(null);
+  };
+
+  // Экспорт в CSV
+  const handleExportCSV = async () => {
+    try {
+      // Формируем URL с фильтрами
+      const params = new URLSearchParams();
+      if (filterStatus) params.append('status', filterStatus);
+      if (filterRecipientType) params.append('recipient_type', filterRecipientType);
+      if (filterSearch) params.append('search', filterSearch);
+
+      // Получаем токен из localStorage
+      const token = localStorage.getItem('token');
+
+      // Создаем ссылку для скачивания
+      const url = `/api/newsletters/export-csv?${params.toString()}`;
+
+      // Используем fetch для скачивания файла
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при экспорте');
+      }
+
+      // Получаем blob
+      const blob = await response.blob();
+
+      // Создаём ссылку для скачивания
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `newsletters_export_${new Date().getTime()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast({
+        title: 'Успешно',
+        description: 'История рассылок экспортирована',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+    } catch (error) {
+      console.error('Ошибка экспорта:', error);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось экспортировать историю',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
   // Форматирование текста
   const formatText = (type) => {
     const textarea = document.getElementById('message-textarea');
@@ -322,6 +545,14 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
         break;
       case 'code':
         formattedText = `<code>${selectedText}</code>`;
+        break;
+      case 'link':
+        const url = window.prompt('Введите URL ссылки:', 'https://');
+        if (url && url.trim()) {
+          formattedText = `<a href="${url.trim()}">${selectedText}</a>`;
+        } else {
+          return; // Отмена, если URL не введен
+        }
         break;
       default:
         formattedText = selectedText;
@@ -408,16 +639,23 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
         });
       }
 
+      if (recipientType === 'segment') {
+        formData.append('segment_type', segmentType);
+        formData.append('segment_params', JSON.stringify(segmentParams));
+      }
+
       photos.forEach((photo) => {
         formData.append('photos', photo.file);
       });
 
       const result = await newsletterApi.send(formData);
 
+      setIsSending(false);
+
       toast({
-        title: 'Успешно',
-        description: `Рассылка отправлена ${result.success_count} из ${result.total_count} пользователей`,
-        status: 'success',
+        title: 'Рассылка запущена',
+        description: `Отправка ${result.total_count} сообщений в процессе... Результаты будут доступны в истории рассылок.`,
+        status: 'info',
         duration: 5000,
         isClosable: true,
       });
@@ -427,12 +665,16 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       setPhotos([]);
       setSelectedUsers([]);
       setRecipientType('all');
+      setSegmentType('active_users');
+      setSegmentParams({ days: 30 });
 
       // Обновляем историю
       await fetchNewsletters();
 
     } catch (error) {
       console.error('Ошибка отправки:', error);
+
+      setIsSending(false);
 
       let errorMessage = 'Не удалось отправить рассылку';
       if (error.response?.status === 403) {
@@ -448,8 +690,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
         duration: 5000,
         isClosable: true,
       });
-    } finally {
-      setIsSending(false);
     }
   };
 
@@ -624,6 +864,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                     >
                       <option value="all">Все пользователи</option>
                       <option value="selected">Выбранные</option>
+                      <option value="segment">Сегмент</option>
                     </Select>
 
                     {recipientType === 'selected' && (
@@ -650,10 +891,87 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                       </>
                     )}
                   </HStack>
+
+                  {/* UI для настройки сегмента */}
+                  {recipientType === 'segment' && (
+                    <VStack mt={4} spacing={3} align="stretch" p={4} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
+                      <FormControl>
+                        <FormLabel fontSize="sm">Тип сегмента</FormLabel>
+                        <Select
+                          value={segmentType}
+                          onChange={(e) => {
+                            const newType = e.target.value;
+                            setSegmentType(newType);
+                            // Устанавливаем дефолтные параметры в зависимости от типа
+                            if (newType === 'active_users' || newType === 'new_users') {
+                              setSegmentParams({ days: 30 });
+                            } else if (newType === 'inactive_users') {
+                              setSegmentParams({ days: 30 });
+                            } else if (newType === 'vip_users') {
+                              setSegmentParams({ min_bookings: 5 });
+                            } else if (newType === 'with_agreement') {
+                              setSegmentParams({});
+                            }
+                          }}
+                          size="sm"
+                        >
+                          <option value="active_users">Активные пользователи</option>
+                          <option value="new_users">Новые пользователи</option>
+                          <option value="vip_users">VIP пользователи</option>
+                          <option value="inactive_users">Неактивные пользователи</option>
+                          <option value="with_agreement">Согласившиеся с условиями</option>
+                        </Select>
+                        <FormHelperText fontSize="xs">
+                          {segmentType === 'active_users' && 'Пользователи с бронированиями за последние N дней'}
+                          {segmentType === 'new_users' && 'Недавно зарегистрированные пользователи'}
+                          {segmentType === 'vip_users' && 'Пользователи с большим количеством успешных бронирований'}
+                          {segmentType === 'inactive_users' && 'Пользователи без бронирований N+ дней'}
+                          {segmentType === 'with_agreement' && 'Пользователи, согласившиеся с условиями использования'}
+                        </FormHelperText>
+                      </FormControl>
+
+                      {/* Параметры для сегментов с днями */}
+                      {(segmentType === 'active_users' || segmentType === 'new_users' || segmentType === 'inactive_users') && (
+                        <FormControl>
+                          <FormLabel fontSize="sm">Количество дней</FormLabel>
+                          <Input
+                            type="number"
+                            size="sm"
+                            value={segmentParams.days || 30}
+                            onChange={(e) => setSegmentParams({ days: parseInt(e.target.value) || 30 })}
+                            min={1}
+                            max={365}
+                          />
+                          <FormHelperText fontSize="xs">
+                            От 1 до 365 дней
+                          </FormHelperText>
+                        </FormControl>
+                      )}
+
+                      {/* Параметры для VIP пользователей */}
+                      {segmentType === 'vip_users' && (
+                        <FormControl>
+                          <FormLabel fontSize="sm">Минимум успешных бронирований</FormLabel>
+                          <Input
+                            type="number"
+                            size="sm"
+                            value={segmentParams.min_bookings || 5}
+                            onChange={(e) => setSegmentParams({ min_bookings: parseInt(e.target.value) || 5 })}
+                            min={1}
+                            max={100}
+                          />
+                          <FormHelperText fontSize="xs">
+                            От 1 до 100 бронирований
+                          </FormHelperText>
+                        </FormControl>
+                      )}
+                    </VStack>
+                  )}
+
                   <FormHelperText>
-                    {recipientType === 'all'
-                      ? `Будет отправлено всем ${totalUsersWithTelegram} пользователям`
-                      : `Выбрано ${selectedUsers.length} получателей`}
+                    {recipientType === 'all' && `Будет отправлено всем ${totalUsersWithTelegram} пользователям`}
+                    {recipientType === 'selected' && `Выбрано ${selectedUsers.length} получателей`}
+                    {recipientType === 'segment' && 'Рассылка будет отправлена пользователям, соответствующим выбранному сегменту'}
                   </FormHelperText>
                 </FormControl>
 
@@ -694,19 +1012,36 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                           onClick={() => formatText('code')}
                         />
                       </Tooltip>
+                      <Tooltip label="Ссылка">
+                        <IconButton
+                          icon={<FiLink />}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => formatText('link')}
+                        />
+                      </Tooltip>
                     </HStack>
 
                     <Textarea
                       id="message-textarea"
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Введите текст сообщения... Используйте HTML-теги для форматирования: <b>жирный</b>, <i>курсив</i>, <u>подчеркнутый</u>, <code>код</code>"
+                      placeholder="Введите текст сообщения... Используйте HTML-теги для форматирования или кнопки выше"
                       minH="150px"
                       resize="vertical"
                     />
                     <FormHelperText>
-                      Поддерживаются HTML-теги: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;code&gt;, &lt;a href=""&gt;
+                      Поддерживаются HTML-теги: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;code&gt;, &lt;a href=""&gt;. Выделите текст и нажмите кнопку для форматирования.
                     </FormHelperText>
+                    <Text
+                      fontSize="sm"
+                      color={message.length > 4096 ? "red.500" : message.length > 3500 ? "orange.500" : "gray.500"}
+                      textAlign="right"
+                      fontWeight={message.length > 4096 ? "bold" : "normal"}
+                    >
+                      {message.length} / 4096 символов
+                      {message.length > 4096 && " (превышен лимит Telegram!)"}
+                    </Text>
                   </VStack>
                 </FormControl>
 
@@ -773,23 +1108,219 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                   </Alert>
                 )}
 
-                {/* Кнопка отправки */}
-                <Button
-                  leftIcon={<FiSend />}
-                  colorScheme="purple"
-                  size="lg"
-                  onClick={handleSendNewsletter}
-                  isLoading={isSending}
-                  loadingText="Отправка..."
-                  isDisabled={!message.trim()}
-                >
-                  Отправить рассылку
-                </Button>
+                {/* Кнопки отправки и предпросмотра */}
+                <HStack spacing={3} width="full">
+                  <Button
+                    leftIcon={<FiEye />}
+                    variant="outline"
+                    colorScheme="blue"
+                    size="lg"
+                    onClick={() => setIsPreviewOpen(true)}
+                    isDisabled={!message.trim() || isSending}
+                    flex={1}
+                  >
+                    Предпросмотр
+                  </Button>
+                  <Button
+                    leftIcon={<FiSend />}
+                    colorScheme="purple"
+                    size="lg"
+                    onClick={handleSendNewsletter}
+                    isLoading={isSending}
+                    loadingText="Отправка..."
+                    isDisabled={!message.trim() || isSending}
+                    flex={2}
+                  >
+                    Отправить рассылку
+                  </Button>
+                </HStack>
               </VStack>
               </CardBody>
             </Collapse>
           </Card>
         )}
+
+        {/* Аналитика рассылок */}
+        <Card bg={cardBg} borderRadius="lg" boxShadow="sm" mb={6}>
+          <CardHeader
+            cursor="pointer"
+            onClick={() => setIsAnalyticsOpen(!isAnalyticsOpen)}
+            _hover={{ bg: useColorModeValue('gray.50', 'gray.700') }}
+            transition="all 0.2s"
+          >
+            <HStack justify="space-between">
+              <HStack>
+                <Heading size="md" color="green.500">
+                  <HStack>
+                    <Icon as={FiBarChart2} />
+                    <Text>Аналитика и статистика</Text>
+                  </HStack>
+                </Heading>
+              </HStack>
+              <Icon
+                as={isAnalyticsOpen ? FiChevronDown : FiChevronRight}
+                boxSize={6}
+                color="gray.400"
+              />
+            </HStack>
+          </CardHeader>
+          <Collapse in={isAnalyticsOpen}>
+            <CardBody>
+              {newsletters.length === 0 ? (
+                <Box textAlign="center" py={8}>
+                  <Text color="gray.500">Нет данных для аналитики</Text>
+                  <Text color="gray.400" fontSize="sm" mt={2}>
+                    Отправьте несколько рассылок, чтобы увидеть статистику
+                  </Text>
+                </Box>
+              ) : (
+                <VStack spacing={6} align="stretch">
+                  {/* KPI Карточки */}
+                  <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+                    <Card bg={useColorModeValue('purple.50', 'purple.900')} boxShadow="sm">
+                      <CardBody>
+                        <VStack align="start" spacing={1}>
+                          <Text fontSize="sm" color={useColorModeValue('purple.600', 'purple.300')}>
+                            Всего рассылок
+                          </Text>
+                          <Heading size="xl" color={useColorModeValue('purple.700', 'purple.200')}>
+                            {analyticsData.kpis.total}
+                          </Heading>
+                        </VStack>
+                      </CardBody>
+                    </Card>
+
+                    <Card bg={useColorModeValue('green.50', 'green.900')} boxShadow="sm">
+                      <CardBody>
+                        <VStack align="start" spacing={1}>
+                          <Text fontSize="sm" color={useColorModeValue('green.600', 'green.300')}>
+                            Процент успеха
+                          </Text>
+                          <Heading size="xl" color={useColorModeValue('green.700', 'green.200')}>
+                            {analyticsData.kpis.successRate}%
+                          </Heading>
+                        </VStack>
+                      </CardBody>
+                    </Card>
+
+                    <Card bg={useColorModeValue('blue.50', 'blue.900')} boxShadow="sm">
+                      <CardBody>
+                        <VStack align="start" spacing={1}>
+                          <Text fontSize="sm" color={useColorModeValue('blue.600', 'blue.300')}>
+                            Всего получателей
+                          </Text>
+                          <Heading size="xl" color={useColorModeValue('blue.700', 'blue.200')}>
+                            {analyticsData.kpis.totalRecipients}
+                          </Heading>
+                        </VStack>
+                      </CardBody>
+                    </Card>
+
+                    <Card bg={useColorModeValue('orange.50', 'orange.900')} boxShadow="sm">
+                      <CardBody>
+                        <VStack align="start" spacing={1}>
+                          <Text fontSize="sm" color={useColorModeValue('orange.600', 'orange.300')}>
+                            Средняя доставка
+                          </Text>
+                          <Heading size="xl" color={useColorModeValue('orange.700', 'orange.200')}>
+                            {analyticsData.kpis.avgSuccessRate}%
+                          </Heading>
+                        </VStack>
+                      </CardBody>
+                    </Card>
+                  </SimpleGrid>
+
+                  {/* Графики */}
+                  <SimpleGrid columns={{ base: 1, lg: 2 }} spacing={6}>
+                    {/* Pie Chart - Распределение по статусам */}
+                    <Card boxShadow="sm">
+                      <CardHeader>
+                        <Heading size="sm">Распределение по статусам</Heading>
+                      </CardHeader>
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={250}>
+                          <PieChart>
+                            <Pie
+                              data={analyticsData.statusDistribution}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false}
+                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                              outerRadius={80}
+                              fill="#8884d8"
+                              dataKey="value"
+                            >
+                              {analyticsData.statusDistribution.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+
+                    {/* Bar Chart - Количество рассылок по дням */}
+                    <Card boxShadow="sm">
+                      <CardHeader>
+                        <Heading size="sm">Рассылок по дням (последние 14)</Heading>
+                      </CardHeader>
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={250}>
+                          <BarChart data={analyticsData.newslettersByDate}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="date" angle={-45} textAnchor="end" height={80} />
+                            <YAxis />
+                            <RechartsTooltip />
+                            <Bar dataKey="count" fill="#805AD5" name="Количество" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+
+                    {/* Line Chart - Успешность по времени */}
+                    <Card boxShadow="sm">
+                      <CardHeader>
+                        <Heading size="sm">Процент успеха (последние 30)</Heading>
+                      </CardHeader>
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={250}>
+                          <LineChart data={analyticsData.successRateOverTime}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
+                            <YAxis />
+                            <RechartsTooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="Процент успеха" stroke="#48BB78" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+
+                    {/* Line Chart - Количество отправленных */}
+                    <Card boxShadow="sm">
+                      <CardHeader>
+                        <Heading size="sm">Отправлено сообщений (последние 30)</Heading>
+                      </CardHeader>
+                      <CardBody>
+                        <ResponsiveContainer width="100%" height={250}>
+                          <LineChart data={analyticsData.successRateOverTime}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
+                            <YAxis />
+                            <RechartsTooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="Отправлено" stroke="#3182CE" strokeWidth={2} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardBody>
+                    </Card>
+                  </SimpleGrid>
+                </VStack>
+              )}
+            </CardBody>
+          </Collapse>
+        </Card>
 
         {/* История рассылок */}
         <Card bg={cardBg} borderRadius="lg" boxShadow="sm">
@@ -823,6 +1354,17 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                   colorScheme="blue"
                   aria-label="Обновить"
                 />
+                {newsletters.length > 0 && (
+                  <Button
+                    leftIcon={<FiDownload />}
+                    size="sm"
+                    variant="outline"
+                    colorScheme="green"
+                    onClick={handleExportCSV}
+                  >
+                    Экспорт CSV
+                  </Button>
+                )}
                 {canManageNewsletters && newsletters.length > 0 && (
                   <Button
                     leftIcon={<FiTrash />}
@@ -839,6 +1381,68 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
           </CardHeader>
           <Collapse in={isHistoryOpen} animateOpacity>
             <CardBody>
+            {/* Фильтры */}
+            <VStack spacing={4} mb={6} align="stretch">
+              <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+                <FormControl>
+                  <FormLabel fontSize="sm">Статус</FormLabel>
+                  <Select
+                    size="sm"
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    placeholder="Все статусы"
+                  >
+                    <option value="success">Успешно</option>
+                    <option value="partial">Частично</option>
+                    <option value="failed">Ошибка</option>
+                  </Select>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel fontSize="sm">Тип получателей</FormLabel>
+                  <Select
+                    size="sm"
+                    value={filterRecipientType}
+                    onChange={(e) => setFilterRecipientType(e.target.value)}
+                    placeholder="Все типы"
+                  >
+                    <option value="all">Все пользователи</option>
+                    <option value="selected">Выбранные</option>
+                    <option value="segment">Сегмент</option>
+                  </Select>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel fontSize="sm">Поиск по тексту</FormLabel>
+                  <Input
+                    size="sm"
+                    placeholder="Введите текст..."
+                    value={filterSearch}
+                    onChange={(e) => setFilterSearch(e.target.value)}
+                  />
+                </FormControl>
+              </SimpleGrid>
+
+              {/* Кнопка сброса фильтров */}
+              {(filterStatus || filterRecipientType || filterSearch) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  colorScheme="gray"
+                  onClick={() => {
+                    setFilterStatus('');
+                    setFilterRecipientType('');
+                    setFilterSearch('');
+                  }}
+                  alignSelf="flex-start"
+                >
+                  Сбросить фильтры
+                </Button>
+              )}
+            </VStack>
+
+            <Divider mb={4} />
+
             {isLoading ? (
               <Box textAlign="center" py={8}>
                 <Spinner size="lg" color="purple.500" />
@@ -863,7 +1467,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                       <Th>Получатели</Th>
                       <Th>Сообщение</Th>
                       <Th>Фото</Th>
-                      {canManageNewsletters && <Th>Действия</Th>}
+                      <Th>Действия</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
@@ -883,13 +1487,27 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                           </Badge>
                         </Td>
                         <Td>
-                          <VStack align="start" spacing={0}>
+                          <VStack align="start" spacing={1}>
                             <Text fontSize="sm" fontWeight="medium">
                               {newsletter.success_count}/{newsletter.total_count}
                             </Text>
-                            <Text fontSize="xs" color="gray.500">
-                              успешно
-                            </Text>
+                            <HStack spacing={1}>
+                              {newsletter.recipient_type === 'all' && (
+                                <Badge size="xs" colorScheme="purple">Все</Badge>
+                              )}
+                              {newsletter.recipient_type === 'selected' && (
+                                <Badge size="xs" colorScheme="blue">Выбранные</Badge>
+                              )}
+                              {newsletter.recipient_type === 'segment' && newsletter.segment_type && (
+                                <Badge size="xs" colorScheme="green">
+                                  {newsletter.segment_type === 'active_users' && 'Активные'}
+                                  {newsletter.segment_type === 'new_users' && 'Новые'}
+                                  {newsletter.segment_type === 'vip_users' && 'VIP'}
+                                  {newsletter.segment_type === 'inactive_users' && 'Неактивные'}
+                                  {newsletter.segment_type === 'with_agreement' && 'С соглашением'}
+                                </Badge>
+                              )}
+                            </HStack>
                           </VStack>
                         </Td>
                         <Td maxW="300px">
@@ -909,20 +1527,32 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                             </Badge>
                           )}
                         </Td>
-                        {canManageNewsletters && (
-                          <Td>
-                            <Tooltip label="Удалить рассылку">
+                        <Td>
+                          <HStack spacing={1}>
+                            <Tooltip label="Подробная статистика">
                               <IconButton
-                                icon={<FiTrash2 />}
+                                icon={<FiBarChart2 />}
                                 size="sm"
                                 variant="ghost"
-                                colorScheme="red"
-                                onClick={() => handleDeleteNewsletter(newsletter)}
-                                aria-label="Удалить рассылку"
+                                colorScheme="blue"
+                                onClick={() => handleOpenStats(newsletter)}
+                                aria-label="Просмотр статистики"
                               />
                             </Tooltip>
-                          </Td>
-                        )}
+                            {canManageNewsletters && (
+                              <Tooltip label="Удалить рассылку">
+                                <IconButton
+                                  icon={<FiTrash2 />}
+                                  size="sm"
+                                  variant="ghost"
+                                  colorScheme="red"
+                                  onClick={() => handleDeleteNewsletter(newsletter)}
+                                  aria-label="Удалить рассылку"
+                                />
+                              </Tooltip>
+                            )}
+                          </HStack>
+                        </Td>
                       </Tr>
                     ))}
                   </Tbody>
@@ -1024,6 +1654,357 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
+
+      {/* Модальное окно детальной статистики */}
+      <Modal isOpen={isStatsModalOpen} onClose={handleCloseStats} size="xl">
+        <ModalOverlay />
+        <ModalContent maxH="90vh" bg={cardBg}>
+          <ModalHeader>
+            <HStack>
+              <Icon as={FiBarChart2} color="blue.500" />
+              <Text>Детальная статистика рассылки</Text>
+            </HStack>
+          </ModalHeader>
+          <ModalCloseButton />
+          <ModalBody overflowY="auto">
+            {selectedNewsletter && (
+              <VStack spacing={4} align="stretch">
+                {/* Общая информация */}
+                <Box p={4} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
+                  <Text fontSize="sm" fontWeight="bold" mb={2} color="gray.600">
+                    Общая информация
+                  </Text>
+                  <SimpleGrid columns={2} spacing={3}>
+                    <Box>
+                      <Text fontSize="xs" color="gray.500">Дата отправки</Text>
+                      <Text fontSize="sm" fontWeight="medium">
+                        {new Date(selectedNewsletter.created_at).toLocaleString('ru-RU')}
+                      </Text>
+                    </Box>
+                    <Box>
+                      <Text fontSize="xs" color="gray.500">Статус</Text>
+                      <Badge colorScheme={getStatusColor(selectedNewsletter.status)} mt={1}>
+                        <HStack spacing={1}>
+                          <Icon as={getStatusIcon(selectedNewsletter.status)} />
+                          <Text>{getStatusText(selectedNewsletter.status)}</Text>
+                        </HStack>
+                      </Badge>
+                    </Box>
+                  </SimpleGrid>
+                </Box>
+
+                {/* Статистика доставки */}
+                <Box p={4} bg={useColorModeValue('blue.50', 'blue.900')} borderRadius="md">
+                  <Text fontSize="sm" fontWeight="bold" mb={3} color="blue.700">
+                    Статистика доставки
+                  </Text>
+                  <SimpleGrid columns={3} spacing={3}>
+                    <Box textAlign="center">
+                      <Text fontSize="2xl" fontWeight="bold" color="blue.600">
+                        {selectedNewsletter.total_count}
+                      </Text>
+                      <Text fontSize="xs" color="gray.600">Всего получателей</Text>
+                    </Box>
+                    <Box textAlign="center">
+                      <Text fontSize="2xl" fontWeight="bold" color="green.600">
+                        {selectedNewsletter.success_count}
+                      </Text>
+                      <Text fontSize="xs" color="gray.600">Доставлено</Text>
+                    </Box>
+                    <Box textAlign="center">
+                      <Text fontSize="2xl" fontWeight="bold" color="red.600">
+                        {selectedNewsletter.total_count - selectedNewsletter.success_count}
+                      </Text>
+                      <Text fontSize="xs" color="gray.600">Не доставлено</Text>
+                    </Box>
+                  </SimpleGrid>
+
+                  {/* Процент успеха */}
+                  <Box mt={4}>
+                    <HStack justify="space-between" mb={1}>
+                      <Text fontSize="xs" color="gray.600">Процент успешной доставки</Text>
+                      <Text fontSize="sm" fontWeight="bold" color="green.600">
+                        {((selectedNewsletter.success_count / selectedNewsletter.total_count) * 100).toFixed(1)}%
+                      </Text>
+                    </HStack>
+                    <Box w="full" bg="gray.200" borderRadius="full" h="8px">
+                      <Box
+                        w={`${(selectedNewsletter.success_count / selectedNewsletter.total_count) * 100}%`}
+                        bg="green.500"
+                        borderRadius="full"
+                        h="8px"
+                        transition="width 0.3s"
+                      />
+                    </Box>
+                  </Box>
+                </Box>
+
+                {/* Информация о получателях */}
+                <Box p={4} bg={useColorModeValue('purple.50', 'purple.900')} borderRadius="md">
+                  <Text fontSize="sm" fontWeight="bold" mb={2} color="purple.700">
+                    Информация о получателях
+                  </Text>
+                  <VStack align="stretch" spacing={2}>
+                    <HStack justify="space-between">
+                      <Text fontSize="sm" color="gray.600">Тип получателей:</Text>
+                      <Badge colorScheme="purple">
+                        {selectedNewsletter.recipient_type === 'all' && 'Все пользователи'}
+                        {selectedNewsletter.recipient_type === 'selected' && 'Выбранные пользователи'}
+                        {selectedNewsletter.recipient_type === 'segment' && 'Сегмент пользователей'}
+                      </Badge>
+                    </HStack>
+
+                    {selectedNewsletter.recipient_type === 'segment' && selectedNewsletter.segment_type && (
+                      <HStack justify="space-between">
+                        <Text fontSize="sm" color="gray.600">Тип сегмента:</Text>
+                        <Badge colorScheme="green">
+                          {selectedNewsletter.segment_type === 'active_users' && 'Активные пользователи'}
+                          {selectedNewsletter.segment_type === 'new_users' && 'Новые пользователи'}
+                          {selectedNewsletter.segment_type === 'vip_users' && 'VIP пользователи'}
+                          {selectedNewsletter.segment_type === 'inactive_users' && 'Неактивные пользователи'}
+                          {selectedNewsletter.segment_type === 'with_agreement' && 'С соглашением'}
+                        </Badge>
+                      </HStack>
+                    )}
+
+                    {selectedNewsletter.photo_count > 0 && (
+                      <HStack justify="space-between">
+                        <Text fontSize="sm" color="gray.600">Фотографий:</Text>
+                        <Badge colorScheme="blue">
+                          <HStack spacing={1}>
+                            <Icon as={FiImage} />
+                            <Text>{selectedNewsletter.photo_count}</Text>
+                          </HStack>
+                        </Badge>
+                      </HStack>
+                    )}
+                  </VStack>
+                </Box>
+
+                {/* Текст сообщения */}
+                <Box p={4} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
+                  <Text fontSize="sm" fontWeight="bold" mb={2} color="gray.600">
+                    Текст сообщения
+                  </Text>
+                  <Box
+                    p={3}
+                    bg={useColorModeValue('white', 'gray.800')}
+                    borderRadius="md"
+                    border="1px solid"
+                    borderColor={useColorModeValue('gray.200', 'gray.600')}
+                    maxH="300px"
+                    overflowY="auto"
+                  >
+                    <Text
+                      fontSize="sm"
+                      whiteSpace="pre-wrap"
+                      dangerouslySetInnerHTML={{ __html: selectedNewsletter.message }}
+                    />
+                  </Box>
+                  <Text fontSize="xs" color="gray.500" mt={2}>
+                    Длина: {selectedNewsletter.message.length} символов
+                  </Text>
+                </Box>
+
+                {/* Детальная информация о получателях */}
+                <Box p={4} bg={useColorModeValue('orange.50', 'orange.900')} borderRadius="md">
+                  <HStack justify="space-between" mb={3}>
+                    <Text fontSize="sm" fontWeight="bold" color="orange.700">
+                      Детальная информация о получателях
+                    </Text>
+                    {isLoadingRecipients && (
+                      <Spinner size="sm" color="orange.500" />
+                    )}
+                  </HStack>
+
+                  {isLoadingRecipients ? (
+                    <Box textAlign="center" py={4}>
+                      <Spinner color="orange.500" />
+                      <Text mt={2} fontSize="sm" color="gray.600">
+                        Загрузка списка получателей...
+                      </Text>
+                    </Box>
+                  ) : recipientDetails && recipientDetails.recipients ? (
+                    <Box>
+                      <Text fontSize="xs" color="gray.600" mb={2}>
+                        Всего получателей: {recipientDetails.total_count}
+                      </Text>
+
+                      {/* Таблица получателей */}
+                      <TableContainer maxH="300px" overflowY="auto">
+                        <Table size="sm" variant="simple">
+                          <Thead position="sticky" top={0} bg={useColorModeValue('white', 'gray.800')} zIndex={1}>
+                            <Tr>
+                              <Th>Получатель</Th>
+                              <Th>Telegram ID</Th>
+                              <Th>Статус</Th>
+                              <Th>Ошибка</Th>
+                            </Tr>
+                          </Thead>
+                          <Tbody>
+                            {recipientDetails.recipients.map((recipient, idx) => (
+                              <Tr key={recipient.id || idx}>
+                                <Td>{recipient.full_name || 'Неизвестно'}</Td>
+                                <Td>
+                                  <code style={{ fontSize: '0.85em' }}>{recipient.telegram_id}</code>
+                                </Td>
+                                <Td>
+                                  <Badge
+                                    colorScheme={recipient.status === 'success' ? 'green' : 'red'}
+                                    fontSize="xs"
+                                  >
+                                    <HStack spacing={1}>
+                                      <Icon as={recipient.status === 'success' ? FiCheck : FiX} />
+                                      <Text>{recipient.status === 'success' ? 'Доставлено' : 'Ошибка'}</Text>
+                                    </HStack>
+                                  </Badge>
+                                </Td>
+                                <Td>
+                                  {recipient.error_message ? (
+                                    <Tooltip label={recipient.error_message} placement="top">
+                                      <Text fontSize="xs" color="red.600" isTruncated maxW="200px">
+                                        {recipient.error_message}
+                                      </Text>
+                                    </Tooltip>
+                                  ) : (
+                                    <Text fontSize="xs" color="gray.500">—</Text>
+                                  )}
+                                </Td>
+                              </Tr>
+                            ))}
+                          </Tbody>
+                        </Table>
+                      </TableContainer>
+
+                      {/* Сводка по статусам */}
+                      <HStack mt={3} spacing={4} justify="center">
+                        <HStack spacing={1}>
+                          <Icon as={FiCheck} color="green.500" />
+                          <Text fontSize="xs" color="gray.600">
+                            Успешно: {recipientDetails.recipients.filter(r => r.status === 'success').length}
+                          </Text>
+                        </HStack>
+                        <HStack spacing={1}>
+                          <Icon as={FiX} color="red.500" />
+                          <Text fontSize="xs" color="gray.600">
+                            Ошибки: {recipientDetails.recipients.filter(r => r.status === 'failed').length}
+                          </Text>
+                        </HStack>
+                      </HStack>
+                    </Box>
+                  ) : (
+                    <Text fontSize="sm" color="gray.500" textAlign="center">
+                      Нет данных о получателях
+                    </Text>
+                  )}
+                </Box>
+              </VStack>
+            )}
+          </ModalBody>
+          <ModalFooter>
+            <Button onClick={handleCloseStats}>
+              Закрыть
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Модальное окно предпросмотра */}
+      <Modal isOpen={isPreviewOpen} onClose={() => setIsPreviewOpen(false)} size="xl">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Предпросмотр сообщения</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack align="stretch" spacing={4}>
+              {/* Предпросмотр текста с HTML форматированием */}
+              <Box
+                p={4}
+                bg={useColorModeValue('gray.50', 'gray.700')}
+                borderRadius="md"
+                border="1px solid"
+                borderColor={useColorModeValue('gray.200', 'gray.600')}
+              >
+                <Text fontWeight="bold" mb={2} fontSize="sm" color="gray.500">
+                  Как увидят пользователи:
+                </Text>
+                <Box
+                  dangerouslySetInnerHTML={{ __html: message }}
+                  sx={{
+                    '& b': { fontWeight: 'bold' },
+                    '& i': { fontStyle: 'italic' },
+                    '& u': { textDecoration: 'underline' },
+                    '& code': {
+                      fontFamily: 'monospace',
+                      bg: useColorModeValue('gray.200', 'gray.600'),
+                      px: 1,
+                      borderRadius: 'sm'
+                    },
+                    '& a': { color: 'blue.500', textDecoration: 'underline' }
+                  }}
+                />
+              </Box>
+
+              {/* Предпросмотр фото */}
+              {photos.length > 0 && (
+                <Box>
+                  <Text fontWeight="bold" mb={2} fontSize="sm" color="gray.500">
+                    Фотографии ({photos.length}):
+                  </Text>
+                  <SimpleGrid columns={3} spacing={2}>
+                    {photos.map(photo => (
+                      <Image
+                        key={photo.id}
+                        src={photo.preview}
+                        alt="Preview"
+                        boxSize="120px"
+                        objectFit="cover"
+                        borderRadius="md"
+                        border="1px solid"
+                        borderColor="gray.200"
+                      />
+                    ))}
+                  </SimpleGrid>
+                </Box>
+              )}
+
+              {/* Информация о получателях */}
+              <Box
+                p={3}
+                bg={useColorModeValue('blue.50', 'blue.900')}
+                borderRadius="md"
+              >
+                <HStack justify="space-between">
+                  <Text fontWeight="bold" fontSize="sm">
+                    Получатели:
+                  </Text>
+                  <Badge colorScheme="blue">
+                    {recipientType === 'all'
+                      ? 'Все пользователи'
+                      : `Выбрано: ${selectedUsers.length}`}
+                  </Badge>
+                </HStack>
+              </Box>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="ghost" mr={3} onClick={() => setIsPreviewOpen(false)}>
+              Закрыть
+            </Button>
+            <Button
+              colorScheme="purple"
+              leftIcon={<FiSend />}
+              onClick={() => {
+                setIsPreviewOpen(false);
+                handleSendNewsletter();
+              }}
+              isDisabled={!message.trim()}
+            >
+              Отправить сейчас
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
     </Box>
   );
 };

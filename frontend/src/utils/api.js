@@ -1072,11 +1072,29 @@ export const newsletterApi = {
     }
   },
 
-  // Получение истории рассылок
-  getHistory: async (limit = 50, offset = 0) => {
+  // Получение статуса задачи Celery
+  getTaskStatus: async (taskId) => {
     try {
+      const res = await apiClient.get(`/newsletters/task/${taskId}`);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения статуса задачи:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось получить статус задачи');
+    }
+  },
+
+  // Получение истории рассылок
+  getHistory: async (params = {}) => {
+    try {
+      // Устанавливаем значения по умолчанию, если не переданы
+      const queryParams = {
+        limit: params.limit || 50,
+        offset: params.offset || 0,
+        ...params
+      };
+
       const res = await apiClient.get('/newsletters/history', {
-        params: { limit, offset }
+        params: queryParams
       });
       return res.data;
     } catch (error) {
@@ -1179,6 +1197,22 @@ export const newsletterApi = {
     };
 
     return formatters[format] ? formatters[format](text) : text;
+  },
+
+  // Получение детальной информации о получателях рассылки
+  getRecipients: async (newsletterId) => {
+    try {
+      const res = await apiClient.get(`/newsletters/${newsletterId}/recipients`);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения получателей рассылки:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Рассылка не найдена');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить получателей');
+    }
   }
 };
 // -------------------- API: Дашборд --------------------
