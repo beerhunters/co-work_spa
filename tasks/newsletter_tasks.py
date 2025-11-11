@@ -18,6 +18,27 @@ from dependencies import get_bot
 logger = get_logger(__name__)
 
 
+def prepare_message_for_telegram(message: str) -> str:
+    """
+    Подготовка сообщения для отправки в Telegram с HTML режимом.
+    Преобразует одиночные переносы строк в двойные для корректного отображения.
+    """
+    # Нормализуем Windows переносы
+    message = message.replace('\r\n', '\n')
+
+    # Простой подход: защищаем существующие двойные переносы временным маркером
+    MARKER = '<<<DOUBLE_NEWLINE>>>'
+    message = message.replace('\n\n', MARKER)
+
+    # Заменяем все оставшиеся одиночные \n на \n\n
+    message = message.replace('\n', '\n\n')
+
+    # Возвращаем двойные переносы обратно
+    message = message.replace(MARKER, '\n\n')
+
+    return message
+
+
 class CallbackTask(Task):
     """Base task with callbacks for progress tracking."""
 
@@ -76,8 +97,18 @@ def send_newsletter_task(
             }
         )
 
+        # Get or create event loop for async operations
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
         # Run async send function
-        result = asyncio.run(
+        result = loop.run_until_complete(
             _send_newsletter_async(
                 self,
                 message,
@@ -93,7 +124,16 @@ def send_newsletter_task(
         logger.error(f"Error in send_newsletter_task: {e}", exc_info=True)
 
         # Clean up photos on error
-        asyncio.run(_cleanup_photos(photo_paths))
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        loop.run_until_complete(_cleanup_photos(photo_paths))
 
         raise self.retry(exc=e)
 
@@ -111,6 +151,9 @@ async def _send_newsletter_async(
     bot = get_bot()
     if not bot:
         raise RuntimeError("Bot not available")
+
+    # Подготавливаем сообщение для Telegram (обработка переносов строк для HTML режима)
+    prepared_message = prepare_message_for_telegram(message)
 
     success_count = 0
     failed_count = 0
@@ -143,7 +186,7 @@ async def _send_newsletter_async(
                     await bot.send_photo(
                         chat_id=telegram_id,
                         photo=photo_file_obj,
-                        caption=message,
+                        caption=prepared_message,
                         parse_mode='HTML'
                     )
                 else:
@@ -158,7 +201,7 @@ async def _send_newsletter_async(
                                 photo_content,
                                 filename=f"photo_{photo_idx}.jpg"
                             ),
-                            caption=message if photo_idx == 0 else None,
+                            caption=prepared_message if photo_idx == 0 else None,
                             parse_mode='HTML' if photo_idx == 0 else None
                         )
                         media_group.append(media)
@@ -171,7 +214,7 @@ async def _send_newsletter_async(
                 # Text only
                 await bot.send_message(
                     chat_id=telegram_id,
-                    text=message,
+                    text=prepared_message,
                     parse_mode='HTML'
                 )
 

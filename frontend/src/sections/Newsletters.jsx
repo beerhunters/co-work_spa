@@ -723,6 +723,19 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       setUserModalOpen(false);
     }, []);
 
+    // Выбрать всех пользователей из отфильтрованного списка
+    const handleSelectAll = useCallback(() => {
+      const allUserIds = filteredUsers
+        .filter(user => user.telegram_id)
+        .map(user => user.telegram_id.toString());
+      setSelectedUsers(allUserIds);
+    }, [filteredUsers]);
+
+    // Снять выделение
+    const handleDeselectAll = useCallback(() => {
+      setSelectedUsers([]);
+    }, []);
+
     return (
       <Modal isOpen={isUserModalOpen} onClose={handleCloseModal} size="xl">
         <ModalOverlay />
@@ -737,6 +750,27 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                 onChange={handleSearchChange}
                 mb={2}
               />
+
+              <HStack spacing={2}>
+                <Button
+                  size="sm"
+                  colorScheme="green"
+                  variant="outline"
+                  leftIcon={<Icon as={FiCheck} />}
+                  onClick={handleSelectAll}
+                >
+                  Выбрать всех
+                </Button>
+                <Button
+                  size="sm"
+                  colorScheme="red"
+                  variant="outline"
+                  leftIcon={<Icon as={FiX} />}
+                  onClick={handleDeselectAll}
+                >
+                  Снять выделение
+                </Button>
+              </HStack>
 
               <Box maxH="400px" overflowY="auto">
                 <CheckboxGroup value={selectedUsers} onChange={setSelectedUsers}>

@@ -64,7 +64,8 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
                 SELECT
                     DATE(COALESCE(u.reg_date, u.first_join_time)) as date,
                     'users' as type,
-                    COUNT(*) as count
+                    COUNT(*) as count,
+                    0 as avg_value
                 FROM users u
                 WHERE COALESCE(u.reg_date, u.first_join_time) >= :start_date
                   AND COALESCE(u.reg_date, u.first_join_time) <= :end_date
@@ -76,7 +77,8 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
                 SELECT
                     DATE(b.created_at) as date,
                     'bookings' as type,
-                    COUNT(*) as count
+                    COUNT(*) as count,
+                    0 as avg_value
                 FROM bookings b
                 WHERE b.created_at >= :start_date AND b.created_at <= :end_date
                 GROUP BY DATE(b.created_at)
@@ -87,16 +89,32 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
                 SELECT
                     DATE(t.created_at) as date,
                     'tickets' as type,
-                    COUNT(*) as count
+                    COUNT(*) as count,
+                    0 as avg_value
                 FROM tickets t
                 WHERE t.created_at >= :start_date AND t.created_at <= :end_date
                 GROUP BY DATE(t.created_at)
+
+                UNION ALL
+
+                -- Средний чек по дням
+                SELECT
+                    DATE(b.created_at) as date,
+                    'avg_booking' as type,
+                    0 as count,
+                    COALESCE(AVG(b.amount), 0) as avg_value
+                FROM bookings b
+                WHERE b.paid = 1
+                  AND b.created_at >= :start_date
+                  AND b.created_at <= :end_date
+                GROUP BY DATE(b.created_at)
             )
             SELECT
                 dr.date,
                 COALESCE(MAX(CASE WHEN dd.type = 'users' THEN dd.count END), 0) as users_count,
                 COALESCE(MAX(CASE WHEN dd.type = 'bookings' THEN dd.count END), 0) as bookings_count,
-                COALESCE(MAX(CASE WHEN dd.type = 'tickets' THEN dd.count END), 0) as tickets_count
+                COALESCE(MAX(CASE WHEN dd.type = 'tickets' THEN dd.count END), 0) as tickets_count,
+                COALESCE(MAX(CASE WHEN dd.type = 'avg_booking' THEN dd.avg_value END), 0) as avg_booking_value
             FROM date_range dr
             LEFT JOIN daily_data dd ON dr.date = dd.date
             GROUP BY dr.date
@@ -112,12 +130,14 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
         users_data = []
         bookings_data = []
         tickets_data = []
+        avg_booking_data = []
         labels = []
 
         for row in results:
             users_data.append(int(row.users_count or 0))
             bookings_data.append(int(row.bookings_count or 0))
             tickets_data.append(int(row.tickets_count or 0))
+            avg_booking_data.append(round(float(row.avg_booking_value or 0), 2))
             # Форматируем метку (день недели сокращённо)
             date_obj = datetime.strptime(row.date, '%Y-%m-%d')
             day_names = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
@@ -137,6 +157,10 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
             "tickets": {
                 "values": tickets_data,
                 "labels": labels
+            },
+            "average_booking_value": {
+                "values": avg_booking_data,
+                "labels": labels
             }
         }
 
@@ -148,7 +172,8 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
         return {
             "users": {"values": empty_data, "labels": empty_labels},
             "bookings": {"values": empty_data, "labels": empty_labels},
-            "tickets": {"values": empty_data, "labels": empty_labels}
+            "tickets": {"values": empty_data, "labels": empty_labels},
+            "average_booking_value": {"values": empty_data, "labels": empty_labels}
         }
 
 
@@ -385,7 +410,24 @@ class SQLOptimizer:
                             WHEN b.paid = 1
                             AND b.created_at >= :period_start
                             AND b.created_at < :period_end
-                            THEN b.amount ELSE 0 END), 0) as revenue
+                            THEN b.amount ELSE 0 END), 0) as revenue,
+
+                        -- Средний чек за текущий период
+                        COALESCE(AVG(CASE
+                            WHEN b.paid = 1
+                            AND b.created_at >= :period_start
+                            AND b.created_at < :period_end
+                            THEN b.amount ELSE NULL END), 0) as avg_booking_value,
+
+                        -- Пользователи с хотя бы одним бронированием (для конверсии)
+                        COUNT(DISTINCT CASE
+                            WHEN COALESCE(u.reg_date, u.first_join_time) >= :period_start
+                            AND COALESCE(u.reg_date, u.first_join_time) < :period_end
+                            AND EXISTS (
+                                SELECT 1 FROM bookings b2
+                                WHERE b2.user_id = u.id
+                            )
+                            THEN u.id END) as users_with_bookings
                     FROM users u
                     LEFT JOIN bookings b ON u.id = b.user_id
                     LEFT JOIN tickets t ON u.id = t.user_id
@@ -415,7 +457,24 @@ class SQLOptimizer:
                             WHEN b.paid = 1
                             AND b.created_at >= :prev_period_start
                             AND b.created_at < :prev_period_end
-                            THEN b.amount ELSE 0 END), 0) as revenue
+                            THEN b.amount ELSE 0 END), 0) as revenue,
+
+                        -- Средний чек за предыдущий период
+                        COALESCE(AVG(CASE
+                            WHEN b.paid = 1
+                            AND b.created_at >= :prev_period_start
+                            AND b.created_at < :prev_period_end
+                            THEN b.amount ELSE NULL END), 0) as avg_booking_value,
+
+                        -- Пользователи с хотя бы одним бронированием (для конверсии)
+                        COUNT(DISTINCT CASE
+                            WHEN COALESCE(u.reg_date, u.first_join_time) >= :prev_period_start
+                            AND COALESCE(u.reg_date, u.first_join_time) < :prev_period_end
+                            AND EXISTS (
+                                SELECT 1 FROM bookings b2
+                                WHERE b2.user_id = u.id
+                            )
+                            THEN u.id END) as users_with_bookings
                     FROM users u
                     LEFT JOIN bookings b ON u.id = b.user_id
                     LEFT JOIN tickets t ON u.id = t.user_id
@@ -438,10 +497,14 @@ class SQLOptimizer:
                     cp.bookings_count as current_bookings,
                     cp.tickets_count as current_tickets,
                     cp.revenue as current_revenue,
+                    cp.avg_booking_value as current_avg_booking,
+                    cp.users_with_bookings as current_users_with_bookings,
                     pp.users_count as prev_users,
                     pp.bookings_count as prev_bookings,
                     pp.tickets_count as prev_tickets,
                     pp.revenue as prev_revenue,
+                    pp.avg_booking_value as prev_avg_booking,
+                    pp.users_with_bookings as prev_users_with_bookings,
                     cs.total_users,
                     cs.total_bookings,
                     cs.open_tickets,
@@ -483,6 +546,15 @@ class SQLOptimizer:
                 float(result.current_revenue or 0),
                 float(result.prev_revenue or 0)
             )
+            avg_booking_change = calculate_change_percentage(
+                float(result.current_avg_booking or 0),
+                float(result.prev_avg_booking or 0)
+            )
+
+            # Вычисляем конверсию (процент пользователей с бронированиями)
+            current_conversion = (float(result.current_users_with_bookings or 0) / float(result.current_users or 1)) * 100 if result.current_users else 0
+            prev_conversion = (float(result.prev_users_with_bookings or 0) / float(result.prev_users or 1)) * 100 if result.prev_users else 0
+            conversion_change = calculate_change_percentage(current_conversion, prev_conversion)
 
             # Формируем результат
             stats_data = {
@@ -510,6 +582,17 @@ class SQLOptimizer:
                     "change_percentage": revenue_change,
                     "total": float(result.total_revenue or 0)
                 },
+                "average_booking_value": {
+                    "current_value": float(result.current_avg_booking or 0),
+                    "previous_value": float(result.prev_avg_booking or 0),
+                    "change_percentage": avg_booking_change
+                },
+                "conversion_rate": {
+                    "current_value": round(current_conversion, 1),
+                    "previous_value": round(prev_conversion, 1),
+                    "change_percentage": conversion_change,
+                    "users_with_bookings": int(result.current_users_with_bookings or 0)
+                },
                 # Дополнительная статистика (для обратной совместимости)
                 "active_tariffs": int(result.active_tariffs or 0),
                 "paid_bookings": int(result.paid_bookings or 0),
@@ -521,16 +604,17 @@ class SQLOptimizer:
                 },
                 "unread_notifications": int(result.unread_notifications or 0),
                 "period_info": {
-                    "start": period_start,
-                    "end": period_end,
-                    "previous_start": prev_period_start,
-                    "previous_end": prev_period_end
+                    "start": period_start.isoformat(),
+                    "end": period_end.isoformat(),
+                    "previous_start": prev_period_start.isoformat(),
+                    "previous_end": prev_period_end.isoformat()
                 }
             }
 
             logger.info(f"Successfully calculated dashboard stats with comparison: "
                        f"users {users_change:+.1f}%, bookings {bookings_change:+.1f}%, "
-                       f"tickets {tickets_change:+.1f}%, revenue {revenue_change:+.1f}%")
+                       f"tickets {tickets_change:+.1f}%, revenue {revenue_change:+.1f}%, "
+                       f"avg_booking {avg_booking_change:+.1f}%")
 
             return stats_data
 
@@ -562,6 +646,17 @@ class SQLOptimizer:
                     "change_percentage": 0.0,
                     "total": 0.0
                 },
+                "average_booking_value": {
+                    "current_value": 0.0,
+                    "previous_value": 0.0,
+                    "change_percentage": 0.0
+                },
+                "conversion_rate": {
+                    "current_value": 0.0,
+                    "previous_value": 0.0,
+                    "change_percentage": 0.0,
+                    "users_with_bookings": 0
+                },
                 "active_tariffs": 0,
                 "paid_bookings": 0,
                 "total_revenue": 0.0,
@@ -572,10 +667,10 @@ class SQLOptimizer:
                 },
                 "unread_notifications": 0,
                 "period_info": {
-                    "start": period_start,
-                    "end": period_end,
-                    "previous_start": period_start,
-                    "previous_end": period_end
+                    "start": period_start.isoformat(),
+                    "end": period_end.isoformat(),
+                    "previous_start": period_start.isoformat(),
+                    "previous_end": period_end.isoformat()
                 }
             }
 

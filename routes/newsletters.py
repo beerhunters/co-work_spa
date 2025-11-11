@@ -214,6 +214,7 @@ async def send_newsletter(
 
         return [
             {
+                "user_id": user.id,
                 "telegram_id": user.telegram_id,
                 "full_name": user.full_name or f"User {user.telegram_id}",
             }
