@@ -72,13 +72,15 @@ def get_users_by_segment(session, segment_type: str, params: dict = None):
 async def save_uploaded_photo_async(photo: UploadFile, idx: int) -> Optional[str]:
     """Безопасное сохранение фотографии с валидацией"""
     try:
-        # Валидация файла
+        # Валидация файла (MIME-type и расширение)
         FileValidator.validate_image_file(photo)
-        
-        # Валидация содержимого
+
+        # Читаем содержимое
         contents = await photo.read()
-        if not await FileValidator.validate_file_content(contents, 'image'):
-            logger.warning(f"File {photo.filename} failed content validation")
+
+        # Проверка что файл не пустой
+        if not contents or len(contents) == 0:
+            logger.warning(f"File {photo.filename} is empty")
             return None
 
         # Генерация безопасного имени файла

@@ -21,20 +21,24 @@ logger = get_logger(__name__)
 def prepare_message_for_telegram(message: str) -> str:
     """
     Подготовка сообщения для отправки в Telegram с HTML режимом.
-    Преобразует одиночные переносы строк в двойные для корректного отображения.
+    В Telegram HTML режиме одиночные \n игнорируются, нужны двойные \n\n.
+
+    Преобразование для правильного отображения:
+    - Пользовательский \n (один перенос) → \n\n в Telegram → отображается как один перенос
+    - Пользовательский \n\n (два переноса) → \n\n\n\n в Telegram → отображается как пустая строка
     """
     # Нормализуем Windows переносы
     message = message.replace('\r\n', '\n')
 
-    # Простой подход: защищаем существующие двойные переносы временным маркером
-    MARKER = '<<<DOUBLE_NEWLINE>>>'
-    message = message.replace('\n\n', MARKER)
+    # Защищаем существующие двойные переносы временным маркером
+    DOUBLE_NEWLINE_MARKER = '<<<DOUBLE_NL>>>'
+    message = message.replace('\n\n', DOUBLE_NEWLINE_MARKER)
 
-    # Заменяем все оставшиеся одиночные \n на \n\n
+    # Заменяем оставшиеся одиночные \n на двойные \n\n
     message = message.replace('\n', '\n\n')
 
-    # Возвращаем двойные переносы обратно
-    message = message.replace(MARKER, '\n\n')
+    # Возвращаем защищенные двойные переносы как четверные \n\n\n\n
+    message = message.replace(DOUBLE_NEWLINE_MARKER, '\n\n\n\n')
 
     return message
 
