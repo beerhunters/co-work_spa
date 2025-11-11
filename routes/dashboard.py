@@ -906,7 +906,7 @@ async def export_dashboard_csv(
             # Получаем общую статистику
             stats_query = text("""
                 SELECT
-                    COUNT(DISTINCT CASE WHEN u.created_at >= :period_start AND u.created_at < :period_end THEN u.id END) as total_users,
+                    COUNT(DISTINCT CASE WHEN u.reg_date >= :period_start AND u.reg_date < :period_end THEN u.id END) as total_users,
                     COUNT(DISTINCT CASE WHEN b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as total_bookings,
                     COUNT(DISTINCT CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as paid_bookings,
                     COALESCE(SUM(CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.amount END), 0) as total_revenue,
@@ -938,7 +938,7 @@ async def export_dashboard_csv(
                     COUNT(DISTINCT t.id) as tickets,
                     COALESCE(SUM(CASE WHEN b.paid = 1 THEN b.amount ELSE 0 END), 0) as revenue
                 FROM dates d
-                LEFT JOIN users u ON DATE(u.created_at) = d.date
+                LEFT JOIN users u ON DATE(u.reg_date) = d.date
                 LEFT JOIN bookings b ON DATE(b.created_at) = d.date
                 LEFT JOIN tickets t ON DATE(t.created_at) = d.date
                 GROUP BY d.date
@@ -1073,7 +1073,7 @@ async def export_dashboard_excel(
             # Получаем общую статистику
             stats_query = text("""
                 SELECT
-                    COUNT(DISTINCT CASE WHEN u.created_at >= :period_start AND u.created_at < :period_end THEN u.id END) as total_users,
+                    COUNT(DISTINCT CASE WHEN u.reg_date >= :period_start AND u.reg_date < :period_end THEN u.id END) as total_users,
                     COUNT(DISTINCT CASE WHEN b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as total_bookings,
                     COUNT(DISTINCT CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as paid_bookings,
                     COALESCE(SUM(CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.amount END), 0) as total_revenue,
@@ -1106,7 +1106,7 @@ async def export_dashboard_excel(
                     COUNT(DISTINCT t.id) as tickets,
                     COALESCE(SUM(CASE WHEN b.paid = 1 THEN b.amount ELSE 0 END), 0) as revenue
                 FROM dates d
-                LEFT JOIN users u ON DATE(u.created_at) = d.date
+                LEFT JOIN users u ON DATE(u.reg_date) = d.date
                 LEFT JOIN bookings b ON DATE(b.created_at) = d.date
                 LEFT JOIN tickets t ON DATE(t.created_at) = d.date
                 GROUP BY d.date

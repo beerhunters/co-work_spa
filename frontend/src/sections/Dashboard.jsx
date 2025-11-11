@@ -9,9 +9,8 @@ import {
   Input, InputGroup, InputLeftElement, Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
   Menu, MenuButton, MenuList, MenuItem
 } from '@chakra-ui/react';
-import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload, FiAward, FiTag } from 'react-icons/fi';
+import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
-import { PieChart, Pie, Cell, Legend, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { colors, sizes, styles, typography, spacing } from '../styles/styles';
 import { createLogger } from '../utils/logger.js';
 
@@ -125,33 +124,6 @@ const Dashboard = ({
       tickets: true,
       bookings: true
     };
-  });
-
-  // Состояния для топ-клиентов
-  const [topClientsData, setTopClientsData] = useState(null);
-  const [isLoadingTopClients, setIsLoadingTopClients] = useState(false);
-  const [topClientsError, setTopClientsError] = useState(null);
-  const [isTopClientsOpen, setIsTopClientsOpen] = useState(() => {
-    const saved = localStorage.getItem('dashboard_top_clients_open');
-    return saved !== null ? JSON.parse(saved) : false;
-  });
-
-  // Состояния для распределения тарифов
-  const [tariffDistribution, setTariffDistribution] = useState(null);
-  const [isLoadingTariffs, setIsLoadingTariffs] = useState(false);
-  const [tariffError, setTariffError] = useState(null);
-  const [isTariffChartOpen, setIsTariffChartOpen] = useState(() => {
-    const saved = localStorage.getItem('dashboard_tariff_chart_open');
-    return saved !== null ? JSON.parse(saved) : false;
-  });
-
-  // Состояния для статистики промокодов
-  const [promocodeStats, setPromocodeStats] = useState(null);
-  const [isLoadingPromocodes, setIsLoadingPromocodes] = useState(false);
-  const [promocodeError, setPromocodeError] = useState(null);
-  const [isPromocodesOpen, setIsPromocodesOpen] = useState(() => {
-    const saved = localStorage.getItem('dashboard_promocodes_open');
-    return saved !== null ? JSON.parse(saved) : false;
   });
 
   // Состояния для сравнения периодов
@@ -272,49 +244,6 @@ const Dashboard = ({
   }, []);
 
   // Загрузка данных распределения тарифов
-  const loadTariffDistribution = useCallback(async (year, month) => {
-    setIsLoadingTariffs(true);
-    setTariffError(null);
-
-    try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error('Токен авторизации не найден. Пожалуйста, войдите в систему.');
-      }
-
-      // Вычисляем начало и конец периода
-      const periodStart = new Date(year, month - 1, 1);
-      const periodEnd = new Date(year, month, 0, 23, 59, 59);
-
-      const response = await fetch(
-        `/api/dashboard/tariff-distribution?period_start=${periodStart.toISOString()}&period_end=${periodEnd.toISOString()}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Сессия истекла. Пожалуйста, войдите в систему заново.');
-        }
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
-      }
-
-      const data = await response.json();
-      setTariffDistribution(data);
-    } catch (error) {
-      logger.error('Ошибка загрузки данных распределения тарифов:', error);
-      setTariffError(error.message);
-    } finally {
-      setIsLoadingTariffs(false);
-    }
-  }, []);
-
   // Загрузка данных сравнения периодов
   const loadComparisonData = useCallback(async (period1Year, period1Month, period2Year, period2Month) => {
     setIsLoadingChart(true);
@@ -347,7 +276,8 @@ const Dashboard = ({
 
       const data = await response.json();
       setComparisonData(data);
-      setChartData(null); // Очищаем обычные данные графика
+      // НЕ очищаем chartData - он нужен для отображения первого периода
+      // setChartData(null);
     } catch (error) {
       logger.error('Ошибка загрузки данных сравнения:', error);
       setChartError(error.message);
@@ -496,8 +426,10 @@ const Dashboard = ({
   // Загрузка данных графика при изменении выбранного периода
   useEffect(() => {
     if (section === 'dashboard' && selectedPeriod.year && selectedPeriod.month) {
-      if (isCompareMode && comparePeriod.year && comparePeriod.month) {
+      if (isCompareMode && comparePeriod.year && comparePeriod.month !== undefined) {
         // Режим сравнения
+        // selectedPeriod.month уже в формате 1-12 (из backend API)
+        // comparePeriod.month в формате 0-11 (JavaScript Date), нужен +1
         loadComparisonData(selectedPeriod.year, selectedPeriod.month, comparePeriod.year, comparePeriod.month + 1);
       } else {
         // Обычный режим
@@ -507,30 +439,6 @@ const Dashboard = ({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, selectedPeriod.year, selectedPeriod.month, isCompareMode, comparePeriod.year, comparePeriod.month]);
-
-  // Загрузка топ-клиентов при изменении периода
-  useEffect(() => {
-    if (section === 'dashboard' && isTopClientsOpen && selectedPeriod.year && selectedPeriod.month) {
-      loadTopClients();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, selectedPeriod.year, selectedPeriod.month, isTopClientsOpen]);
-
-  // Загрузка статистики промокодов при изменении периода
-  useEffect(() => {
-    if (section === 'dashboard' && isPromocodesOpen && selectedPeriod.year && selectedPeriod.month) {
-      loadPromocodeStats();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, selectedPeriod.year, selectedPeriod.month, isPromocodesOpen]);
-
-  // Загрузка данных тарифов при изменении выбранного периода
-  useEffect(() => {
-    if (section === 'dashboard' && selectedPeriod.year && selectedPeriod.month && isTariffChartOpen) {
-      loadTariffDistribution(selectedPeriod.year, selectedPeriod.month);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, selectedPeriod.year, selectedPeriod.month, isTariffChartOpen]);
 
   // Обработчик изменения периода
   const handlePeriodChange = (event) => {
@@ -550,11 +458,6 @@ const Dashboard = ({
       // Перезагружаем данные графика
       if (selectedPeriod.year && selectedPeriod.month) {
         await loadChartData(selectedPeriod.year, selectedPeriod.month);
-      }
-
-      // Перезагружаем данные тарифов если открыт
-      if (isTariffChartOpen && selectedPeriod.year && selectedPeriod.month) {
-        await loadTariffDistribution(selectedPeriod.year, selectedPeriod.month);
       }
 
       // Перезагружаем календарь бронирований если открыт
@@ -616,7 +519,7 @@ const Dashboard = ({
   useEffect(() => {
     if (
       chartRef.current &&
-      chartData &&
+      (chartData || (isCompareMode && comparisonData)) &&
       section === 'dashboard' &&
       !isLoadingChart
     ) {
@@ -634,10 +537,10 @@ const Dashboard = ({
       if (isCompareMode && comparisonData) {
         // Режим сравнения: показываем оба периода
         datasets = [
-          // Текущий период (основной)
+          // Первый период (основной)
           {
-            label: `Пользователи (${chartData.period.month_name} ${chartData.period.year})`,
-            data: chartData.datasets.user_registrations,
+            label: `Пользователи (${comparisonData.period1.label})`,
+            data: comparisonData.period1.data.users,
             borderColor: '#3B82F6',
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
             tension: 0.4,
@@ -651,8 +554,8 @@ const Dashboard = ({
             hidden: !visibleDatasets.users
           },
           {
-            label: `Тикеты (${chartData.period.month_name} ${chartData.period.year})`,
-            data: chartData.datasets.ticket_creations,
+            label: `Тикеты (${comparisonData.period1.label})`,
+            data: comparisonData.period1.data.tickets,
             borderColor: '#F59E0B',
             backgroundColor: 'rgba(245, 158, 11, 0.1)',
             tension: 0.4,
@@ -666,8 +569,8 @@ const Dashboard = ({
             hidden: !visibleDatasets.tickets
           },
           {
-            label: `Бронирования (${chartData.period.month_name} ${chartData.period.year})`,
-            data: chartData.datasets.booking_creations,
+            label: `Бронирования (${comparisonData.period1.label})`,
+            data: comparisonData.period1.data.bookings,
             borderColor: '#10B981',
             backgroundColor: 'rgba(16, 185, 129, 0.1)',
             tension: 0.4,
@@ -680,10 +583,10 @@ const Dashboard = ({
             fill: true,
             hidden: !visibleDatasets.bookings
           },
-          // Период сравнения (пунктирные линии, более светлые цвета)
+          // Второй период для сравнения (пунктирные линии, более светлые цвета)
           {
-            label: `Пользователи (${comparisonData.period.month_name} ${comparisonData.period.year})`,
-            data: comparisonData.datasets.user_registrations,
+            label: `Пользователи (${comparisonData.period2.label})`,
+            data: comparisonData.period2.data.users,
             borderColor: '#93C5FD',
             backgroundColor: 'rgba(147, 197, 253, 0.05)',
             tension: 0.4,
@@ -698,8 +601,8 @@ const Dashboard = ({
             hidden: !visibleDatasets.users
           },
           {
-            label: `Тикеты (${comparisonData.period.month_name} ${comparisonData.period.year})`,
-            data: comparisonData.datasets.ticket_creations,
+            label: `Тикеты (${comparisonData.period2.label})`,
+            data: comparisonData.period2.data.tickets,
             borderColor: '#FCD34D',
             backgroundColor: 'rgba(252, 211, 77, 0.05)',
             tension: 0.4,
@@ -714,8 +617,8 @@ const Dashboard = ({
             hidden: !visibleDatasets.tickets
           },
           {
-            label: `Бронирования (${comparisonData.period.month_name} ${comparisonData.period.year})`,
-            data: comparisonData.datasets.booking_creations,
+            label: `Бронирования (${comparisonData.period2.label})`,
+            data: comparisonData.period2.data.bookings,
             borderColor: '#6EE7B7',
             backgroundColor: 'rgba(110, 231, 183, 0.05)',
             tension: 0.4,
@@ -784,7 +687,7 @@ const Dashboard = ({
       chartInstanceRef.current = new Chart(ctx, {
         type: 'line',
         data: {
-          labels: chartData.labels,
+          labels: isCompareMode && comparisonData ? comparisonData.period1.data.labels : chartData.labels,
           datasets: datasets
         },
         options: {
@@ -1037,125 +940,6 @@ const Dashboard = ({
     // При открытии календаря принудительно обновляем данные
     if (newState && section === 'dashboard') {
       loadBookingsData(calendarDate.getFullYear(), calendarDate.getMonth() + 1);
-    }
-  };
-
-  const toggleTopClientsOpen = () => {
-    const newState = !isTopClientsOpen;
-    setIsTopClientsOpen(newState);
-    localStorage.setItem('dashboard_top_clients_open', JSON.stringify(newState));
-
-    // При открытии загружаем данные, если еще не загружены
-    if (newState && section === 'dashboard' && !topClientsData) {
-      loadTopClients();
-    }
-  };
-
-  // Загрузка топ-клиентов
-  const loadTopClients = useCallback(async (limit = 5) => {
-    setIsLoadingTopClients(true);
-    setTopClientsError(null);
-
-    try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error('Токен авторизации не найден');
-      }
-
-      // Формируем URL с параметрами периода
-      const params = new URLSearchParams();
-      params.append('limit', limit);
-
-      if (selectedPeriod && selectedPeriod.year && selectedPeriod.month) {
-        const startDate = new Date(selectedPeriod.year, selectedPeriod.month - 1, 1);
-        const endDate = new Date(selectedPeriod.year, selectedPeriod.month, 0, 23, 59, 59);
-        params.append('period_start', startDate.toISOString());
-        params.append('period_end', endDate.toISOString());
-      }
-
-      const response = await fetch(`/api/dashboard/top-clients?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Сессия истекла. Пожалуйста, войдите в систему заново.');
-        }
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
-      }
-
-      const data = await response.json();
-      setTopClientsData(data);
-      logger.info('Топ-клиенты загружены:', data.clients.length);
-    } catch (error) {
-      logger.error('Ошибка загрузки топ-клиентов:', error);
-      setTopClientsError(error.message);
-    } finally {
-      setIsLoadingTopClients(false);
-    }
-  }, [selectedPeriod]);
-
-  // Загрузка статистики промокодов
-  const loadPromocodeStats = useCallback(async () => {
-    setIsLoadingPromocodes(true);
-    setPromocodeError(null);
-
-    try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error('Токен авторизации не найден');
-      }
-
-      // Формируем URL с параметрами периода
-      const params = new URLSearchParams();
-
-      if (selectedPeriod && selectedPeriod.year && selectedPeriod.month) {
-        const startDate = new Date(selectedPeriod.year, selectedPeriod.month - 1, 1);
-        const endDate = new Date(selectedPeriod.year, selectedPeriod.month, 0, 23, 59, 59);
-        params.append('period_start', startDate.toISOString());
-        params.append('period_end', endDate.toISOString());
-      }
-
-      const response = await fetch(`/api/dashboard/promocode-stats?${params.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Сессия истекла. Пожалуйста, войдите в систему заново.');
-        }
-        const errorText = await response.text();
-        throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
-      }
-
-      const data = await response.json();
-      setPromocodeStats(data);
-      logger.info('Статистика промокодов загружена:', data.promocodes.length);
-    } catch (error) {
-      logger.error('Ошибка загрузки статистики промокодов:', error);
-      setPromocodeError(error.message);
-    } finally {
-      setIsLoadingPromocodes(false);
-    }
-  }, [selectedPeriod]);
-
-  const togglePromocodesOpen = () => {
-    const newState = !isPromocodesOpen;
-    setIsPromocodesOpen(newState);
-    localStorage.setItem('dashboard_promocodes_open', JSON.stringify(newState));
-
-    // При открытии загружаем данные, если еще не загружены
-    if (newState && section === 'dashboard' && !promocodeStats) {
-      loadPromocodeStats();
     }
   };
 
@@ -2054,487 +1838,6 @@ const Dashboard = ({
                       </Flex>
                     </Flex>
                   </>
-                )}
-              </Box>
-            </CardBody>
-          </Collapse>
-        </Card>
-
-        {/* Распределение тарифов */}
-        <Card borderRadius={styles.card.borderRadius} boxShadow="lg" mb={spacing.md}>
-          <CardHeader
-            cursor="pointer"
-            onClick={() => {
-              const newValue = !isTariffChartOpen;
-              setIsTariffChartOpen(newValue);
-              localStorage.setItem('dashboard_tariff_chart_open', JSON.stringify(newValue));
-            }}
-            bg={colors.background.card}
-            _hover={{ bg: colors.background.main }}
-            transition="all 0.2s"
-            borderRadius={styles.card.borderRadius}
-          >
-            <Flex justify="space-between" align="center">
-              <HStack spacing={spacing.sm}>
-                <Icon as={FiChevronDown}
-                  transform={isTariffChartOpen ? 'rotate(0deg)' : 'rotate(-90deg)'}
-                  transition="transform 0.2s"
-                />
-                <Heading size="md" color={colors.text.primary}>Популярные тарифы</Heading>
-              </HStack>
-            </Flex>
-          </CardHeader>
-          <Collapse in={isTariffChartOpen} animateOpacity>
-            <CardBody>
-              <Box>
-                {isLoadingTariffs ? (
-                  <Flex justify="center" align="center" h="300px">
-                    <Spinner size="xl" color="purple.500" />
-                  </Flex>
-                ) : tariffError ? (
-                  <Alert status="error" borderRadius="md">
-                    <AlertIcon />
-                    {tariffError}
-                  </Alert>
-                ) : tariffDistribution?.data?.length === 0 ? (
-                  <Flex justify="center" align="center" h="300px">
-                    <VStack spacing={3}>
-                      <Icon as={FiShoppingBag} boxSize={12} color="gray.400" />
-                      <Text color="gray.600" fontSize="lg">Нет данных о бронированиях за выбранный период</Text>
-                    </VStack>
-                  </Flex>
-                ) : (
-                  <>
-                    <Box h="400px" mb={6}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={tariffDistribution?.data || []}
-                            cx="50%"
-                            cy="50%"
-                            labelLine={false}
-                            label={({ name, percentage }) => `${name}: ${percentage}%`}
-                            outerRadius={120}
-                            fill="#8884d8"
-                            dataKey="value"
-                          >
-                            {(tariffDistribution?.data || []).map((entry, index) => {
-                              const COLORS = ['#3182CE', '#38A169', '#805AD5', '#DD6B20', '#E53E3E'];
-                              return <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />;
-                            })}
-                          </Pie>
-                          <RechartsTooltip
-                            content={({ active, payload }) => {
-                              if (active && payload && payload.length) {
-                                const data = payload[0].payload;
-                                return (
-                                  <Box
-                                    bg="white"
-                                    p={3}
-                                    borderRadius="md"
-                                    boxShadow="lg"
-                                    border="1px"
-                                    borderColor="gray.200"
-                                  >
-                                    <Text fontWeight="bold" mb={1}>{data.name}</Text>
-                                    <Text fontSize="sm" color="gray.600">Бронирований: {data.value}</Text>
-                                    <Text fontSize="sm" color="gray.600">Доход: ₽{data.revenue?.toLocaleString('ru-RU')}</Text>
-                                    <Text fontSize="sm" color="gray.600">Процент: {data.percentage}%</Text>
-                                  </Box>
-                                );
-                              }
-                              return null;
-                            }}
-                          />
-                          <Legend
-                            verticalAlign="bottom"
-                            height={36}
-                            formatter={(value, entry) => {
-                              const data = entry.payload;
-                              return `${value} (${data.value})`;
-                            }}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </Box>
-
-                    {/* Статистика */}
-                    <Box mt={6} p={4} bg="gray.50" borderRadius="md">
-                      <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                        <Stat>
-                          <StatLabel>Всего бронирований</StatLabel>
-                          <StatNumber>{tariffDistribution?.total_bookings || 0}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Общий доход</StatLabel>
-                          <StatNumber>₽{tariffDistribution?.total_revenue?.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) || 0}</StatNumber>
-                        </Stat>
-                        <Stat>
-                          <StatLabel>Активных тарифов</StatLabel>
-                          <StatNumber>{tariffDistribution?.data?.length || 0}</StatNumber>
-                        </Stat>
-                      </SimpleGrid>
-                    </Box>
-                  </>
-                )}
-              </Box>
-            </CardBody>
-          </Collapse>
-        </Card>
-
-        {/* Аккордеон с топ-клиентами */}
-        <Card
-          bg={styles.card.bg}
-          borderRadius={styles.card.borderRadius}
-          boxShadow="lg"
-          overflow="hidden"
-        >
-          <CardHeader
-            bg="white"
-            borderBottom="2px"
-            borderColor="gray.100"
-            p={6}
-            cursor="pointer"
-            onClick={toggleTopClientsOpen}
-            _hover={{ bg: "gray.50" }}
-          >
-            <Flex align="center" justify="space-between">
-              <Flex align="center">
-                <Icon as={FiAward} boxSize={6} color="orange.500" mr={3} />
-                <Heading size="md" color={colors.text.primary}>Топ клиенты</Heading>
-                {topClientsData && (
-                  <Badge ml={3} colorScheme="orange" variant="subtle">
-                    {topClientsData.period.month_name} {topClientsData.period.year}
-                  </Badge>
-                )}
-              </Flex>
-              <Icon
-                as={FiChevronRight}
-                boxSize={5}
-                color="gray.500"
-                transition="transform 0.2s"
-                transform={isTopClientsOpen ? 'rotate(90deg)' : 'rotate(0deg)'}
-              />
-            </Flex>
-          </CardHeader>
-
-          <Collapse in={isTopClientsOpen} animateOpacity>
-            <CardBody p={6} bg="white">
-              {topClientsError && (
-                <Alert status="error" mb={4}>
-                  <AlertIcon />
-                  {topClientsError}
-                </Alert>
-              )}
-
-              <Box>
-                {isLoadingTopClients ? (
-                  // Skeleton для таблицы
-                  <VStack spacing={3} align="stretch">
-                    {[...Array(5)].map((_, i) => (
-                      <Skeleton key={i} height="60px" borderRadius="md" />
-                    ))}
-                  </VStack>
-                ) : topClientsData && topClientsData.clients.length > 0 ? (
-                  <>
-                    {/* Таблица топ-клиентов */}
-                    <TableContainer>
-                      <Table variant="simple" size="sm">
-                        <Thead bg="gray.50">
-                          <Tr>
-                            <Th w="60px">#</Th>
-                            <Th>Клиент</Th>
-                            <Th isNumeric>Бронирований</Th>
-                            <Th isNumeric>Оплачено</Th>
-                            <Th isNumeric>Общая сумма</Th>
-                            <Th isNumeric>Средний чек</Th>
-                            <Th isNumeric>% от дохода</Th>
-                            <Th>Последнее бронирование</Th>
-                          </Tr>
-                        </Thead>
-                        <Tbody>
-                          {topClientsData.clients.map((client, index) => (
-                            <Tr key={client.user_id} _hover={{ bg: 'gray.50' }} transition="background 0.2s">
-                              <Td>
-                                <Flex align="center" justify="center">
-                                  <Icon
-                                    as={FiAward}
-                                    color={index === 0 ? 'yellow.500' : index === 1 ? 'gray.400' : index === 2 ? 'orange.600' : 'gray.300'}
-                                    boxSize={5}
-                                  />
-                                  <Text ml={2} fontWeight="bold">{index + 1}</Text>
-                                </Flex>
-                              </Td>
-                              <Td>
-                                <VStack align="start" spacing={0}>
-                                  <Text fontWeight="medium">{client.username}</Text>
-                                  <Text fontSize="xs" color="gray.500">ID: {client.telegram_id}</Text>
-                                </VStack>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge colorScheme="blue" variant="subtle">{client.total_bookings}</Badge>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge colorScheme="green" variant="subtle">{client.paid_bookings}</Badge>
-                              </Td>
-                              <Td isNumeric>
-                                <Text fontWeight="bold" color="green.600">
-                                  ₽{client.total_spent.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                </Text>
-                              </Td>
-                              <Td isNumeric>
-                                <Text>
-                                  ₽{client.avg_booking_value.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                </Text>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge
-                                  colorScheme={client.revenue_share > 20 ? 'orange' : client.revenue_share > 10 ? 'yellow' : 'gray'}
-                                  variant="solid"
-                                >
-                                  {client.revenue_share.toFixed(1)}%
-                                </Badge>
-                              </Td>
-                              <Td>
-                                <Text fontSize="sm" color="gray.600">
-                                  {client.last_booking_date
-                                    ? new Date(client.last_booking_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-                                    : '-'}
-                                </Text>
-                              </Td>
-                            </Tr>
-                          ))}
-                        </Tbody>
-                      </Table>
-                    </TableContainer>
-
-                    {/* Общая статистика */}
-                    {topClientsData.stats && (
-                      <Box mt={6} p={4} bg="orange.50" borderRadius="md" borderLeft="4px solid" borderColor="orange.500">
-                        <SimpleGrid columns={{ base: 1, md: 4 }} spacing={4}>
-                          <Stat>
-                            <StatLabel fontSize="sm">Всего клиентов с бронированиями</StatLabel>
-                            <StatNumber fontSize="2xl">{topClientsData.stats.total_clients_with_bookings}</StatNumber>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Общий доход</StatLabel>
-                            <StatNumber fontSize="2xl">₽{topClientsData.stats.total_revenue.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</StatNumber>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Доход от топ-{topClientsData.clients.length}</StatLabel>
-                            <StatNumber fontSize="2xl">₽{topClientsData.stats.top_clients_revenue.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</StatNumber>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Доля топ-клиентов</StatLabel>
-                            <StatNumber fontSize="2xl" color="orange.600">{topClientsData.stats.top_clients_share.toFixed(1)}%</StatNumber>
-                            <StatHelpText>от общего дохода</StatHelpText>
-                          </Stat>
-                        </SimpleGrid>
-                      </Box>
-                    )}
-                  </>
-                ) : (
-                  // Empty state
-                  <VStack py={8} spacing={3}>
-                    <Icon as={FiAward} boxSize={12} color="gray.300" />
-                    <Text color="gray.500">Нет данных о клиентах за выбранный период</Text>
-                  </VStack>
-                )}
-              </Box>
-            </CardBody>
-          </Collapse>
-        </Card>
-
-        {/* Аккордеон со статистикой промокодов */}
-        <Card
-          bg={styles.card.bg}
-          borderRadius={styles.card.borderRadius}
-          boxShadow="lg"
-          overflow="hidden"
-        >
-          <CardHeader
-            bg="white"
-            borderBottom="2px"
-            borderColor="gray.100"
-            p={6}
-            cursor="pointer"
-            onClick={togglePromocodesOpen}
-            _hover={{ bg: "gray.50" }}
-          >
-            <Flex align="center" justify="space-between">
-              <Flex align="center">
-                <Icon as={FiTag} boxSize={6} color="green.500" mr={3} />
-                <Heading size="md" color={colors.text.primary}>Эффективность промокодов</Heading>
-                {promocodeStats && (
-                  <Badge ml={3} colorScheme="green" variant="subtle">
-                    {promocodeStats.period.label}
-                  </Badge>
-                )}
-              </Flex>
-              <Icon
-                as={FiChevronRight}
-                boxSize={5}
-                color="gray.500"
-                transition="transform 0.2s"
-                transform={isPromocodesOpen ? 'rotate(90deg)' : 'rotate(0deg)'}
-              />
-            </Flex>
-          </CardHeader>
-
-          <Collapse in={isPromocodesOpen} animateOpacity>
-            <CardBody p={6} bg="white">
-              {promocodeError && (
-                <Alert status="error" mb={4}>
-                  <AlertIcon />
-                  {promocodeError}
-                </Alert>
-              )}
-
-              <Box>
-                {isLoadingPromocodes ? (
-                  // Skeleton для таблицы
-                  <VStack spacing={3} align="stretch">
-                    {[...Array(5)].map((_, i) => (
-                      <Skeleton key={i} height="60px" borderRadius="md" />
-                    ))}
-                  </VStack>
-                ) : promocodeStats && promocodeStats.promocodes.length > 0 ? (
-                  <>
-                    {/* Таблица промокодов */}
-                    <TableContainer>
-                      <Table variant="simple" size="sm">
-                        <Thead bg="gray.50">
-                          <Tr>
-                            <Th>Промокод</Th>
-                            <Th isNumeric>Скидка</Th>
-                            <Th>Статус</Th>
-                            <Th isNumeric>Использований</Th>
-                            <Th isNumeric>Оплачено</Th>
-                            <Th isNumeric>Общий доход</Th>
-                            <Th isNumeric>Сумма скидок</Th>
-                            <Th isNumeric>Средний чек</Th>
-                            <Th isNumeric>Доход/исп.</Th>
-                            <Th isNumeric>% от дохода</Th>
-                            <Th>Последнее использование</Th>
-                          </Tr>
-                        </Thead>
-                        <Tbody>
-                          {promocodeStats.promocodes.map((promo) => (
-                            <Tr key={promo.id} _hover={{ bg: 'gray.50' }} transition="background 0.2s">
-                              <Td>
-                                <Flex align="center">
-                                  <Icon as={FiTag} color="green.500" mr={2} />
-                                  <Text fontWeight="medium">{promo.name}</Text>
-                                </Flex>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge colorScheme="purple" variant="solid">
-                                  -{promo.discount_percent}%
-                                </Badge>
-                              </Td>
-                              <Td>
-                                <Badge colorScheme={promo.is_active ? 'green' : 'gray'} variant="subtle">
-                                  {promo.is_active ? 'Активен' : 'Неактивен'}
-                                </Badge>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge colorScheme="blue" variant="subtle">{promo.total_uses}</Badge>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge colorScheme="green" variant="subtle">{promo.paid_uses}</Badge>
-                              </Td>
-                              <Td isNumeric>
-                                <Text fontWeight="bold" color="green.600">
-                                  ₽{promo.total_revenue.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                </Text>
-                              </Td>
-                              <Td isNumeric>
-                                <Text color="red.600">
-                                  -₽{promo.total_discount_given.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                </Text>
-                              </Td>
-                              <Td isNumeric>
-                                <Text>
-                                  ₽{promo.avg_booking_value.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                </Text>
-                              </Td>
-                              <Td isNumeric>
-                                <Text fontWeight="medium" color="blue.600">
-                                  ₽{promo.revenue_per_use.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                                </Text>
-                              </Td>
-                              <Td isNumeric>
-                                <Badge
-                                  colorScheme={promo.revenue_share > 15 ? 'green' : promo.revenue_share > 5 ? 'blue' : 'gray'}
-                                  variant="solid"
-                                >
-                                  {promo.revenue_share.toFixed(1)}%
-                                </Badge>
-                              </Td>
-                              <Td>
-                                <Text fontSize="sm" color="gray.600">
-                                  {promo.last_used_date
-                                    ? new Date(promo.last_used_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
-                                    : '-'}
-                                </Text>
-                              </Td>
-                            </Tr>
-                          ))}
-                        </Tbody>
-                      </Table>
-                    </TableContainer>
-
-                    {/* Общая статистика */}
-                    {promocodeStats.summary && (
-                      <Box mt={6} p={4} bg="green.50" borderRadius="md" borderLeft="4px solid" borderColor="green.500">
-                        <SimpleGrid columns={{ base: 1, md: 3, lg: 6 }} spacing={4}>
-                          <Stat>
-                            <StatLabel fontSize="sm">Всего промокодов</StatLabel>
-                            <StatNumber fontSize="2xl">{promocodeStats.summary.total_promocodes}</StatNumber>
-                            <StatHelpText fontSize="xs">
-                              Активных: {promocodeStats.summary.active_promocodes}
-                            </StatHelpText>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Использований</StatLabel>
-                            <StatNumber fontSize="2xl">{promocodeStats.summary.total_uses}</StatNumber>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Общий доход</StatLabel>
-                            <StatNumber fontSize="2xl" color="green.600">
-                              ₽{promocodeStats.summary.total_revenue_with_promocodes.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                            </StatNumber>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Сумма скидок</StatLabel>
-                            <StatNumber fontSize="2xl" color="red.600">
-                              -₽{promocodeStats.summary.total_discount_given.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                            </StatNumber>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Средняя скидка</StatLabel>
-                            <StatNumber fontSize="2xl">
-                              ₽{promocodeStats.summary.avg_discount_per_booking.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                            </StatNumber>
-                            <StatHelpText fontSize="xs">на бронирование</StatHelpText>
-                          </Stat>
-                          <Stat>
-                            <StatLabel fontSize="sm">Экономия клиентов</StatLabel>
-                            <StatNumber fontSize="2xl" color="orange.600">
-                              {((promocodeStats.summary.total_discount_given / (promocodeStats.summary.total_revenue_with_promocodes + promocodeStats.summary.total_discount_given)) * 100).toFixed(1)}%
-                            </StatNumber>
-                            <StatHelpText fontSize="xs">от полной цены</StatHelpText>
-                          </Stat>
-                        </SimpleGrid>
-                      </Box>
-                    )}
-                  </>
-                ) : (
-                  // Empty state
-                  <VStack py={8} spacing={3}>
-                    <Icon as={FiTag} boxSize={12} color="gray.300" />
-                    <Text color="gray.500">Нет данных о промокодах за выбранный период</Text>
-                  </VStack>
                 )}
               </Box>
             </CardBody>
