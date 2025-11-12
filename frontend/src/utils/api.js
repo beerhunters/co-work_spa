@@ -1218,7 +1218,7 @@ export const newsletterApi = {
 // -------------------- API: Дашборд --------------------
 export const dashboardApi = {
   getStats: async (retryCount = 0) => {
-    const maxRetries = 2;
+    const maxRetries = 1; // Уменьшено с 2 до 1 для снижения нагрузки
     
     try {
       logger.info(`Attempting to fetch dashboard stats (attempt ${retryCount + 1}/${maxRetries + 1})`);

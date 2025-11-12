@@ -462,7 +462,7 @@ const Dashboard = ({
 
       // Перезагружаем календарь бронирований если открыт
       if (isCalendarOpen) {
-        await loadBookingsForMonth(calendarDate.getFullYear(), calendarDate.getMonth() + 1);
+        await loadBookingsData(calendarDate.getFullYear(), calendarDate.getMonth() + 1);
       }
 
       // Триггерим событие для перезагрузки stats в родительском компоненте

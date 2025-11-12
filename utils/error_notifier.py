@@ -135,7 +135,21 @@ class ErrorNotifier:
         if not self._is_enabled():
             logger.debug("Telegram уведомления отключены")
             return False
-        
+
+        # Фильтруем сетевые ошибки и таймауты (не спамим в Telegram)
+        network_error_types = [
+            'NetworkError', 'TimeoutError', 'ECONNABORTED',
+            'ConnectionError', 'TimeoutException', 'ConnectTimeout',
+            'ReadTimeout', 'APIError'
+        ]
+
+        # Проверяем по типу ошибки и сообщению
+        if (error_type in network_error_types or
+            any(err_type.lower() in error_type.lower() for err_type in network_error_types) or
+            any(err_type.lower() in message.lower() for err_type in ['timeout', 'network', 'connection', 'econnaborted'])):
+            logger.debug(f"Пропускаем уведомление для Network/Timeout ошибки: {error_type}")
+            return False
+
         async with self._lock:
             # Создаем хэш для дедупликации
             error_hash = self._create_error_hash(error_type, message, module, function)
