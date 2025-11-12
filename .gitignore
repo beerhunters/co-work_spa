@@ -170,5 +170,6 @@ web/static/adminlte/
 avatars/
 /config/logging_config.json
 /CLAUDE.md
-/newsletters.md
+/правки/newsletters.md
 /newsletter_photos/
+/правки/
