@@ -219,6 +219,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isClearOpen, onOpen: onClearOpen, onClose: onClearClose } = useDisclosure();
   const cancelRef = React.useRef();
+  const fileInputRef = React.useRef(); // Ref для file input, чтобы сбрасывать после отправки
 
   // Мемоизированные callbacks для модального окна выбора пользователей
   const handleSelectedUsersChange = useCallback((newSelectedUsers) => {
@@ -616,7 +617,13 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     if (photo?.preview) {
       URL.revokeObjectURL(photo.preview);
     }
-    setPhotos(photos.filter(p => p.id !== photoId));
+    const newPhotos = photos.filter(p => p.id !== photoId);
+    setPhotos(newPhotos);
+
+    // Сбросить input если все фото удалены
+    if (newPhotos.length === 0 && fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
 
@@ -685,6 +692,11 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       setRecipientType('all');
       setSegmentType('active_users');
       setSegmentParams({ days: 30 });
+
+      // Сбрасываем file input чтобы можно было выбрать те же файлы снова
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
 
       // Обновляем историю
       await fetchNewsletters();
@@ -1140,6 +1152,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                   <FormLabel>Фотографии (до 10 штук)</FormLabel>
                   <VStack align="stretch" spacing={3}>
                     <Input
+                      ref={fileInputRef}
                       type="file"
                       accept="image/*"
                       multiple
