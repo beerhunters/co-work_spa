@@ -220,15 +220,33 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const { isOpen: isClearOpen, onOpen: onClearOpen, onClose: onClearClose } = useDisclosure();
   const cancelRef = React.useRef();
 
-  // Проверка прав доступа
-  const canViewNewsletters = currentAdmin?.role === 'super_admin' ||
-                           (currentAdmin?.permissions && currentAdmin.permissions.includes('view_newsletters'));
+  // Мемоизированные callbacks для модального окна выбора пользователей
+  const handleSelectedUsersChange = useCallback((newSelectedUsers) => {
+    setSelectedUsers(newSelectedUsers);
+  }, []);
 
-  const canSendNewsletters = currentAdmin?.role === 'super_admin' ||
-                           (currentAdmin?.permissions && currentAdmin.permissions.includes('send_newsletters'));
+  const handleCloseUserModal = useCallback(() => {
+    setUserModalOpen(false);
+  }, []);
 
-  const canManageNewsletters = currentAdmin?.role === 'super_admin' ||
-                             (currentAdmin?.permissions && currentAdmin.permissions.includes('manage_newsletters'));
+  // Проверка прав доступа (мемоизировано для предотвращения лишних ре-рендеров)
+  const canViewNewsletters = useMemo(() =>
+    currentAdmin?.role === 'super_admin' ||
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('view_newsletters')),
+    [currentAdmin]
+  );
+
+  const canSendNewsletters = useMemo(() =>
+    currentAdmin?.role === 'super_admin' ||
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('send_newsletters')),
+    [currentAdmin]
+  );
+
+  const canManageNewsletters = useMemo(() =>
+    currentAdmin?.role === 'super_admin' ||
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('manage_newsletters')),
+    [currentAdmin]
+  );
 
   // Если нет прав на просмотр, показываем сообщение об ошибке
   if (!canViewNewsletters) {
@@ -694,13 +712,32 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   };
 
   // Мемоизированный компонент выбора пользователей с изолированным поиском
-  const UserSelectionModal = React.memo(() => {
+  const UserSelectionModal = React.memo(({
+    isOpen,
+    onClose,
+    users,
+    selectedUsers,
+    onSelectedUsersChange,
+    totalUsersWithTelegram
+  }) => {
     const [searchQuery, setSearchQuery] = useState('');
+    // Локальное состояние для выбранных пользователей (не обновляет родителя при каждом клике)
+    const [localSelectedUsers, setLocalSelectedUsers] = useState(selectedUsers);
+
+    // Синхронизация локального состояния с родительским при открытии модального окна
+    useEffect(() => {
+      if (isOpen) {
+        setLocalSelectedUsers(selectedUsers);
+      }
+    }, [isOpen, selectedUsers]);
+
+    // Вычисляем cardBg внутри компонента, чтобы избежать пропса с нестабильной ссылкой
+    const cardBg = useColorModeValue('white', 'gray.800');
 
     // Локальная фильтрация пользователей
     const filteredUsers = useMemo(() => {
       if (!searchQuery.trim()) return users;
-      
+
       const query = searchQuery.toLowerCase();
       return users.filter(user => {
         return (
@@ -720,24 +757,31 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     // Сброс поиска при закрытии модального окна
     const handleCloseModal = useCallback(() => {
       setSearchQuery('');
-      setUserModalOpen(false);
-    }, []);
+      onClose();
+    }, [onClose]);
 
     // Выбрать всех пользователей из отфильтрованного списка
     const handleSelectAll = useCallback(() => {
       const allUserIds = filteredUsers
         .filter(user => user.telegram_id)
         .map(user => user.telegram_id.toString());
-      setSelectedUsers(allUserIds);
+      setLocalSelectedUsers(allUserIds);
     }, [filteredUsers]);
 
     // Снять выделение
     const handleDeselectAll = useCallback(() => {
-      setSelectedUsers([]);
+      setLocalSelectedUsers([]);
     }, []);
 
+    // Применить выбор пользователей (вызывается при нажатии "Применить")
+    const handleApply = useCallback(() => {
+      onSelectedUsersChange(localSelectedUsers);
+      setSearchQuery('');
+      onClose();
+    }, [localSelectedUsers, onSelectedUsersChange, onClose]);
+
     return (
-      <Modal isOpen={isUserModalOpen} onClose={handleCloseModal} size="xl">
+      <Modal isOpen={isOpen} onClose={handleCloseModal} size="xl">
         <ModalOverlay />
         <ModalContent maxH="80vh" bg={cardBg}>
           <ModalHeader>Выбор получателей</ModalHeader>
@@ -773,7 +817,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
               </HStack>
 
               <Box maxH="400px" overflowY="auto">
-                <CheckboxGroup value={selectedUsers} onChange={setSelectedUsers}>
+                <CheckboxGroup value={localSelectedUsers} onChange={setLocalSelectedUsers}>
                   <VStack align="stretch" spacing={2}>
                     {filteredUsers.map(user => (
                       <Checkbox
@@ -799,7 +843,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
               </Box>
 
               <Text fontSize="sm" color="gray.600">
-                Выбрано: {selectedUsers.length} из {totalUsersWithTelegram} пользователей
+                Выбрано: {localSelectedUsers.length} из {totalUsersWithTelegram} пользователей
               </Text>
             </VStack>
           </ModalBody>
@@ -807,12 +851,24 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
             <Button variant="ghost" mr={3} onClick={handleCloseModal}>
               Отмена
             </Button>
-            <Button colorScheme="purple" onClick={handleCloseModal}>
+            <Button colorScheme="purple" onClick={handleApply}>
               Применить
             </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>
+    );
+  }, (prevProps, nextProps) => {
+    // Кастомная функция сравнения для предотвращения лишних ре-рендеров
+    // Возвращаем true если пропсы НЕ изменились (компонент НЕ должен ре-рендериться)
+    // selectedUsers теперь НЕ проверяется, т.к. используется локальное состояние
+
+    return (
+      prevProps.isOpen === nextProps.isOpen &&
+      prevProps.users === nextProps.users &&
+      prevProps.totalUsersWithTelegram === nextProps.totalUsersWithTelegram &&
+      prevProps.onClose === nextProps.onClose &&
+      prevProps.onSelectedUsersChange === nextProps.onSelectedUsersChange
     );
   });
 
@@ -1599,7 +1655,16 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       </VStack>
 
       {/* Модальное окно выбора пользователей */}
-      {canSendNewsletters && <UserSelectionModal />}
+      {canSendNewsletters && (
+        <UserSelectionModal
+          isOpen={isUserModalOpen}
+          onClose={handleCloseUserModal}
+          users={users}
+          selectedUsers={selectedUsers}
+          onSelectedUsersChange={handleSelectedUsersChange}
+          totalUsersWithTelegram={totalUsersWithTelegram}
+        />
+      )}
 
       {/* Диалог подтверждения удаления рассылки */}
       <AlertDialog
