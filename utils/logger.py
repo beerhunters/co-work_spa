@@ -43,13 +43,13 @@ _configured_loggers = set()
 
 class JSONFormatter(logging.Formatter):
     """Форматтер для вывода логов в JSON формате"""
-    
+
     def __init__(self, include_extra: bool = True):
         super().__init__()
         self.include_extra = include_extra
         self.hostname = os.uname().nodename if hasattr(os, 'uname') else 'unknown'
         self.service_name = os.getenv('SERVICE_NAME', 'coworking-api')
-        
+
     def format(self, record):
         # Базовая информация о логе
         log_entry = {
@@ -60,7 +60,7 @@ class JSONFormatter(logging.Formatter):
             "service": self.service_name,
             "hostname": self.hostname,
         }
-        
+
         # Добавляем информацию о местоположении для WARNING и выше
         if record.levelno >= logging.WARNING:
             log_entry.update({
@@ -69,23 +69,23 @@ class JSONFormatter(logging.Formatter):
                 "function": record.funcName,
                 "path": record.pathname
             })
-        
+
         # Добавляем информацию об исключении если есть
         if record.exc_info:
             log_entry["exception"] = self.formatException(record.exc_info)
-        
+
         # Добавляем дополнительные поля
         if self.include_extra:
             for key, value in record.__dict__.items():
-                if key not in ['name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 
-                              'filename', 'module', 'lineno', 'funcName', 'created', 
-                              'msecs', 'relativeCreated', 'thread', 'threadName', 
-                              'processName', 'process', 'getMessage', 'exc_info', 
+                if key not in ['name', 'msg', 'args', 'levelname', 'levelno', 'pathname',
+                              'filename', 'module', 'lineno', 'funcName', 'created',
+                              'msecs', 'relativeCreated', 'thread', 'threadName',
+                              'processName', 'process', 'getMessage', 'exc_info',
                               'exc_text', 'stack_info']:
                     log_entry[f"extra_{key}"] = value
-        
+
         return json.dumps(log_entry, ensure_ascii=False, default=str)
-    
+
     def _format_time(self, timestamp: float) -> str:
         """Форматирует время в ISO формате с московской временной зоной"""
         dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
@@ -95,13 +95,13 @@ class JSONFormatter(logging.Formatter):
 
 class TextFormatter(logging.Formatter):
     """Форматтер для текстового вывода с поддержкой московского времени"""
-    
+
     def converter(self, timestamp: float) -> time.struct_time:
         """Преобразует временную метку в struct_time с учётом московского времени"""
         dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
         dt_moscow = dt.astimezone(MOSCOW_TZ)
         return dt_moscow.timetuple()
-    
+
     def format(self, record):
         # Добавляем информацию о местоположении для WARNING и выше
         if record.levelno >= logging.WARNING:
@@ -110,28 +110,28 @@ class TextFormatter(logging.Formatter):
                 record.location += f" in {record.funcName}()"
         else:
             record.location = ""
-        
+
         return super().format(record)
 
 
 class UnifiedLogger:
     """Единая система логирования с поддержкой JSON и текстового формата"""
-    
+
     def __init__(self, name: str = "app"):
         self.name = name
         self.environment = ENVIRONMENT.lower()
         self.log_level = LOG_LEVEL.upper()
         self.log_format = LOG_FORMAT.lower()
         self.log_to_file = LOG_TO_FILE
-        
+
         # Определяем эффективный уровень логирования для production
         self.effective_log_level = self._get_effective_log_level()
-        
+
         # Создаем логгер
         self.logger = logging.getLogger(name)
         if not self.logger.handlers:  # Настраиваем только если еще не настроен
             self._setup_logger()
-    
+
     def _get_effective_log_level(self) -> str:
         """Определяет эффективный уровень логирования в зависимости от среды"""
         if self.environment == "production":
@@ -142,13 +142,13 @@ class UnifiedLogger:
         else:
             # В development - используем настройки как есть
             return self.log_level
-    
+
     def _setup_logger(self):
         """Настройка логгера с обработчиками"""
         # Устанавливаем уровень
         level = getattr(logging, self.effective_log_level)
         self.logger.setLevel(level)
-        
+
         # Создаем форматтеры
         if self.log_format == "json":
             formatter = JSONFormatter()
@@ -157,31 +157,31 @@ class UnifiedLogger:
             # Текстовый формат
             detailed_format = "[%(asctime)s] [%(levelname)s] [%(name)s]%(location)s %(message)s"
             simple_format = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
-            
+
             formatter = TextFormatter(detailed_format, datefmt="%Y-%m-%d %H:%M:%S")
             console_formatter = TextFormatter(simple_format, datefmt="%Y-%m-%d %H:%M:%S")
-        
+
         # Консольный обработчик
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(level)
         console_handler.setFormatter(console_formatter)
         self.logger.addHandler(console_handler)
-        
+
         # Файловый обработчик
         if self.log_to_file:
             self._add_file_handler(formatter, level)
-        
+
         # Telegram обработчик для критических ошибок
         self._add_telegram_handler()
-    
+
     def _add_file_handler(self, formatter, level):
         """Добавляет файловый обработчик"""
         # Создаем директорию для логов
         LOGS_DIR.mkdir(exist_ok=True, parents=True)
-        
+
         # Выбираем тип ротации в зависимости от среды
         log_file = LOGS_DIR / "app.log"
-        
+
         if self.environment == "production":
             # В продакшене используем ротацию по времени
             file_handler = TimedRotatingFileHandler(
@@ -200,11 +200,11 @@ class UnifiedLogger:
                 backupCount=5,
                 encoding='utf-8'
             )
-        
+
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
-    
+
     def _add_telegram_handler(self):
         """Отключает старые Telegram handlers (новая система работает через notify_error)"""
         try:
@@ -215,22 +215,22 @@ class UnifiedLogger:
         except Exception as e:
             # Не логируем ошибку через self.logger чтобы избежать рекурсии
             print(f"Warning: Could not initialize Telegram logging: {e}")
-    
+
     def debug(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.debug(message, extra=extra or {}, **kwargs)
-    
+
     def info(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.info(message, extra=extra or {}, **kwargs)
-    
+
     def warning(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.warning(message, extra=extra or {}, **kwargs)
-    
+
     def error(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.error(message, extra=extra or {}, **kwargs)
-    
+
     def critical(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.critical(message, extra=extra or {}, **kwargs)
-    
+
     def exception(self, message: str, extra: Optional[Dict[str, Any]] = None, **kwargs):
         self.logger.exception(message, extra=extra or {}, **kwargs)
 
@@ -242,10 +242,10 @@ _logger_cache: Dict[str, UnifiedLogger] = {}
 def get_logger(name: str = None) -> UnifiedLogger:
     """
     Получить логгер для модуля
-    
+
     Args:
         name: Имя логгера, если None - используется __name__ вызывающего модуля
-    
+
     Returns:
         UnifiedLogger: Настроенный логгер
     """
@@ -253,17 +253,17 @@ def get_logger(name: str = None) -> UnifiedLogger:
         import inspect
         frame = inspect.currentframe().f_back
         name = frame.f_globals.get('__name__', 'unknown')
-    
+
     if name not in _logger_cache:
         _logger_cache[name] = UnifiedLogger(name)
-        
+
         # Логируем создание только для основных модулей
         if name in ['__main__', 'main'] or 'main' in name.lower():
             logger_key = f"{name}_{LOG_LEVEL}_{ENVIRONMENT}"
             if logger_key not in _configured_loggers:
                 _logger_cache[name].info(f"Logger initialized for {name} (level: {LOG_LEVEL}, env: {ENVIRONMENT})")
                 _configured_loggers.add(logger_key)
-    
+
     return _logger_cache[name]
 
 
@@ -275,13 +275,13 @@ def setup_application_logging(
 ) -> UnifiedLogger:
     """
     Централизованная настройка логирования для приложения
-    
+
     Args:
         app_name: Имя приложения
         log_level: Уровень логирования (переопределяет .env)
         environment: Среда выполнения (переопределяет .env)
         log_format: Формат логов (переопределяет .env)
-    
+
     Returns:
         UnifiedLogger: Основной логгер приложения
     """
@@ -292,7 +292,7 @@ def setup_application_logging(
         os.environ["ENVIRONMENT"] = environment.lower()
     if log_format:
         os.environ["LOG_FORMAT"] = log_format.lower()
-    
+
     # Создаем и возвращаем главный логгер
     main_logger = get_logger(app_name)
     main_logger.info(f"{app_name} logging initialized")
@@ -302,7 +302,7 @@ def setup_application_logging(
 def log_startup_info():
     """Логирует информацию о запуске приложения"""
     logger = get_logger("startup")
-    
+
     logger.info("=" * 50)
     logger.info(f"Environment: {ENVIRONMENT}")
     logger.info(f"Log Level: {LOG_LEVEL}")
@@ -318,26 +318,26 @@ def update_loggers_level(new_level: str):
     try:
         # Получаем числовое значение уровня
         numeric_level = getattr(logging, new_level.upper())
-        
+
         # Обновляем все логгеры
         for name in logging.Logger.manager.loggerDict:
             logger_obj = logging.getLogger(name)
             logger_obj.setLevel(numeric_level)
-            
+
             # Обновляем обработчики
             for handler in logger_obj.handlers:
                 handler.setLevel(numeric_level)
-        
+
         # Обновляем корневой логгер
         root_logger = logging.getLogger()
         root_logger.setLevel(numeric_level)
-        
+
         for handler in root_logger.handlers:
             handler.setLevel(numeric_level)
-            
+
         logger = get_logger("logger_update")
         logger.info(f"Уровень логирования изменен на {new_level} для всех логгеров")
-        
+
     except Exception as e:
         logger = get_logger("logger_update")
         logger.error(f"Ошибка обновления уровня логгеров: {e}")
@@ -346,21 +346,21 @@ def update_loggers_level(new_level: str):
 
 class LoggerContext:
     """Контекстный менеджер для автоматического логирования операций"""
-    
+
     def __init__(self, logger: UnifiedLogger, operation: str = "Operation", level: str = "INFO"):
         self.logger = logger
         self.operation = operation
         self.level = level.lower()
         self.start_time = None
-    
+
     def __enter__(self):
         self.start_time = time.time()
         getattr(self.logger, self.level)(f"{self.operation} started")
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         duration = time.time() - self.start_time
-        
+
         if exc_type:
             self.logger.error(
                 f"{self.operation} failed after {duration:.2f}s: {exc_type.__name__}: {exc_val}",
@@ -371,7 +371,7 @@ class LoggerContext:
                 f"{self.operation} completed in {duration:.2f}s",
                 extra={"operation": self.operation, "duration": duration}
             )
-        
+
         return False  # Не подавляем исключение
 
 
@@ -379,14 +379,14 @@ def log_function_call(func_name: str = None, level: str = "DEBUG"):
     """Декоратор для логирования вызовов функций"""
     def decorator(func):
         import functools
-        
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             name = func_name or func.__name__
             logger = get_logger(func.__module__)
-            
+
             with LoggerContext(logger, f"Function {name}", level):
                 return func(*args, **kwargs)
-        
+
         return wrapper
     return decorator
