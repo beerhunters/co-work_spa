@@ -25,10 +25,7 @@ import Notifications from './sections/Notifications';
 import Newsletters from './sections/Newsletters';
 import Admins from './sections/Admins';
 import Backups from './sections/Backups';
-import SystemMonitor from './sections/SystemMonitor';
-import CacheManager from './sections/CacheManager';
-import Performance from './sections/Performance';
-import ApiKeys from './sections/ApiKeys';
+import SystemMonitoring from './sections/SystemMonitoring';
 import Logging from './sections/Logging';
 import IPBans from './sections/IPBans';
 
@@ -1118,14 +1115,8 @@ function App() {
             currentAdmin={currentAdmin}
           />
         );
-      case 'monitoring':
-        return <SystemMonitor currentAdmin={currentAdmin} />;
-      case 'cache':
-        return <CacheManager currentAdmin={currentAdmin} />;
-      case 'performance':
-        return <Performance currentAdmin={currentAdmin} />;
-      case 'api-keys':
-        return <ApiKeys currentAdmin={currentAdmin} />;
+      case 'system-monitoring':
+        return <SystemMonitoring currentAdmin={currentAdmin} />;
       case 'logging':
         return <Logging currentAdmin={currentAdmin} />;
       case 'ip-bans':
