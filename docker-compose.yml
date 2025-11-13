@@ -207,6 +207,8 @@ services:
       - ./avatars:/app/avatars
       - ./ticket_photos:/app/ticket_photos
       - ./newsletter_photos:/app/newsletter_photos
+      # Конфигурация (для banned_ips.conf)
+      - ./config:/app/config:ro
       # SSL сертификаты (только для production)
       - ${SSL_CERTS_PATH:-/dev/null}:/etc/letsencrypt:ro
       - ${SSL_WEBROOT_PATH:-/dev/null}:/var/www/certbot
