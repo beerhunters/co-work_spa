@@ -75,6 +75,8 @@ import {
   FiDownload
 } from 'react-icons/fi';
 import { newsletterApi, userApi } from '../utils/api';
+import TelegramEditor from '../components/TelegramEditor';
+import { sanitizeHtmlForTelegram } from '../utils/telegram-html-sanitizer';
 import {
   LineChart,
   Line,
@@ -531,62 +533,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     }
   };
 
-  // Форматирование текста
-  const formatText = (type) => {
-    const textarea = document.getElementById('message-textarea');
-    if (!textarea) return;
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = message.substring(start, end);
-
-    if (!selectedText) {
-      toast({
-        title: 'Выделите текст',
-        description: 'Сначала выделите текст для форматирования',
-        status: 'info',
-        duration: 2000,
-        isClosable: true,
-      });
-      return;
-    }
-
-    let formattedText = '';
-    switch (type) {
-      case 'bold':
-        formattedText = `<b>${selectedText}</b>`;
-        break;
-      case 'italic':
-        formattedText = `<i>${selectedText}</i>`;
-        break;
-      case 'underline':
-        formattedText = `<u>${selectedText}</u>`;
-        break;
-      case 'code':
-        formattedText = `<code>${selectedText}</code>`;
-        break;
-      case 'link':
-        const url = window.prompt('Введите URL ссылки:', 'https://');
-        if (url && url.trim()) {
-          formattedText = `<a href="${url.trim()}">${selectedText}</a>`;
-        } else {
-          return; // Отмена, если URL не введен
-        }
-        break;
-      default:
-        formattedText = selectedText;
-    }
-
-    const newMessage = message.substring(0, start) + formattedText + message.substring(end);
-    setMessage(newMessage);
-
-    // Восстанавливаем фокус и позицию курсора
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + formattedText.length, start + formattedText.length);
-    }, 0);
-  };
-
   // Обработка загрузки фото
   const handlePhotoUpload = (e) => {
     const files = Array.from(e.target.files);
@@ -654,8 +600,11 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     setIsSending(true);
 
     try {
+      // Очищаем HTML для Telegram перед отправкой
+      const sanitizedMessage = sanitizeHtmlForTelegram(message);
+
       const formData = new FormData();
-      formData.append('message', message);
+      formData.append('message', sanitizedMessage);
       formData.append('recipient_type', recipientType);
 
       if (recipientType === 'selected') {
@@ -1078,74 +1027,16 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                 </FormControl>
 
                 {/* Сообщение с форматированием */}
-                <FormControl>
-                  <FormLabel>Сообщение</FormLabel>
-                  <VStack align="stretch" spacing={2}>
-                    <HStack spacing={2}>
-                      <Tooltip label="Жирный">
-                        <IconButton
-                          icon={<FiBold />}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => formatText('bold')}
-                        />
-                      </Tooltip>
-                      <Tooltip label="Курсив">
-                        <IconButton
-                          icon={<FiItalic />}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => formatText('italic')}
-                        />
-                      </Tooltip>
-                      <Tooltip label="Подчеркнутый">
-                        <IconButton
-                          icon={<FiUnderline />}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => formatText('underline')}
-                        />
-                      </Tooltip>
-                      <Tooltip label="Моноширинный">
-                        <IconButton
-                          icon={<FiCode />}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => formatText('code')}
-                        />
-                      </Tooltip>
-                      <Tooltip label="Ссылка">
-                        <IconButton
-                          icon={<FiLink />}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => formatText('link')}
-                        />
-                      </Tooltip>
-                    </HStack>
-
-                    <Textarea
-                      id="message-textarea"
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Введите текст сообщения... Используйте HTML-теги для форматирования или кнопки выше"
-                      minH="150px"
-                      resize="vertical"
-                    />
-                    <FormHelperText>
-                      Поддерживаются HTML-теги: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;code&gt;, &lt;a href=""&gt;. Выделите текст и нажмите кнопку для форматирования.
-                    </FormHelperText>
-                    <Text
-                      fontSize="sm"
-                      color={message.length > 4096 ? "red.500" : message.length > 3500 ? "orange.500" : "gray.500"}
-                      textAlign="right"
-                      fontWeight={message.length > 4096 ? "bold" : "normal"}
-                    >
-                      {message.length} / 4096 символов
-                      {message.length > 4096 && " (превышен лимит Telegram!)"}
-                    </Text>
-                  </VStack>
-                </FormControl>
+                {/* Визуальный редактор сообщения с форматированием */}
+                <TelegramEditor
+                  label="Сообщение"
+                  value={message}
+                  onChange={setMessage}
+                  placeholder="Введите текст сообщения... Используйте панель инструментов для форматирования"
+                  maxLength={4096}
+                  helperText="Форматирование отображается сразу. Telegram поддерживает: жирный, курсив, подчеркнутый, код, ссылки"
+                  isInvalid={message.length > 4096}
+                />
 
                 {/* Загрузка фото */}
                 <FormControl>
