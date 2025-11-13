@@ -19,6 +19,18 @@ from openpyxl.utils import get_column_letter
 logger = get_logger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
+# Русские названия месяцев для форматирования периодов
+RUSSIAN_MONTHS = {
+    1: "январь", 2: "февраль", 3: "март", 4: "апрель",
+    5: "май", 6: "июнь", 7: "июль", 8: "август",
+    9: "сентябрь", 10: "октябрь", 11: "ноябрь", 12: "декабрь"
+}
+
+
+def format_period_label(dt: datetime) -> str:
+    """Форматирует дату в читаемый формат 'месяц год' на русском языке"""
+    return f"{RUSSIAN_MONTHS[dt.month]} {dt.year}"
+
 
 @router.get("/stats")
 async def get_dashboard_stats(
@@ -171,7 +183,10 @@ async def get_dashboard_stats(
             "period": {
                 "start": period_start_dt.isoformat(),
                 "end": period_end_dt.isoformat(),
-                "label": period_start_dt.strftime("%B %Y")
+                "label": format_period_label(period_start_dt),
+                "previous_label": format_period_label(
+                    datetime.fromisoformat(result.get("period_info", {}).get("previous_start", period_start_dt.isoformat()).replace('Z', '+00:00'))
+                )
             }
         }
 
@@ -235,7 +250,8 @@ async def get_dashboard_stats(
             "period": {
                 "start": datetime.now().isoformat(),
                 "end": datetime.now().isoformat(),
-                "label": datetime.now().strftime("%B %Y")
+                "label": format_period_label(datetime.now()),
+                "previous_label": format_period_label(datetime.now().replace(month=datetime.now().month - 1 if datetime.now().month > 1 else 12))
             }
         }
 

@@ -1166,7 +1166,8 @@ const Dashboard = ({
                               />
                               <Text color={stats.users.trend.is_positive ? 'green.300' : 'red.300'}>
                                 {stats.users.trend.direction !== 'neutral' && (stats.users.trend.direction === 'up' ? '+' : '-')}
-                                {Math.abs(stats.users.change_percentage || 0).toFixed(1)}% за период
+                                {Math.abs(stats.users.change_percentage || 0).toFixed(1)}%
+                                {stats.period?.previous_label && ` vs ${stats.period.previous_label.toLowerCase()}`}
                               </Text>
                             </HStack>
                           ) : (
@@ -1182,7 +1183,8 @@ const Dashboard = ({
                                 Конверсия: {stats.conversion_rate.current_value}%
                                 {stats.conversion_rate.change_percentage !== 0 && (
                                   <Text as="span" ml={1} color={stats.conversion_rate.change_percentage > 0 ? 'green.300' : 'red.300'}>
-                                    ({stats.conversion_rate.change_percentage > 0 ? '+' : ''}{stats.conversion_rate.change_percentage.toFixed(1)}%)
+                                    ({stats.conversion_rate.change_percentage > 0 ? '+' : ''}{stats.conversion_rate.change_percentage.toFixed(1)}%
+                                    {stats.period?.previous_label && ` vs ${stats.period.previous_label.toLowerCase()}`})
                                   </Text>
                                 )}
                               </Text>
@@ -1235,7 +1237,8 @@ const Dashboard = ({
                             />
                             <Text color={stats.bookings.trend.is_positive ? 'green.300' : 'red.300'}>
                               {stats.bookings.trend.direction !== 'neutral' && (stats.bookings.trend.direction === 'up' ? '+' : '-')}
-                              {Math.abs(stats.bookings.change_percentage || 0).toFixed(1)}% за период
+                              {Math.abs(stats.bookings.change_percentage || 0).toFixed(1)}%
+                              {stats.period?.previous_label && ` vs ${stats.period.previous_label.toLowerCase()}`}
                             </Text>
                           </HStack>
                         ) : (
@@ -1290,7 +1293,8 @@ const Dashboard = ({
                             />
                             <Text color={stats.average_booking_value.trend.is_positive ? 'green.300' : 'red.300'}>
                               {stats.average_booking_value.trend.direction !== 'neutral' && (stats.average_booking_value.trend.direction === 'up' ? '+' : '-')}
-                              {Math.abs(stats.average_booking_value.change_percentage || 0).toFixed(1)}% за период
+                              {Math.abs(stats.average_booking_value.change_percentage || 0).toFixed(1)}%
+                              {stats.period?.previous_label && ` vs ${stats.period.previous_label.toLowerCase()}`}
                             </Text>
                           </HStack>
                         ) : (
@@ -1345,7 +1349,8 @@ const Dashboard = ({
                             />
                             <Text color={stats.tickets.trend.is_positive ? 'green.300' : 'red.300'}>
                               {stats.tickets.trend.direction !== 'neutral' && (stats.tickets.trend.direction === 'up' ? '+' : '-')}
-                              {Math.abs(stats.tickets.change_percentage || 0).toFixed(1)}% за период
+                              {Math.abs(stats.tickets.change_percentage || 0).toFixed(1)}%
+                              {stats.period?.previous_label && ` vs ${stats.period.previous_label.toLowerCase()}`}
                             </Text>
                           </HStack>
                         ) : (
