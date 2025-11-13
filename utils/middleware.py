@@ -361,3 +361,97 @@ class PerformanceMiddleware(BaseHTTPMiddleware):
                 },
             )
             raise
+
+
+class IPBanMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware для проверки забаненных IP адресов
+    Блокирует запросы от забаненных IP с кодом 403
+    """
+
+    def __init__(self, app: ASGIApp, enabled: bool = True):
+        super().__init__(app)
+        self.enabled = enabled
+
+    def _get_client_ip(self, request: Request) -> str:
+        """Получение IP адреса клиента"""
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+
+        real_ip = request.headers.get("X-Real-IP")
+        if real_ip:
+            return real_ip
+
+        return request.client.host if request.client else ""
+
+    def _should_skip_check(self, path: str) -> bool:
+        """
+        Проверка, нужно ли пропустить проверку бана для данного пути
+        Некоторые пути должны быть доступны всегда (health checks и т.д.)
+        """
+        skip_patterns = [
+            "/health",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+        ]
+
+        return any(path.startswith(pattern) for pattern in skip_patterns)
+
+    async def dispatch(self, request: Request, call_next: Callable):
+        """Обработка запроса"""
+        if not self.enabled:
+            return await call_next(request)
+
+        # Пропускаем проверку для определенных путей
+        if self._should_skip_check(request.url.path):
+            return await call_next(request)
+
+        try:
+            # Получаем IP клиента
+            client_ip = self._get_client_ip(request)
+
+            if not client_ip:
+                # Если не удалось получить IP, пропускаем запрос
+                return await call_next(request)
+
+            # Проверяем забанен ли IP
+            from utils.ip_ban_manager import get_ip_ban_manager
+            ban_manager = get_ip_ban_manager()
+
+            is_banned = await ban_manager.is_banned(client_ip)
+
+            if is_banned:
+                # Получаем информацию о бане для заголовков
+                ban_info = await ban_manager.get_ban_info(client_ip)
+
+                # Формируем response с 403 Forbidden
+                headers = {
+                    "X-Banned": "true",
+                    "X-Ban-Reason": ban_info.get("reason", "Suspicious activity") if ban_info else "Suspicious activity",
+                }
+
+                # Добавляем время разбана если доступно
+                if ban_info and "unbanned_at" in ban_info:
+                    headers["X-Banned-Until"] = ban_info["unbanned_at"]
+
+                logger.warning(
+                    f"Blocked request from banned IP: {client_ip} "
+                    f"(path: {request.url.path}, method: {request.method})"
+                )
+
+                return Response(
+                    content="Access denied: Your IP address has been banned due to suspicious activity",
+                    status_code=403,
+                    headers=headers
+                )
+
+            # IP не забанен, продолжаем обработку
+            response = await call_next(request)
+            return response
+
+        except Exception as e:
+            logger.error(f"Error in IPBanMiddleware: {e}")
+            # При ошибке пропускаем запрос (fail-open для доступности)
+            return await call_next(request)

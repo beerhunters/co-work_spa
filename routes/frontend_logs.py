@@ -82,20 +82,47 @@ async def receive_frontend_logs(
         
         # Для ERROR уровня отправляем через централизованную систему
         if log_entry.level.upper() == "ERROR":
-            # Отправляем ОДНО уведомление через централизованную систему
-            notify_error(
-                exc_info=None,
-                message=f"Frontend [{log_entry.context}]: {log_entry.message}",
-                context={
-                    "source": "frontend",
-                    "client_ip": client_ip,
-                    "user_agent": log_entry.user_agent,
-                    "url": log_entry.url,
-                    "component": log_entry.context,
-                    "frontend_data": log_entry.data,
-                    "frontend_stack": log_entry.stack
-                }
+            # Проверяем, не является ли это ошибкой от сканера/бота с unknown status
+            is_unknown_error = (
+                log_entry.data and
+                isinstance(log_entry.data, dict) and
+                log_entry.data.get('status') == 'unknown'
             )
+
+            if is_unknown_error:
+                # Ошибка со status=unknown (обычно сканеры/боты) - только логируем локально
+                logger.info(f"Пропущена отправка в Telegram для frontend ошибки со status=unknown от {client_ip}")
+
+                # Отслеживаем подозрительный IP для автоматического бана
+                try:
+                    from utils.ip_ban_manager import get_ip_ban_manager
+                    ban_manager = get_ip_ban_manager()
+
+                    # Отслеживаем подозрительный запрос
+                    was_banned = await ban_manager.track_suspicious_request(
+                        ip=client_ip,
+                        reason=f"Frontend API error with unknown status"
+                    )
+
+                    if was_banned:
+                        logger.warning(f"IP {client_ip} был автоматически забанен за множественные подозрительные запросы")
+                except Exception as e:
+                    logger.error(f"Ошибка отслеживания подозрительного IP {client_ip}: {e}")
+            else:
+                # Отправляем ОДНО уведомление через централизованную систему
+                notify_error(
+                    exc_info=None,
+                    message=f"Frontend [{log_entry.context}]: {log_entry.message}",
+                    context={
+                        "source": "frontend",
+                        "client_ip": client_ip,
+                        "user_agent": log_entry.user_agent,
+                        "url": log_entry.url,
+                        "component": log_entry.context,
+                        "frontend_data": log_entry.data,
+                        "frontend_stack": log_entry.stack
+                    }
+                )
         
         # Логируем локально БЕЗ отправки в Telegram для всех уровней
         log_func(message, extra={**extra_data, "telegram_skip": True})

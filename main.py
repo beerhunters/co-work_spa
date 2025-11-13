@@ -52,6 +52,7 @@ from routes.frontend_logs import router as frontend_logs_router
 from routes.optimization import router as optimization_router
 from routes.cache import router as cache_router
 from routes.logging import router as logging_router
+from routes.ip_bans import router as ip_bans_router
 
 logger = get_logger(__name__)
 
@@ -293,6 +294,10 @@ app.add_middleware(SecurityHeadersMiddleware, enabled=True)
 app.add_middleware(RequestLoggingMiddleware, enabled=True)
 app.add_middleware(RateLimitMiddleware, enabled=True)
 
+# IP Ban middleware - проверяет забаненные IP перед обработкой запроса
+from utils.middleware import IPBanMiddleware
+app.add_middleware(IPBanMiddleware, enabled=True)
+
 # Настройка CORS (должен быть после других middleware)
 app.add_middleware(
     CORSMiddleware,
@@ -359,6 +364,7 @@ routers = [
     (optimization_router, "optimization"),
     (cache_router, "cache"),
     (logging_router, "logging"),
+    (ip_bans_router, "ip_bans"),
 ]
 
 for router, name in routers:

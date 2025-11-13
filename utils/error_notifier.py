@@ -150,6 +150,12 @@ class ErrorNotifier:
             logger.debug(f"Пропускаем уведомление для Network/Timeout ошибки: {error_type}")
             return False
 
+        # Фильтруем frontend ошибки с unknown status (сканеры/боты)
+        # Эти ошибки возникают когда сканеры пытаются загрузить сайт но не могут правильно обработать React
+        if 'frontend' in message.lower() and 'unknown' in message.lower():
+            logger.debug(f"Пропускаем frontend ошибку со status unknown (сканер/бот): {message[:100]}")
+            return False
+
         async with self._lock:
             # Создаем хэш для дедупликации
             error_hash = self._create_error_hash(error_type, message, module, function)
