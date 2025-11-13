@@ -39,6 +39,11 @@ celery_app.conf.update(
     task_default_retry_delay=60,  # 1 minute
     task_max_retries=3,
 
+    # Broker connection settings
+    broker_connection_retry=True,
+    broker_connection_retry_on_startup=True,  # Celery 6.0+ compatibility
+    broker_connection_max_retries=10,
+
     # Worker settings
     worker_max_tasks_per_child=1000,
     worker_disable_rate_limits=False,

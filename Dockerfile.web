@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Создаем пользователя приложения
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Создаем пользователя приложения с конкретным uid/gid для совместимости с Docker
+RUN groupadd -g 1000 appuser && useradd -u 1000 -g appuser -m -s /bin/bash appuser
 
 # Этап установки зависимостей
 FROM base AS dependencies
