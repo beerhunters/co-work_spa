@@ -1398,4 +1398,140 @@ export const adminApi = {
   }
 };
 
+// --------------------- API: IP Баны ---------------------
+export const ipBanApi = {
+  // Получение списка всех забаненных IP
+  getAll: async (limit = 100) => {
+    try {
+      const res = await apiClient.get('/ip-bans/', { params: { limit } });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения списка забаненных IP:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить список забаненных IP');
+    }
+  },
+
+  // Получение статуса конкретного IP
+  getStatus: async (ip) => {
+    try {
+      const res = await apiClient.get(`/ip-bans/${ip}/status`);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка получения статуса IP ${ip}:`, error);
+
+      if (error.response?.status === 404) {
+        return null; // IP не забанен
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось проверить статус IP');
+    }
+  },
+
+  // Бан IP адреса
+  ban: async (ip, reason = 'Manual ban', duration_type = 'day') => {
+    try {
+      const res = await apiClient.post(`/ip-bans/${ip}/ban`, {
+        ip,
+        reason,
+        duration_type
+      });
+      console.log('IP забанен:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка бана IP ${ip}:`, error);
+
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('already banned')) {
+        throw new Error('Этот IP адрес уже забанен');
+      } else if (detail?.includes('Invalid duration_type')) {
+        throw new Error('Неверный тип длительности бана');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось забанить IP');
+    }
+  },
+
+  // Разбан IP адреса
+  unban: async (ip) => {
+    try {
+      const res = await apiClient.post(`/ip-bans/${ip}/unban`);
+      console.log('IP разбанен:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error(`Ошибка разбана IP ${ip}:`, error);
+
+      const detail = error.response?.data?.detail;
+      if (detail?.includes('not banned')) {
+        throw new Error('Этот IP адрес не забанен');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось разбанить IP');
+    }
+  },
+
+  // Получение статистики банов
+  getStats: async () => {
+    try {
+      const res = await apiClient.get('/ip-bans/stats');
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения статистики банов:', error);
+
+      // Fallback данные при ошибке
+      return {
+        redis_available: false,
+        total_banned: 0,
+        total_tracked: 0,
+        error: error.message
+      };
+    }
+  },
+
+  // Получение доступных градаций длительности
+  getDurations: async () => {
+    try {
+      const res = await apiClient.get('/ip-bans/durations');
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка получения градаций длительности:', error);
+
+      // Fallback данные
+      return {
+        success: true,
+        durations: [
+          { type: 'hour', label: '1 час', seconds: 3600 },
+          { type: 'day', label: '1 день', seconds: 86400 },
+          { type: 'week', label: '1 неделя', seconds: 604800 },
+          { type: 'month', label: '1 месяц', seconds: 2592000 },
+          { type: 'permanent', label: 'Навсегда (1 год)', seconds: 31536000 }
+        ]
+      };
+    }
+  },
+
+  // Очистка всех банов
+  clearAll: async () => {
+    try {
+      const res = await apiClient.delete('/ip-bans/clear-all');
+      console.log('Все баны очищены:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка очистки всех банов:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось очистить баны');
+    }
+  },
+
+  // Экспорт в nginx конфигурацию
+  exportToNginx: async () => {
+    try {
+      const res = await apiClient.post('/ip-bans/export-nginx');
+      console.log('Экспорт в nginx выполнен:', res.data);
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка экспорта в nginx:', error);
+      throw new Error(error.response?.data?.detail || 'Не удалось экспортировать в nginx');
+    }
+  }
+};
+
 export default apiClient;

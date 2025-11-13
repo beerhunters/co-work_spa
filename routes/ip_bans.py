@@ -8,11 +8,11 @@ from pydantic import BaseModel, Field, IPvAnyAddress
 
 from dependencies import verify_token_with_permissions, CachedAdmin
 from models.models import Permission
-from utils.ip_ban_manager import get_ip_ban_manager
+from utils.ip_ban_manager import get_ip_ban_manager, BAN_DURATIONS
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/api/ip-bans", tags=["ip-bans"])
+router = APIRouter(prefix="/ip-bans", tags=["ip-bans"])
 
 
 # Pydantic схемы
@@ -20,7 +20,10 @@ class BanIPRequest(BaseModel):
     """Запрос на бан IP"""
     ip: str = Field(..., description="IP адрес для бана")
     reason: str = Field(default="Manual ban", description="Причина бана")
-    duration: int = Field(default=86400, ge=60, le=2592000, description="Длительность бана в секундах (1 мин - 30 дней)")
+    duration_type: str = Field(
+        default="day",
+        description="Тип длительности бана (hour, day, week, month, permanent)"
+    )
 
 
 class UnbanIPRequest(BaseModel):
@@ -34,6 +37,7 @@ class IPBanInfo(BaseModel):
     reason: str
     banned_at: str
     duration: int
+    duration_type: Optional[str] = None
     manual: bool
     admin: Optional[str] = None
     unbanned_at: Optional[str] = None
@@ -49,6 +53,49 @@ class IPBanStats(BaseModel):
     tracking_window: Optional[int] = None
     max_suspicious_requests: Optional[int] = None
     error: Optional[str] = None
+
+
+@router.get("/durations")
+async def get_ban_durations(
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.MANAGE_LOGGING]))
+):
+    """
+    Получает доступные градации длительности банов
+
+    Требуется разрешение: MANAGE_LOGGING
+    """
+    durations = [
+        {
+            "type": "hour",
+            "label": "1 час",
+            "seconds": BAN_DURATIONS['hour']
+        },
+        {
+            "type": "day",
+            "label": "1 день",
+            "seconds": BAN_DURATIONS['day']
+        },
+        {
+            "type": "week",
+            "label": "1 неделя",
+            "seconds": BAN_DURATIONS['week']
+        },
+        {
+            "type": "month",
+            "label": "1 месяц",
+            "seconds": BAN_DURATIONS['month']
+        },
+        {
+            "type": "permanent",
+            "label": "Навсегда (1 год)",
+            "seconds": BAN_DURATIONS['permanent']
+        }
+    ]
+
+    return {
+        "success": True,
+        "durations": durations
+    }
 
 
 @router.get("/", response_model=List[IPBanInfo])
@@ -119,7 +166,14 @@ async def ban_ip(
 
         # Используем данные из request или значения по умолчанию
         reason = request.reason if request else "Manual ban"
-        duration = request.duration if request else 86400
+        duration_type = request.duration_type if request else "day"
+
+        # Валидируем duration_type
+        if duration_type not in BAN_DURATIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid duration_type. Must be one of: {', '.join(BAN_DURATIONS.keys())}"
+            )
 
         # Проверяем, не забанен ли уже
         if await ban_manager.is_banned(ip):
@@ -129,7 +183,7 @@ async def ban_ip(
         success = await ban_manager.ban_ip(
             ip=ip,
             reason=reason,
-            duration=duration,
+            duration_type=duration_type,
             manual=True,
             admin=current_admin.login
         )
@@ -137,13 +191,15 @@ async def ban_ip(
         if not success:
             raise HTTPException(status_code=500, detail="Failed to ban IP")
 
-        logger.info(f"Админ {current_admin.login} забанил IP {ip} на {duration}s. Причина: {reason}")
+        duration_seconds = BAN_DURATIONS[duration_type]
+        logger.info(f"Админ {current_admin.login} забанил IP {ip} на {duration_type} ({duration_seconds}s). Причина: {reason}")
 
         return {
             "success": True,
-            "message": f"IP {ip} has been banned for {duration} seconds",
+            "message": f"IP {ip} has been banned ({duration_type})",
             "ip": ip,
-            "duration": duration,
+            "duration_type": duration_type,
+            "duration_seconds": duration_seconds,
             "reason": reason,
             "admin": current_admin.login
         }
@@ -248,3 +304,43 @@ async def clear_all_bans(
     except Exception as e:
         logger.error(f"Ошибка очистки всех банов: {e}")
         raise HTTPException(status_code=500, detail="Failed to clear bans")
+
+
+@router.post("/export-nginx")
+async def export_to_nginx(
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.MANAGE_LOGGING]))
+):
+    """
+    Экспортирует забаненные IP в конфигурационный файл nginx
+
+    Требуется разрешение: MANAGE_LOGGING
+    """
+    try:
+        ban_manager = get_ip_ban_manager()
+
+        result = await ban_manager.export_to_nginx()
+
+        if result.get("success"):
+            logger.info(
+                f"Админ {current_admin.login} экспортировал {result.get('exported_count')} "
+                f"забаненных IP в nginx конфиг"
+            )
+
+            return {
+                "success": True,
+                "message": result.get("message"),
+                "exported_count": result.get("exported_count"),
+                "file_path": result.get("file_path"),
+                "admin": current_admin.login
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail=result.get("message", "Failed to export to nginx")
+            )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка экспорта в nginx: {e}")
+        raise HTTPException(status_code=500, detail="Failed to export to nginx")

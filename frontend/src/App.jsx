@@ -30,6 +30,7 @@ import CacheManager from './sections/CacheManager';
 import Performance from './sections/Performance';
 import ApiKeys from './sections/ApiKeys';
 import Logging from './sections/Logging';
+import IPBans from './sections/IPBans';
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -1127,6 +1128,8 @@ function App() {
         return <ApiKeys currentAdmin={currentAdmin} />;
       case 'logging':
         return <Logging currentAdmin={currentAdmin} />;
+      case 'ip-bans':
+        return <IPBans currentAdmin={currentAdmin} />;
       case 'backups':
         return <Backups currentAdmin={currentAdmin} />;
       default:

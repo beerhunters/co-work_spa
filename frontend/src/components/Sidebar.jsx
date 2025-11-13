@@ -34,6 +34,7 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
     { icon: FiLayers, label: 'Кэш', section: 'cache', color: 'blue' },
     { icon: FiCpu, label: 'Производительность', section: 'performance', color: 'purple' },
     { icon: FiFileText, label: 'Логирование', section: 'logging', color: 'gray' },
+    { icon: FiShield, label: 'IP Баны', section: 'ip-bans', color: 'red' },
     { icon: FiKey, label: 'API ключи', section: 'api-keys', color: 'orange' },
     { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple' },
     { icon: FiDatabase, label: 'Бэкапы', section: 'backups', color: 'red' },
