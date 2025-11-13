@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   VStack,
@@ -55,7 +55,8 @@ import {
   FiUnlock,
   FiTrash2,
   FiAlertTriangle,
-  FiDownload
+  FiDownload,
+  FiZap
 } from 'react-icons/fi';
 import { ipBanApi } from '../utils/api';
 import { createLogger } from '../utils/logger.js';
@@ -84,10 +85,36 @@ const IPBans = ({ currentAdmin }) => {
 
   const toast = useToast();
   const cancelRef = React.useRef();
+  const intervalRef = useRef(null);
+
+  // Auto-refresh states
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(null);
 
   useEffect(() => {
     loadData();
   }, []);
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (autoRefresh) {
+      intervalRef.current = setInterval(loadData, 30000); // 30 seconds
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [autoRefresh]);
+
+  // Toggle auto-refresh function
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(!autoRefresh);
+    if (!autoRefresh) {
+      loadData(); // Refresh immediately when enabling
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -102,6 +129,7 @@ const IPBans = ({ currentAdmin }) => {
       setBannedIPs(Array.isArray(bannedIPsData) ? bannedIPsData : []);
       setStats(statsData);
       setDurations(durationsData.durations || []);
+      setLastUpdate(new Date().toISOString());
 
       logger.info('IP ban data loaded successfully');
     } catch (error) {
@@ -289,6 +317,15 @@ const IPBans = ({ currentAdmin }) => {
               Обновить
             </Button>
             <Button
+              leftIcon={<FiZap />}
+              onClick={toggleAutoRefresh}
+              colorScheme={autoRefresh ? 'green' : 'gray'}
+              variant={autoRefresh ? 'solid' : 'outline'}
+              size="md"
+            >
+              {autoRefresh ? 'Авто' : 'Ручное'}
+            </Button>
+            <Button
               leftIcon={<FiLock />}
               colorScheme="red"
               onClick={onBanOpen}
@@ -441,6 +478,14 @@ const IPBans = ({ currentAdmin }) => {
             )}
           </CardBody>
         </Card>
+
+        {/* Футер с информацией об обновлении */}
+        {lastUpdate && (
+          <Text fontSize="sm" color="gray.500" textAlign="center">
+            Последнее обновление: {new Date(lastUpdate).toLocaleString()}
+            {autoRefresh && ' • Автообновление включено (каждые 30 секунд)'}
+          </Text>
+        )}
       </VStack>
 
       {/* Модалка бана IP */}

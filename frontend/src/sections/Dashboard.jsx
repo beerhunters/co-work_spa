@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Box, VStack, SimpleGrid, Card, CardBody, CardHeader, Flex, Heading,
   Text, HStack, Icon, Stat, StatLabel, StatNumber, StatHelpText,
@@ -9,7 +9,7 @@ import {
   Input, InputGroup, InputLeftElement, Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
   Menu, MenuButton, MenuList, MenuItem
 } from '@chakra-ui/react';
-import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload } from 'react-icons/fi';
+import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload, FiZap } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
 import { colors, sizes, styles, typography, spacing } from '../styles/styles';
 import { createLogger } from '../utils/logger.js';
@@ -114,6 +114,8 @@ const Dashboard = ({
   // Состояния для обновления данных
   const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const intervalRef = useRef(null);
   const toast = useToast();
 
   // Состояния для управления видимостью линий графика
@@ -494,6 +496,46 @@ const Dashboard = ({
       });
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  // Автоматическое обновление только видимых данных (без toast уведомлений)
+  const refreshVisibleData = async () => {
+    try {
+      logger.debug('Auto-refresh: обновление видимых данных');
+
+      // Всегда обновляем stats через событие для родительского компонента
+      window.dispatchEvent(new Event('refresh-dashboard-stats'));
+
+      // Обновляем график только если аккордеон открыт
+      if (isChartOpen && selectedPeriod.year && selectedPeriod.month) {
+        if (isCompareMode && comparePeriod.year && comparePeriod.month) {
+          await loadComparisonData();
+        } else {
+          await loadChartData(selectedPeriod.year, selectedPeriod.month);
+        }
+      }
+
+      // Обновляем календарь бронирований только если открыт
+      if (isCalendarOpen) {
+        await loadBookingsData(calendarDate.getFullYear(), calendarDate.getMonth() + 1);
+      }
+
+      // Обновляем timestamp
+      setLastRefreshTime(new Date());
+
+      logger.debug('Auto-refresh: данные успешно обновлены');
+    } catch (error) {
+      logger.error('Auto-refresh: ошибка при обновлении данных:', error);
+      // При автообновлении не показываем toast об ошибке, только логируем
+    }
+  };
+
+  // Переключение автообновления
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(!autoRefresh);
+    if (!autoRefresh) {
+      refreshVisibleData(); // Обновляем сразу при включении
     }
   };
 
@@ -887,6 +929,19 @@ const Dashboard = ({
     }
   }, [section, isCalendarOpen, calendarDate, loadBookingsData]);
 
+  // Автообновление каждые 60 секунд
+  useEffect(() => {
+    if (autoRefresh && section === 'dashboard') {
+      intervalRef.current = setInterval(refreshVisibleData, 60000); // 60 seconds
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [autoRefresh, section, isChartOpen, isCalendarOpen, selectedPeriod, comparePeriod, isCompareMode, calendarDate]);
+
   // Функции для навигации по календарю
   const navigateMonth = (direction) => {
     const newDate = new Date(calendarDate);
@@ -1039,6 +1094,17 @@ const Dashboard = ({
                   transition: 'all 0.3s ease'
                 }}
               />
+            </Tooltip>
+            <Tooltip label={autoRefresh ? "Автообновление включено (каждые 60 сек)" : "Включить автообновление"} placement="left">
+              <Button
+                leftIcon={<Icon as={FiZap} />}
+                onClick={toggleAutoRefresh}
+                colorScheme={autoRefresh ? 'green' : 'gray'}
+                variant={autoRefresh ? 'solid' : 'outline'}
+                size="sm"
+              >
+                {autoRefresh ? 'Авто' : 'Ручное'}
+              </Button>
             </Tooltip>
           </HStack>
         </Flex>
