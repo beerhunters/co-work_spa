@@ -90,35 +90,39 @@ class SystemStatusManager:
         )
     
     async def _check_and_notify_if_all_ready(self):
-        """Проверяет готовность всех компонентов и отправляет уведомление"""
+        """Проверяет готовность всех компонентов (БЕЗ отправки уведомления при нормальном запуске)"""
         status = self._load_status()
-        
+
         # Если уведомление уже отправлено, не делаем ничего
         if status.get("notification_sent", False):
             return
-        
+
         # Проверяем, готовы ли все компоненты
         ready_components = []
         for component in self.components:
             if component in status["components"] and status["components"][component].get("ready", False):
                 ready_components.append(component)
-        
+
         logger.info(f"Готовые компоненты: {ready_components} из {self.components}")
-        
+
         # Если все компоненты готовы
         if len(ready_components) == len(self.components):
-            await self._send_system_ready_notification(status, ready_components)
-            
+            # ИЗМЕНЕНО: НЕ отправляем уведомление при нормальном запуске
+            # await self._send_system_ready_notification(status, ready_components)
+            logger.info("Все компоненты готовы (уведомление не отправляется)")
+
             # Помечаем как отправленное
             status["notification_sent"] = True
             status["all_ready"] = True
             status["ready_time"] = datetime.now().isoformat()
             self._save_status(status)
-            
+
         # Проверяем таймаут
         elif self._is_startup_timeout(status):
-            await self._send_partial_ready_notification(status, ready_components)
-            
+            # ИЗМЕНЕНО: НЕ отправляем уведомление о частичной готовности
+            # await self._send_partial_ready_notification(status, ready_components)
+            logger.warning(f"Таймаут запуска достигнут. Готовые компоненты: {ready_components}")
+
             # Помечаем как отправленное (чтобы не спамить)
             status["notification_sent"] = True
             self._save_status(status)
@@ -238,6 +242,115 @@ class SystemStatusManager:
             except Exception as e:
                 logger.error(f"Ошибка очистки старого статуса: {e}")
 
+    def detect_unexpected_shutdown(self) -> Optional[Dict]:
+        """
+        Обнаруживает неожиданное завершение системы (краш)
+
+        Возвращает информацию о крахе если:
+        - Файл статуса существует
+        - Компоненты были помечены как готовые (all_ready=True)
+        - Уведомление о завершении не было отправлено
+
+        Returns:
+            Dict с информацией о крахе или None если краш не обнаружен
+        """
+        if not self.status_file.exists():
+            logger.debug("Файл статуса не найден - нормальный старт")
+            return None
+
+        try:
+            status = self._load_status()
+
+            # Проверяем, был ли краш
+            was_ready = status.get("all_ready", False)
+            shutdown_sent = status.get("shutdown_sent", False)
+
+            if was_ready and not shutdown_sent:
+                logger.warning("Обнаружено неожиданное завершение системы!")
+                return status
+
+            logger.debug("Предыдущее завершение было нормальным")
+            return None
+
+        except Exception as e:
+            logger.error(f"Ошибка проверки на неожиданное завершение: {e}")
+            return None
+
+    async def send_unexpected_shutdown_notification(self, crash_info: Dict):
+        """
+        Отправляет уведомление о неожиданном завершении системы (краш)
+
+        Args:
+            crash_info: Информация о статусе системы до краша
+        """
+        if not self._is_telegram_enabled():
+            logger.info("Telegram уведомления отключены")
+            return
+
+        try:
+            bot = get_bot()
+            if not bot:
+                logger.error("Не удалось получить экземпляр бота")
+                return
+
+            env_text = "🏭 PRODUCTION" if ENVIRONMENT == "production" else "🧪 DEVELOPMENT"
+            moscow_time = datetime.now(MOSCOW_TZ)
+
+            # Вычисляем время простоя
+            ready_time_str = crash_info.get("ready_time")
+            downtime_text = ""
+
+            if ready_time_str:
+                try:
+                    ready_time = datetime.fromisoformat(ready_time_str)
+                    downtime = datetime.now() - ready_time
+                    hours = int(downtime.total_seconds() // 3600)
+                    minutes = int((downtime.total_seconds() % 3600) // 60)
+
+                    if hours > 0:
+                        downtime_text = f"\n⏱️ <b>Простой:</b> ~{hours}ч {minutes}мин"
+                    else:
+                        downtime_text = f"\n⏱️ <b>Простой:</b> ~{minutes} мин"
+                except Exception as e:
+                    logger.error(f"Ошибка вычисления времени простоя: {e}")
+
+            # Формируем список работавших компонентов
+            components_info = ""
+            if crash_info.get("components"):
+                components_info = "\n\n💥 <b>Работавшие компоненты до краша:</b>\n"
+                for component, data in crash_info["components"].items():
+                    if data.get("ready", False):
+                        if component == "web":
+                            icon = "🌐"
+                            name = "Web API"
+                        elif component == "bot":
+                            icon = "🤖"
+                            name = "Telegram Bot"
+                        else:
+                            icon = "⚙️"
+                            name = component.title()
+
+                        components_info += f"  {icon} {name}\n"
+
+            message = f"🔴 <b>НЕОЖИДАННОЕ ЗАВЕРШЕНИЕ СИСТЕМЫ</b> {env_text}\n\n"
+            message += f"🕐 <b>Обнаружено:</b> {moscow_time.strftime('%Y-%m-%d %H:%M:%S')} (МСК)"
+            message += downtime_text
+            message += components_info
+            message += f"\n\n⚠️ <b>Причина:</b> Краш или принудительная остановка"
+            message += f"\n🔄 <b>Статус:</b> Система перезапускается..."
+
+            await bot.send_message(
+                chat_id=FOR_LOGS,
+                text=message,
+                parse_mode='HTML',
+                disable_web_page_preview=True
+            )
+
+            logger.info("Уведомление о неожиданном завершении отправлено")
+
+        except Exception as e:
+            logger.error(f"Ошибка отправки уведомления о крахе: {e}")
+
 # Глобальный экземпляр менеджера
 _system_manager = SystemStatusManager()
 
@@ -249,35 +362,43 @@ def cleanup_system_status():
     """Очищает статус системы (вызывать при новом запуске)"""
     _system_manager.cleanup_old_status()
 
+def detect_unexpected_shutdown() -> Optional[Dict]:
+    """
+    Проверяет, было ли предыдущее завершение неожиданным (краш)
+
+    Returns:
+        Dict с информацией о крахе или None если краш не обнаружен
+    """
+    return _system_manager.detect_unexpected_shutdown()
+
+async def send_unexpected_shutdown_notification(crash_info: Dict):
+    """
+    Отправляет уведомление о неожиданном завершении системы
+
+    Args:
+        crash_info: Информация о статусе системы до краша
+    """
+    await _system_manager.send_unexpected_shutdown_notification(crash_info)
+
 async def send_system_shutdown_notification() -> bool:
-    """Отправляет уведомление об остановке системы"""
-    if not _system_manager._is_telegram_enabled():
-        return False
-    
+    """
+    Отмечает завершение как нормальное (graceful shutdown)
+    БЕЗ отправки уведомления - уведомления теперь только для крахов
+    """
     try:
-        bot = get_bot()
-        if not bot:
-            return False
-        
-        env_text = "🏭 PRODUCTION" if ENVIRONMENT == "production" else "🧪 DEVELOPMENT"
-        moscow_time = datetime.now(MOSCOW_TZ)
-        
-        message = f"⏹️ <b>ОСТАНОВКА СИСТЕМЫ</b> {env_text}\n\n"
-        message += f"🕐 <b>Время:</b> {moscow_time.strftime('%Y-%m-%d %H:%M:%S')} (МСК)\n"
-        message += f"📊 <b>Среда:</b> {ENVIRONMENT}\n"
-        
-        await bot.send_message(
-            chat_id=FOR_LOGS,
-            text=message,
-            parse_mode='HTML',
-            disable_web_page_preview=True
-        )
-        
-        # Очищаем статус после отправки
+        # Помечаем завершение как нормальное
+        status = _system_manager._load_status()
+        status["shutdown_sent"] = True
+        status["shutdown_time"] = datetime.now().isoformat()
+        _system_manager._save_status(status)
+
+        logger.info("Завершение работы помечено как нормальное")
+
+        # Очищаем статус после маркировки
         _system_manager.cleanup_old_status()
-        
+
         return True
-        
+
     except Exception as e:
-        logger.error(f"Ошибка отправки уведомления об остановке системы: {e}")
+        logger.error(f"Ошибка маркировки нормального завершения: {e}")
         return False

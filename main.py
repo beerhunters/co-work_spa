@@ -68,12 +68,26 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🔄 Настройка централизованной системы уведомлений...")
         from utils.init_notifications import init_error_notifications
-        from utils.system_status import register_component_startup, cleanup_system_status
-        
+        from utils.system_status import (
+            register_component_startup,
+            cleanup_system_status,
+            detect_unexpected_shutdown,
+            send_unexpected_shutdown_notification
+        )
+
         # Настраиваем централизованную систему
         init_success = init_error_notifications()
         logger.info(f"📋 Инициализация системы уведомлений: {'успешно' if init_success else 'неудачно'}")
-        
+
+        # Проверяем на неожиданное завершение ПЕРЕД очисткой статуса
+        crash_info = detect_unexpected_shutdown()
+        if crash_info:
+            logger.warning("🔴 Обнаружено неожиданное завершение системы в предыдущем запуске!")
+            await send_unexpected_shutdown_notification(crash_info)
+            logger.info("📱 Уведомление о крахе отправлено")
+        else:
+            logger.info("✅ Предыдущее завершение было нормальным (или первый запуск)")
+
         # Очищаем старый статус и регистрируем готовность web компонента
         cleanup_system_status()
         register_component_startup("web")
@@ -215,17 +229,18 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("Завершение приложения...")
-    
-    # Отправляем уведомление об остановке системы в Telegram
+
+    # Помечаем остановку как нормальную (graceful shutdown)
+    # Уведомление НЕ отправляется - уведомления теперь только для неожиданных завершений
     try:
-        logger.info("🔄 Попытка отправить уведомление об остановке системы в Telegram...")
+        logger.info("🔄 Маркировка нормального завершения системы...")
         from utils.system_status import send_system_shutdown_notification
         result = await send_system_shutdown_notification()
-        logger.info(f"📱 Результат отправки уведомления об остановке системы: {result}")
+        logger.info(f"📱 Завершение помечено как нормальное: {result}")
     except Exception as e:
-        logger.warning(f"Не удалось отправить уведомление об остановке системы: {e}")
+        logger.warning(f"Не удалось пометить нормальное завершение: {e}")
         import traceback
-        logger.error(f"Трассировка ошибки уведомления об остановке: {traceback.format_exc()}")
+        logger.error(f"Трассировка ошибки маркировки завершения: {traceback.format_exc()}")
 
     try:
         await stop_cache_cleanup()
