@@ -114,7 +114,7 @@ const Dashboard = ({
   // Состояния для обновления данных
   const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(false);
   const intervalRef = useRef(null);
   const toast = useToast();
 
