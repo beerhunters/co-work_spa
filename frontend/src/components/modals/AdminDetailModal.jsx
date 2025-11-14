@@ -303,6 +303,7 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
       'view_users': 'Просмотр пользователей',
       'edit_users': 'Редактирование пользователей',
       'delete_users': 'Удаление пользователей',
+      'ban_users': 'Бан пользователей',
       'view_newsletters': 'Просмотр рассылок',
       'send_newsletters': 'Отправка рассылок',
       'manage_newsletters': 'Управление рассылками',

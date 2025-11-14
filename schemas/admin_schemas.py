@@ -14,6 +14,7 @@ class PermissionEnum(str, Enum):
     VIEW_USERS = "view_users"
     EDIT_USERS = "edit_users"
     DELETE_USERS = "delete_users"
+    BAN_USERS = "ban_users"
 
     # Бронирования
     VIEW_BOOKINGS = "view_bookings"
@@ -142,6 +143,7 @@ class AvailablePermissions(BaseModel):
             "view_users": "Просмотр пользователей",
             "edit_users": "Редактирование пользователей",
             "delete_users": "Удаление пользователей",
+            "ban_users": "Бан пользователей",
             # Бронирования
             "view_bookings": "Просмотр бронирований",
             "edit_bookings": "Редактирование бронирований",
@@ -185,6 +187,7 @@ class AvailablePermissions(BaseModel):
             "view_users": "Пользователи",
             "edit_users": "Пользователи",
             "delete_users": "Пользователи",
+            "ban_users": "Пользователи",
             "view_bookings": "Бронирования",
             "edit_bookings": "Бронирования",
             "delete_bookings": "Бронирования",
