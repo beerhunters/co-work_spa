@@ -225,7 +225,8 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
   const handleCancel = () => {
     if (isCreateMode) {
       handleClose();
-    } else {
+    } else if (isEditing) {
+      // Отменяем редактирование - сбрасываем форму
       setFormData({
         login: admin.login || '',
         password: '',
@@ -234,6 +235,9 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
       });
       setErrors({});
       setIsEditing(false);
+    } else {
+      // Режим просмотра - закрываем окно
+      handleClose();
     }
   };
 
@@ -300,16 +304,48 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
   // Простая группировка разрешений (если нет категорий в API)
   const getPermissionLabel = (permission) => {
     const labels = {
+      // Пользователи
       'view_users': 'Просмотр пользователей',
       'edit_users': 'Редактирование пользователей',
       'delete_users': 'Удаление пользователей',
       'ban_users': 'Бан пользователей',
+      // Бронирования
+      'view_bookings': 'Просмотр бронирований',
+      'create_bookings': 'Создание бронирований',
+      'edit_bookings': 'Редактирование бронирований',
+      'delete_bookings': 'Удаление бронирований',
+      'confirm_bookings': 'Подтверждение бронирований',
+      // Тарифы
+      'view_tariffs': 'Просмотр тарифов',
+      'create_tariffs': 'Создание тарифов',
+      'edit_tariffs': 'Редактирование тарифов',
+      'delete_tariffs': 'Удаление тарифов',
+      // Промокоды
+      'view_promocodes': 'Просмотр промокодов',
+      'create_promocodes': 'Создание промокодов',
+      'edit_promocodes': 'Редактирование промокодов',
+      'delete_promocodes': 'Удаление промокодов',
+      // Тикеты
+      'view_tickets': 'Просмотр тикетов',
+      'edit_tickets': 'Редактирование тикетов',
+      'delete_tickets': 'Удаление тикетов',
+      // Уведомления
+      'view_notifications': 'Просмотр уведомлений',
+      'manage_notifications': 'Управление уведомлениями',
+      // Рассылки
       'view_newsletters': 'Просмотр рассылок',
       'send_newsletters': 'Отправка рассылок',
       'manage_newsletters': 'Управление рассылками',
-      'view_notifications': 'Просмотр уведомлений',
-      'send_notifications': 'Отправка уведомлений',
-      'manage_notifications': 'Управление уведомлениями',
+      // Администраторы
+      'manage_admins': 'Управление администраторами',
+      // Дашборд
+      'view_dashboard': 'Просмотр дашборда',
+      // Логирование
+      'view_logs': 'Просмотр логов',
+      'manage_logging': 'Управление логированием',
+      // Бэкапы
+      'manage_backups': 'Управление бэкапами',
+      // Системные
       'view_analytics': 'Просмотр аналитики',
       'export_data': 'Экспорт данных',
       'manage_system': 'Управление системой'
