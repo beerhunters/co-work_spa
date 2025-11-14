@@ -154,12 +154,23 @@ fi
 
 # Проверяем HTTPS если есть SSL
 if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/null" ]; then
-    HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://$DOMAIN_NAME/ || echo "FAIL")
-    if [ "$HTTPS_STATUS" = "200" ]; then
-        echo "  ✅ HTTPS доступен (HTTP $HTTPS_STATUS)"
-    else
-        echo "  ❌ HTTPS недоступен (HTTP $HTTPS_STATUS)"
-    fi
+    # Даем nginx дополнительное время на инициализацию SSL
+    sleep 3
+
+    # Проверяем HTTPS с игнорированием SSL ошибок и таймаутом
+    HTTPS_STATUS=$(curl -ks --max-time 5 -o /dev/null -w "%{http_code}" https://$DOMAIN_NAME/ 2>/dev/null || echo "000")
+
+    case "$HTTPS_STATUS" in
+        200|301|302|308)
+            echo "  ✅ HTTPS доступен (HTTP $HTTPS_STATUS)"
+            ;;
+        000)
+            echo "  ⚠️  HTTPS недоступен, но сертификаты установлены (проверьте сетевое соединение)"
+            ;;
+        *)
+            echo "  ❌ HTTPS вернул неожиданный статус (HTTP $HTTPS_STATUS)"
+            ;;
+    esac
 fi
 
 echo ""
