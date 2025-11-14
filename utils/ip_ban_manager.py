@@ -22,30 +22,28 @@ TRACKING_WINDOW = 3600  # Окно отслеживания в секундах 
 
 # Предустановленные длительности банов (градации)
 BAN_DURATIONS = {
-    'hour': 3600,        # 1 час
-    'day': 86400,        # 1 день (24 часа)
-    'week': 604800,      # 1 неделя (7 дней)
-    'month': 2592000,    # 1 месяц (30 дней)
-    'permanent': 31536000  # 1 год (~навсегда)
+    "hour": 3600,  # 1 час
+    "day": 86400,  # 1 день (24 часа)
+    "week": 604800,  # 1 неделя (7 дней)
+    "month": 2592000,  # 1 месяц (30 дней)
+    "permanent": 31536000,  # 1 год (~навсегда)
 }
 
 # Whitelist IP адресов, которые никогда не банятся
-WHITELIST_IPS = [
-    '127.0.0.1',
-    'localhost',
-    '::1',
-]
+WHITELIST_IPS = ["127.0.0.1", "localhost", "::1", "185.115.98.132"]
 
 # Whitelist подсетей (Docker networks и т.д.)
 WHITELIST_PREFIXES = [
-    '172.',  # Docker default network
-    '10.',   # Private network
-    '192.168.',  # Private network
+    "172.",  # Docker default network
+    "10.",  # Private network
+    "192.168.",  # Private network
 ]
 
 # Настройки уведомлений в Telegram
 TELEGRAM_NOTIFICATION_ENABLED = True  # Включить/выключить уведомления
-TELEGRAM_NOTIFICATION_THROTTLE = 300  # Минимальный интервал между уведомлениями в секундах (5 минут)
+TELEGRAM_NOTIFICATION_THROTTLE = (
+    300  # Минимальный интервал между уведомлениями в секундах (5 минут)
+)
 
 
 class IPBanManager:
@@ -69,7 +67,7 @@ class IPBanManager:
                     encoding="utf-8",
                     decode_responses=True,
                     socket_connect_timeout=2,
-                    socket_timeout=2
+                    socket_timeout=2,
                 )
                 # Проверяем подключение
                 await self._redis.ping()
@@ -144,7 +142,9 @@ class IPBanManager:
                 # Получаем TTL для вычисления времени разбана
                 ttl = await redis_client.ttl(key)
                 if ttl > 0:
-                    ban_info["unbanned_at"] = (datetime.now() + timedelta(seconds=ttl)).isoformat()
+                    ban_info["unbanned_at"] = (
+                        datetime.now() + timedelta(seconds=ttl)
+                    ).isoformat()
                     ban_info["seconds_remaining"] = ttl
 
                 return ban_info
@@ -154,8 +154,15 @@ class IPBanManager:
             logger.error(f"Ошибка получения информации о бане для {ip}: {e}")
             return None
 
-    async def ban_ip(self, ip: str, reason: str = "Suspicious activity", duration: int = None,
-                     duration_type: str = 'day', manual: bool = False, admin: str = None) -> bool:
+    async def ban_ip(
+        self,
+        ip: str,
+        reason: str = "Suspicious activity",
+        duration: int = None,
+        duration_type: str = "day",
+        manual: bool = False,
+        admin: str = None,
+    ) -> bool:
         """
         Банит IP адрес
 
@@ -181,7 +188,7 @@ class IPBanManager:
 
         # Определяем длительность бана
         if duration is None:
-            duration = BAN_DURATIONS.get(duration_type, BAN_DURATIONS['day'])
+            duration = BAN_DURATIONS.get(duration_type, BAN_DURATIONS["day"])
 
         try:
             key = f"{self.BAN_KEY_PREFIX}{ip}"
@@ -191,9 +198,9 @@ class IPBanManager:
                 "reason": reason,
                 "banned_at": datetime.now().isoformat(),
                 "duration": duration,
-                "duration_type": duration_type if duration is None else 'custom',
+                "duration_type": duration_type if duration is None else "custom",
                 "manual": manual,
-                "admin": admin
+                "admin": admin,
             }
 
             # Сохраняем с TTL
@@ -240,7 +247,9 @@ class IPBanManager:
             await redis_client.delete(suspicious_key)
 
             if result:
-                logger.info(f"IP {ip} разбанен{f' администратором {admin}' if admin else ''}")
+                logger.info(
+                    f"IP {ip} разбанен{f' администратором {admin}' if admin else ''}"
+                )
                 return True
             else:
                 logger.info(f"IP {ip} не был забанен")
@@ -249,7 +258,9 @@ class IPBanManager:
             logger.error(f"Ошибка разбана IP {ip}: {e}")
             return False
 
-    async def track_suspicious_request(self, ip: str, reason: str = "Unknown API error") -> bool:
+    async def track_suspicious_request(
+        self, ip: str, reason: str = "Unknown API error"
+    ) -> bool:
         """
         Отслеживает подозрительный запрос от IP
 
@@ -284,18 +295,19 @@ class IPBanManager:
             if count == 1:
                 await redis_client.expire(key, TRACKING_WINDOW)
 
-            logger.info(f"Подозрительный запрос от {ip}: {reason}. Счетчик: {count}/{MAX_SUSPICIOUS_REQUESTS}")
+            logger.info(
+                f"Подозрительный запрос от {ip}: {reason}. Счетчик: {count}/{MAX_SUSPICIOUS_REQUESTS}"
+            )
 
             # Если превышен порог, баним
             if count >= MAX_SUSPICIOUS_REQUESTS:
-                logger.warning(f"IP {ip} превысил порог подозрительных запросов ({count}). Выполняется автобан.")
+                logger.warning(
+                    f"IP {ip} превысил порог подозрительных запросов ({count}). Выполняется автобан."
+                )
 
                 ban_reason = f"Auto-ban: {count} suspicious requests ({reason})"
                 await self.ban_ip(
-                    ip=ip,
-                    reason=ban_reason,
-                    duration=BAN_DURATION,
-                    manual=False
+                    ip=ip, reason=ban_reason, duration=BAN_DURATION, manual=False
                 )
 
                 # Отправляем уведомление в Telegram
@@ -308,7 +320,9 @@ class IPBanManager:
             logger.error(f"Ошибка отслеживания подозрительного запроса от {ip}: {e}")
             return False
 
-    async def _send_telegram_notification(self, ip: str, reason: str, count: int) -> None:
+    async def _send_telegram_notification(
+        self, ip: str, reason: str, count: int
+    ) -> None:
         """
         Отправляет уведомление в Telegram об автобане IP с throttling
 
@@ -335,7 +349,9 @@ class IPBanManager:
             last_sent = await redis_client.get(notification_key)
 
             if last_sent:
-                logger.debug(f"Уведомление об автобане пропущено из-за throttling (последнее отправлено {last_sent})")
+                logger.debug(
+                    f"Уведомление об автобане пропущено из-за throttling (последнее отправлено {last_sent})"
+                )
                 return
 
             # Отправляем уведомление
@@ -351,22 +367,24 @@ class IPBanManager:
             )
 
             await bot.send_message(
-                chat_id=ADMIN_TELEGRAM_ID,
-                text=message,
-                parse_mode="HTML"
+                chat_id=ADMIN_TELEGRAM_ID, text=message, parse_mode="HTML"
             )
 
             # Устанавливаем метку о последней отправке с TTL
             await redis_client.setex(
                 notification_key,
                 TELEGRAM_NOTIFICATION_THROTTLE,
-                datetime.now().isoformat()
+                datetime.now().isoformat(),
             )
 
-            logger.info(f"Telegram уведомление об автобане IP {ip} отправлено администратору")
+            logger.info(
+                f"Telegram уведомление об автобане IP {ip} отправлено администратору"
+            )
 
         except Exception as e:
-            logger.error(f"Ошибка отправки Telegram уведомления об автобане IP {ip}: {e}")
+            logger.error(
+                f"Ошибка отправки Telegram уведомления об автобане IP {ip}: {e}"
+            )
 
     async def get_banned_ips(self, limit: int = 100) -> List[Dict[str, Any]]:
         """
@@ -404,7 +422,9 @@ class IPBanManager:
                             ttl = await redis_client.ttl(key)
                             if ttl > 0:
                                 ban_info["seconds_remaining"] = ttl
-                                ban_info["unbanned_at"] = (datetime.now() + timedelta(seconds=ttl)).isoformat()
+                                ban_info["unbanned_at"] = (
+                                    datetime.now() + timedelta(seconds=ttl)
+                                ).isoformat()
 
                             banned_ips.append(ban_info)
                     except Exception as e:
@@ -427,11 +447,7 @@ class IPBanManager:
         """
         redis_client = await self._get_redis()
         if not redis_client or not self._redis_available:
-            return {
-                "redis_available": False,
-                "total_banned": 0,
-                "total_tracked": 0
-            }
+            return {"redis_available": False, "total_banned": 0, "total_tracked": 0}
 
         try:
             # Считаем забаненные IP
@@ -439,7 +455,9 @@ class IPBanManager:
             banned_count = 0
             cursor = 0
             while True:
-                cursor, keys = await redis_client.scan(cursor, match=ban_pattern, count=100)
+                cursor, keys = await redis_client.scan(
+                    cursor, match=ban_pattern, count=100
+                )
                 banned_count += len(keys)
                 if cursor == 0:
                     break
@@ -449,7 +467,9 @@ class IPBanManager:
             tracked_count = 0
             cursor = 0
             while True:
-                cursor, keys = await redis_client.scan(cursor, match=suspicious_pattern, count=100)
+                cursor, keys = await redis_client.scan(
+                    cursor, match=suspicious_pattern, count=100
+                )
                 tracked_count += len(keys)
                 if cursor == 0:
                     break
@@ -460,16 +480,15 @@ class IPBanManager:
                 "total_tracked": tracked_count,
                 "ban_duration": BAN_DURATION,
                 "tracking_window": TRACKING_WINDOW,
-                "max_suspicious_requests": MAX_SUSPICIOUS_REQUESTS
+                "max_suspicious_requests": MAX_SUSPICIOUS_REQUESTS,
             }
         except Exception as e:
             logger.error(f"Ошибка получения статистики: {e}")
-            return {
-                "redis_available": False,
-                "error": str(e)
-            }
+            return {"redis_available": False, "error": str(e)}
 
-    async def export_to_nginx(self, output_path: str = "/app/config/banned_ips.conf") -> Dict[str, Any]:
+    async def export_to_nginx(
+        self, output_path: str = "/app/config/banned_ips.conf"
+    ) -> Dict[str, Any]:
         """
         Экспортирует забаненные IP в конфигурационный файл nginx
 
@@ -486,13 +505,13 @@ class IPBanManager:
             if not banned_ips:
                 logger.info("Нет забаненных IP для экспорта")
                 # Создаем пустой файл
-                with open(output_path, 'w') as f:
+                with open(output_path, "w") as f:
                     f.write("# No banned IPs\n")
                 return {
                     "success": True,
                     "exported_count": 0,
                     "file_path": output_path,
-                    "message": "No banned IPs to export"
+                    "message": "No banned IPs to export",
                 }
 
             # Генерируем nginx конфигурацию
@@ -501,7 +520,7 @@ class IPBanManager:
                 f"# Дата генерации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 f"# Всего забаненных IP: {len(banned_ips)}",
                 "",
-                "# Deny directives для забаненных IP адресов"
+                "# Deny directives для забаненных IP адресов",
             ]
 
             for ban_info in banned_ips:
@@ -509,25 +528,28 @@ class IPBanManager:
                 reason = ban_info.get("reason", "Unknown")
                 if ip:
                     # Экранируем причину для комментария
-                    safe_reason = reason.replace('"', '\\"').replace('\n', ' ')
+                    safe_reason = reason.replace('"', '\\"').replace("\n", " ")
                     config_lines.append(f"deny {ip};  # {safe_reason}")
 
             config_lines.append("")  # Пустая строка в конце
 
             # Записываем в файл
             import os
+
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            with open(output_path, 'w') as f:
-                f.write('\n'.join(config_lines))
+            with open(output_path, "w") as f:
+                f.write("\n".join(config_lines))
 
-            logger.info(f"Экспортировано {len(banned_ips)} забаненных IP в {output_path}")
+            logger.info(
+                f"Экспортировано {len(banned_ips)} забаненных IP в {output_path}"
+            )
 
             return {
                 "success": True,
                 "exported_count": len(banned_ips),
                 "file_path": output_path,
-                "message": f"Successfully exported {len(banned_ips)} banned IPs"
+                "message": f"Successfully exported {len(banned_ips)} banned IPs",
             }
 
         except Exception as e:
@@ -536,7 +558,7 @@ class IPBanManager:
                 "success": False,
                 "exported_count": 0,
                 "error": str(e),
-                "message": "Failed to export banned IPs"
+                "message": "Failed to export banned IPs",
             }
 
     async def close(self):
