@@ -117,6 +117,14 @@ TELEGRAM_LOGGING_ENABLED = os.getenv("TELEGRAM_LOGGING_ENABLED", "false").lower(
 TELEGRAM_LOG_MIN_LEVEL = os.getenv("TELEGRAM_LOG_MIN_LEVEL", "ERROR")
 TELEGRAM_LOG_RATE_LIMIT = int(os.getenv("TELEGRAM_LOG_RATE_LIMIT", "5"))
 
+# Фильтрация логов и метрики производительности
+EXCLUDE_PATHS_FROM_LOGGING = os.getenv(
+    "EXCLUDE_PATHS_FROM_LOGGING",
+    "/notifications/check_new,/health"
+).split(",")
+MIDDLEWARE_LOG_LEVEL = os.getenv("MIDDLEWARE_LOG_LEVEL", "INFO").upper()
+LOG_SLOW_REQUEST_THRESHOLD_MS = int(os.getenv("LOG_SLOW_REQUEST_THRESHOLD_MS", "1000"))
+
 # Настройки временной зоны
 import pytz
 

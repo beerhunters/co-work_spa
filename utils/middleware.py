@@ -13,6 +13,8 @@ from starlette.types import ASGIApp
 
 from utils.rate_limiter import get_rate_limiter
 from utils.logger import get_logger
+import config
+import logging
 
 logger = get_logger(__name__)
 
@@ -168,14 +170,24 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     def _should_skip_logging(self, path: str) -> bool:
         """Проверка, нужно ли пропустить логирование для данного пути"""
-        skip_patterns = [
+        # Базовые паттерны для статических файлов
+        static_patterns = [
             "/static",
             "/assets",
             "/favicon.ico",
-            "/health",  # Health checks очень частые
         ]
 
-        return any(path.startswith(pattern) for pattern in skip_patterns)
+        # Проверяем статические файлы
+        if any(path.startswith(pattern) for pattern in static_patterns):
+            return True
+
+        # Проверяем настраиваемые исключения из config
+        for excluded_path in config.EXCLUDE_PATHS_FROM_LOGGING:
+            excluded_path = excluded_path.strip()
+            if excluded_path and path.startswith(excluded_path):
+                return True
+
+        return False
 
     def _is_debug_enabled(self) -> bool:
         """Проверка, включен ли DEBUG уровень логирования"""
@@ -205,19 +217,25 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         client_ip = self._get_client_ip(request)
         user_agent = request.headers.get("User-Agent", "")[:100]  # Обрезаем для логов
 
+        # Получаем уровень логирования из config
+        log_level = getattr(logging, config.MIDDLEWARE_LOG_LEVEL, logging.INFO)
+
         # Логируем входящий запрос
-        logger.info(
-            f"Request started",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "query": str(request.query_params) if request.query_params else None,
-                "client_ip": client_ip,
-                "user_agent": user_agent,
-                "headers": dict(request.headers) if self._is_debug_enabled() else None,
-            },
-        )
+        extra_data = {
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "query": str(request.query_params) if request.query_params else None,
+            "client_ip": client_ip,
+            "user_agent": user_agent,
+            "headers": dict(request.headers) if self._is_debug_enabled() else None,
+        }
+
+        # Используем соответствующий метод logger в зависимости от уровня
+        if log_level == logging.WARNING:
+            logger.warning(f"Request started", extra=extra_data)
+        else:  # INFO или DEBUG
+            logger.info(f"Request started", extra=extra_data)
 
         try:
             # Выполняем запрос
@@ -225,19 +243,35 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
             # Время выполнения
             duration = time.time() - start_time
+            duration_ms = round(duration * 1000, 2)
+
+            # Отслеживаем метрики производительности
+            try:
+                from routes import monitoring
+                monitoring.track_request(
+                    endpoint=request.url.path,
+                    status_code=response.status_code,
+                    response_time_ms=duration_ms
+                )
+            except Exception as metric_error:
+                # Не прерываем выполнение запроса если метрики не работают
+                logger.debug(f"Failed to track request metrics: {metric_error}")
 
             # Логируем ответ
-            logger.info(
-                f"Request completed",
-                extra={
-                    "request_id": request_id,
-                    "method": request.method,
-                    "path": request.url.path,
-                    "status_code": response.status_code,
-                    "duration_ms": round(duration * 1000, 2),
-                    "client_ip": client_ip,
-                },
-            )
+            extra_data = {
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+                "client_ip": client_ip,
+            }
+
+            # Используем соответствующий метод logger в зависимости от уровня
+            if log_level == logging.WARNING:
+                logger.warning(f"Request completed", extra=extra_data)
+            else:  # INFO или DEBUG
+                logger.info(f"Request completed", extra=extra_data)
 
             # Добавляем заголовок с request ID для отладки
             response.headers["X-Request-ID"] = request_id
@@ -247,6 +281,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             # Время выполнения до ошибки
             duration = time.time() - start_time
+            duration_ms = round(duration * 1000, 2)
 
             # Логируем ошибку
             logger.error(
@@ -257,11 +292,22 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     "path": request.url.path,
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "duration_ms": round(duration * 1000, 2),
+                    "duration_ms": duration_ms,
                     "client_ip": client_ip,
                 },
                 exc_info=True,
             )
+
+            # Отслеживаем метрики для failed запросов
+            try:
+                from routes import monitoring
+                monitoring.track_request(
+                    endpoint=request.url.path,
+                    status_code=500,  # Internal server error
+                    response_time_ms=duration_ms
+                )
+            except Exception as metric_error:
+                logger.debug(f"Failed to track error metrics: {metric_error}")
 
             raise
 
@@ -316,7 +362,8 @@ class PerformanceMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, enabled: bool = True):
         super().__init__(app)
         self.enabled = enabled
-        self.slow_request_threshold = 1.0  # секунды
+        # Получаем порог из config (в миллисекундах), конвертируем в секунды
+        self.slow_request_threshold = config.LOG_SLOW_REQUEST_THRESHOLD_MS / 1000.0
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if not self.enabled:
@@ -331,11 +378,13 @@ class PerformanceMiddleware(BaseHTTPMiddleware):
             # Логируем медленные запросы
             if duration > self.slow_request_threshold:
                 logger.warning(
-                    f"Slow request detected",
+                    f"Slow request detected: {request.method} {request.url.path} took {round(duration * 1000, 2)}ms",
                     extra={
                         "method": request.method,
                         "path": request.url.path,
+                        "query": str(request.query_params) if request.query_params else None,
                         "duration_ms": round(duration * 1000, 2),
+                        "threshold_ms": config.LOG_SLOW_REQUEST_THRESHOLD_MS,
                         "status_code": response.status_code,
                         "client_ip": (
                             request.client.host if request.client else "unknown"
