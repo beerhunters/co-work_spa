@@ -114,7 +114,10 @@ const Dashboard = ({
   // Состояния для обновления данных
   const [lastRefreshTime, setLastRefreshTime] = useState(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(() => {
+    const saved = localStorage.getItem('dashboard_auto_refresh');
+    return saved !== null ? JSON.parse(saved) : false;
+  });
   const intervalRef = useRef(null);
   const toast = useToast();
 
@@ -533,8 +536,10 @@ const Dashboard = ({
 
   // Переключение автообновления
   const toggleAutoRefresh = () => {
-    setAutoRefresh(!autoRefresh);
-    if (!autoRefresh) {
+    const newState = !autoRefresh;
+    setAutoRefresh(newState);
+    localStorage.setItem('dashboard_auto_refresh', JSON.stringify(newState));
+    if (newState) {
       refreshVisibleData(); // Обновляем сразу при включении
     }
   };
