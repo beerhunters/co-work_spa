@@ -157,8 +157,12 @@ if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/nu
     # Даем nginx дополнительное время на инициализацию SSL
     sleep 3
 
+    # Временно отключаем set -e для проверки HTTPS (может упасть из-за NAT reflection)
+    set +e
     # Проверяем HTTPS с игнорированием SSL ошибок и таймаутом
     HTTPS_STATUS=$(curl -ks --max-time 5 --connect-timeout 3 -o /dev/null -w "%{http_code}" https://$DOMAIN_NAME/ 2>/dev/null)
+    # Включаем обратно set -e
+    set -e
 
     # Если переменная пустая или содержит только пробелы (curl упал), устанавливаем 000
     if [ -z "$HTTPS_STATUS" ] || [ "$HTTPS_STATUS" = " " ]; then
