@@ -386,6 +386,7 @@ class Permission(enum.Enum):
     VIEW_USERS = "view_users"
     EDIT_USERS = "edit_users"
     DELETE_USERS = "delete_users"
+    BAN_USERS = "ban_users"
 
     # Бронирования
     VIEW_BOOKINGS = "view_bookings"
@@ -595,6 +596,12 @@ class User(Base):
     avatar = Column(String, nullable=True)
     referrer_id = Column(BigInteger, nullable=True)  # Убрать ForeignKey пока что
     admin_comment = Column(Text, nullable=True)  # Комментарий администратора о пользователе
+
+    # Система банов
+    is_banned = Column(Boolean, default=False, nullable=False, index=True)
+    banned_at = Column(DateTime, nullable=True, index=True)
+    ban_reason = Column(Text, nullable=True)
+    banned_by = Column(String, nullable=True)  # login администратора, который забанил
 
     # Связи
     notifications = relationship(

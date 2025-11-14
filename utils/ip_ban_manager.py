@@ -366,9 +366,9 @@ class IPBanManager:
                 f"IP адрес был автоматически заблокирован системой защиты."
             )
 
-            await bot.send_message(
-                chat_id=ADMIN_TELEGRAM_ID, text=message, parse_mode="HTML"
-            )
+            # await bot.send_message(
+            #     chat_id=ADMIN_TELEGRAM_ID, text=message, parse_mode="HTML"
+            # )
 
             # Устанавливаем метку о последней отправке с TTL
             await redis_client.setex(

@@ -56,6 +56,13 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
   const tableBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
+  // Цвета для забаненных пользователей
+  const bannedBg = useColorModeValue('red.50', 'red.900');
+  const bannedHoverBg = useColorModeValue('red.100', 'red.800');
+  const selectedBg = useColorModeValue('purple.50', 'purple.900');
+  const selectedHoverBg = useColorModeValue('purple.100', 'purple.800');
+  const normalHoverBg = useColorModeValue('gray.50', 'gray.700');
+
   // Проверка прав на удаление пользователей
   const canDeleteUsers = currentAdmin?.role === 'super_admin' ||
     (currentAdmin?.permissions && currentAdmin.permissions.includes('delete_users'));
@@ -449,11 +456,19 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                   return (
                     <Tr
                       key={user.id}
-                      bg={isSelectionMode && isSelected ? useColorModeValue('purple.50', 'purple.900') : 'transparent'}
+                      bg={
+                        user.is_banned
+                          ? bannedBg
+                          : isSelectionMode && isSelected
+                            ? selectedBg
+                            : 'transparent'
+                      }
                       _hover={{
-                        bg: isSelectionMode && isSelected 
-                          ? useColorModeValue('purple.100', 'purple.800')
-                          : useColorModeValue('gray.50', 'gray.700')
+                        bg: user.is_banned
+                          ? bannedHoverBg
+                          : isSelectionMode && isSelected
+                            ? selectedHoverBg
+                            : normalHoverBg
                       }}
                     >
                       {isSelectionMode && (
@@ -546,6 +561,12 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                       }}
                     >
                       <HStack spacing={2} wrap="wrap">
+                        {user.is_banned && (
+                          <Badge colorScheme="red" fontSize="xs" fontWeight="bold" title={`Забанен. Причина: ${user.ban_reason}`}>
+                            🚫 Забанен
+                          </Badge>
+                        )}
+
                         {user.successful_bookings > 0 && (
                           <Badge colorScheme="green" fontSize="xs">
                             {user.successful_bookings} броней

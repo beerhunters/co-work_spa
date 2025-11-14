@@ -456,6 +456,46 @@ export const userApi = {
       throw new Error(error.response?.data?.detail || 'Не удалось экспортировать пользователей в CSV');
     }
   },
+
+  // Забанить пользователя
+  banUser: async (userId, reason) => {
+    try {
+      logger.debug(`Бан пользователя ${userId}, причина: ${reason}`);
+      const res = await apiClient.post(`/users/${userId}/ban`, { reason });
+      logger.info('Пользователь успешно забанен:', { userId, result: res.data });
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/users/${userId}/ban`, 'POST', error.response?.status || 'unknown', 'Ошибка бана пользователя', error.response?.data);
+
+      if (error.response?.status === 404) {
+        throw new Error('Пользователь не найден');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response?.data?.detail || 'Неверные данные для бана');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось забанить пользователя');
+    }
+  },
+
+  // Разбанить пользователя
+  unbanUser: async (userId) => {
+    try {
+      logger.debug(`Разбан пользователя ${userId}`);
+      const res = await apiClient.post(`/users/${userId}/unban`);
+      logger.info('Пользователь успешно разбанен:', { userId, result: res.data });
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/users/${userId}/unban`, 'POST', error.response?.status || 'unknown', 'Ошибка разбана пользователя', error.response?.data);
+
+      if (error.response?.status === 404) {
+        throw new Error('Пользователь не найден');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response?.data?.detail || 'Пользователь не забанен');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось разбанить пользователя');
+    }
+  },
 };
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {

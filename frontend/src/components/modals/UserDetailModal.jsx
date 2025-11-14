@@ -22,7 +22,7 @@ import {
   Image,
   Link
 } from '@chakra-ui/react';
-import { FiEdit, FiTrash2, FiUpload, FiExternalLink } from 'react-icons/fi';
+import { FiEdit, FiTrash2, FiUpload, FiExternalLink, FiUserX, FiUserCheck } from 'react-icons/fi';
 import { userApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
 
@@ -68,6 +68,9 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [isDownloadingAvatar, setIsDownloadingAvatar] = useState(false);
   const [avatarVersion, setAvatarVersion] = useState(Date.now()); // Для форсированного обновления
   const [currentUser, setCurrentUser] = useState(user); // Локальное состояние пользователя
+  const [isBanModalOpen, setIsBanModalOpen] = useState(false);
+  const [banReason, setBanReason] = useState('');
+  const [isBanning, setIsBanning] = useState(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -278,6 +281,111 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     e.preventDefault();
   };
 
+  // Обработчик открытия модального окна бана
+  const handleOpenBanModal = () => {
+    setBanReason('');
+    setIsBanModalOpen(true);
+  };
+
+  // Обработчик бана пользователя
+  const handleBanUser = async () => {
+    if (!banReason.trim()) {
+      toast({
+        title: 'Ошибка',
+        description: 'Необходимо указать причину бана',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    setIsBanning(true);
+    try {
+      await userApi.banUser(currentUser.id, banReason);
+
+      // Закрываем модальное окно с баном
+      setIsBanModalOpen(false);
+      setBanReason('');
+
+      // Показываем уведомление
+      toast({
+        title: 'Пользователь забанен',
+        description: 'Пользователь успешно забанен. Обновляем данные...',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем данные и закрываем модалку
+      await onUpdate();
+
+      // Обновляем локальное состояние
+      setCurrentUser(prev => ({
+        ...prev,
+        is_banned: true,
+        ban_reason: banReason,
+      }));
+
+      // Закрываем главное модальное окно после обновления
+      onClose();
+    } catch (error) {
+      console.error('Ошибка при бане пользователя:', error);
+      toast({
+        title: 'Ошибка при бане',
+        description: error.response?.data?.detail || 'Произошла ошибка',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsBanning(false);
+    }
+  };
+
+  // Обработчик разбана пользователя
+  const handleUnbanUser = async () => {
+    setIsBanning(true);
+    try {
+      await userApi.unbanUser(currentUser.id);
+
+      // Показываем уведомление
+      toast({
+        title: 'Пользователь разбанен',
+        description: 'Пользователь успешно разбанен. Обновляем данные...',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем данные и закрываем модалку
+      await onUpdate();
+
+      // Обновляем локальное состояние
+      setCurrentUser(prev => ({
+        ...prev,
+        is_banned: false,
+        ban_reason: null,
+        banned_at: null,
+        banned_by: null,
+      }));
+
+      // Закрываем модальное окно после обновления
+      onClose();
+    } catch (error) {
+      console.error('Ошибка при разбане пользователя:', error);
+      toast({
+        title: 'Ошибка при разбане',
+        description: error.response?.data?.detail || 'Произошла ошибка',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsBanning(false);
+    }
+  };
+
   if (!currentUser) return null;
 
   const telegramUrl = getTelegramUrl(currentUser.username);
@@ -486,6 +594,43 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     </Badge>
                   </HStack>
 
+                  <HStack justify="space-between">
+                    <Text fontWeight="bold">Статус:</Text>
+                    <Badge colorScheme={currentUser.is_banned ? 'red' : 'green'}>
+                      {currentUser.is_banned ? 'Забанен' : 'Активен'}
+                    </Badge>
+                  </HStack>
+
+                  {/* Информация о бане */}
+                  {currentUser.is_banned && (
+                    <Box
+                      bg="red.50"
+                      borderLeft="4px solid"
+                      borderColor="red.500"
+                      p={3}
+                      borderRadius="md"
+                    >
+                      <Text fontWeight="bold" color="red.700" mb={2}>
+                        Информация о бане:
+                      </Text>
+                      <VStack align="stretch" spacing={1}>
+                        <Text fontSize="sm" color="gray.700">
+                          <Text as="span" fontWeight="semibold">Причина:</Text> {currentUser.ban_reason}
+                        </Text>
+                        {currentUser.banned_by && (
+                          <Text fontSize="sm" color="gray.700">
+                            <Text as="span" fontWeight="semibold">Забанил:</Text> {currentUser.banned_by}
+                          </Text>
+                        )}
+                        {currentUser.banned_at && (
+                          <Text fontSize="sm" color="gray.700">
+                            <Text as="span" fontWeight="semibold">Дата:</Text> {new Date(currentUser.banned_at).toLocaleString('ru-RU')}
+                          </Text>
+                        )}
+                      </VStack>
+                    </Box>
+                  )}
+
                   {/* Комментарий администратора */}
                   <Box
                     bg="yellow.50"
@@ -519,6 +664,26 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 <Button leftIcon={<FiEdit />} colorScheme="purple" onClick={() => setIsEditing(true)}>
                   Редактировать
                 </Button>
+
+                {currentUser.is_banned ? (
+                  <Button
+                    leftIcon={<FiUserCheck />}
+                    colorScheme="green"
+                    onClick={handleUnbanUser}
+                    isLoading={isBanning}
+                  >
+                    Разбанить
+                  </Button>
+                ) : (
+                  <Button
+                    leftIcon={<FiUserX />}
+                    colorScheme="red"
+                    variant="outline"
+                    onClick={handleOpenBanModal}
+                  >
+                    Забанить
+                  </Button>
+                )}
 
                 {telegramUrl && (
                   <Button
@@ -607,6 +772,46 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
               />
             </VStack>
           </ModalBody>
+        </ModalContent>
+      </ChakraModal>
+
+      {/* Модальное окно для указания причины бана */}
+      <ChakraModal isOpen={isBanModalOpen} onClose={() => setIsBanModalOpen(false)} size="md">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Забанить пользователя</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <Text fontSize="sm" color="gray.600">
+                Укажите причину бана пользователя <Text as="span" fontWeight="bold">{currentUser.full_name}</Text>
+              </Text>
+              <FormControl isRequired>
+                <FormLabel>Причина бана</FormLabel>
+                <Textarea
+                  value={banReason}
+                  onChange={(e) => setBanReason(e.target.value)}
+                  placeholder="Введите причину бана..."
+                  rows={4}
+                />
+              </FormControl>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <HStack spacing={3}>
+              <Button onClick={() => setIsBanModalOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                colorScheme="red"
+                onClick={handleBanUser}
+                isLoading={isBanning}
+                isDisabled={!banReason.trim()}
+              >
+                Забанить
+              </Button>
+            </HStack>
+          </ModalFooter>
         </ModalContent>
       </ChakraModal>
     </>

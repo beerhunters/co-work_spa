@@ -71,6 +71,10 @@ async def get_users(
                 "avatar": user.avatar,
                 "referrer_id": user.referrer_id,
                 "admin_comment": user.admin_comment,
+                "is_banned": user.is_banned or False,
+                "banned_at": user.banned_at,
+                "ban_reason": user.ban_reason,
+                "banned_by": user.banned_by,
             }
             users_data.append(user_dict)
         return users_data
@@ -220,6 +224,8 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
         "avatar": user.avatar,
         "referrer_id": user.referrer_id,
         "is_complete": is_complete,
+        "is_banned": user.is_banned or False,
+        "ban_reason": user.ban_reason,
     }
 
     return user_data
@@ -870,3 +876,114 @@ async def delete_user(
             status_code=500,
             detail=f"Ошибка удаления пользователя: не удалось удалить связанные данные",
         )
+
+
+# ============================================================================
+# СИСТЕМА БАНОВ ПОЛЬЗОВАТЕЛЕЙ
+# ============================================================================
+
+class BanUserRequest(BaseModel):
+    """Запрос на бан пользователя."""
+    reason: str
+
+    class Config:
+        from_attributes = True
+
+
+@router.post("/{user_id}/ban")
+async def ban_user(
+    user_id: int,
+    ban_request: BanUserRequest,
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.BAN_USERS])),
+):
+    """
+    Забанить пользователя.
+
+    Требуется разрешение: BAN_USERS
+    """
+    if not ban_request.reason or not ban_request.reason.strip():
+        raise HTTPException(status_code=400, detail="Причина бана обязательна")
+
+    def _ban_user(session):
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+        if user.is_banned:
+            raise HTTPException(status_code=400, detail="Пользователь уже забанен")
+
+        # Устанавливаем бан
+        user.is_banned = True
+        user.banned_at = datetime.now(MOSCOW_TZ)
+        user.ban_reason = ban_request.reason.strip()
+        user.banned_by = current_admin.login
+
+        session.commit()
+
+        logger.info(
+            f"Пользователь {user_id} ({user.full_name}) забанен администратором {current_admin.login}. "
+            f"Причина: {ban_request.reason}"
+        )
+
+        return {
+            "success": True,
+            "message": "Пользователь успешно забанен",
+            "user_id": user_id,
+            "banned_at": user.banned_at,
+            "ban_reason": user.ban_reason,
+            "banned_by": user.banned_by,
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_ban_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при бане пользователя {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при бане пользователя: {str(e)}")
+
+
+@router.post("/{user_id}/unban")
+async def unban_user(
+    user_id: int,
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.BAN_USERS])),
+):
+    """
+    Разбанить пользователя.
+
+    Требуется разрешение: BAN_USERS
+    """
+
+    def _unban_user(session):
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+        if not user.is_banned:
+            raise HTTPException(status_code=400, detail="Пользователь не забанен")
+
+        # Сбрасываем бан
+        user.is_banned = False
+        user.banned_at = None
+        user.ban_reason = None
+        user.banned_by = None
+
+        session.commit()
+
+        logger.info(
+            f"Пользователь {user_id} ({user.full_name}) разбанен администратором {current_admin.login}"
+        )
+
+        return {
+            "success": True,
+            "message": "Пользователь успешно разбанен",
+            "user_id": user_id,
+        }
+
+    try:
+        return DatabaseManager.safe_execute(_unban_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при разбане пользователя {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при разбане пользователя: {str(e)}")

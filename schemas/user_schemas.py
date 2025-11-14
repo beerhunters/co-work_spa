@@ -21,6 +21,10 @@ class UserBase(BaseModel):
     avatar: Optional[str]
     referrer_id: Optional[int]
     admin_comment: Optional[str]
+    is_banned: bool = False
+    banned_at: Optional[datetime] = None
+    ban_reason: Optional[str] = None
+    banned_by: Optional[str] = None
 
     class Config:
         from_attributes = True
