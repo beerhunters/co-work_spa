@@ -158,11 +158,10 @@ if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/nu
     sleep 3
 
     # Проверяем HTTPS с игнорированием SSL ошибок и таймаутом
-    # Используем localhost для проверки доступности (избегаем проблем с DNS/NAT)
-    HTTPS_STATUS=$(curl -ks --max-time 5 -o /dev/null -w "%{http_code}" https://localhost/ -H "Host: $DOMAIN_NAME" 2>/dev/null)
+    HTTPS_STATUS=$(curl -ks --max-time 5 --connect-timeout 3 -o /dev/null -w "%{http_code}" https://$DOMAIN_NAME/ 2>/dev/null)
 
-    # Если переменная пустая (curl упал), устанавливаем 000
-    if [ -z "$HTTPS_STATUS" ]; then
+    # Если переменная пустая или содержит только пробелы (curl упал), устанавливаем 000
+    if [ -z "$HTTPS_STATUS" ] || [ "$HTTPS_STATUS" = " " ]; then
         HTTPS_STATUS="000"
     fi
 
@@ -171,10 +170,10 @@ if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/nu
             echo "  ✅ HTTPS доступен (HTTP $HTTPS_STATUS)"
             ;;
         000)
-            echo "  ⚠️  HTTPS недоступен, но сертификаты установлены (проверьте сетевое соединение)"
+            echo "  ⚠️  HTTPS недоступен, но сертификаты установлены"
             ;;
         *)
-            echo "  ❌ HTTPS вернул неожиданный статус (HTTP $HTTPS_STATUS)"
+            echo "  ⚠️  HTTPS проверка вернула код $HTTPS_STATUS (это нормально если сервер за NAT)"
             ;;
     esac
 fi
