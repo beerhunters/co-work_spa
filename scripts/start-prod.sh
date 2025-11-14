@@ -158,7 +158,13 @@ if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/nu
     sleep 3
 
     # Проверяем HTTPS с игнорированием SSL ошибок и таймаутом
-    HTTPS_STATUS=$(curl -ks --max-time 5 -o /dev/null -w "%{http_code}" https://$DOMAIN_NAME/ 2>/dev/null || echo "000")
+    # Используем localhost для проверки доступности (избегаем проблем с DNS/NAT)
+    HTTPS_STATUS=$(curl -ks --max-time 5 -o /dev/null -w "%{http_code}" https://localhost/ -H "Host: $DOMAIN_NAME" 2>/dev/null)
+
+    # Если переменная пустая (curl упал), устанавливаем 000
+    if [ -z "$HTTPS_STATUS" ]; then
+        HTTPS_STATUS="000"
+    fi
 
     case "$HTTPS_STATUS" in
         200|301|302|308)
