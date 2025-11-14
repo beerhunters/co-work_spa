@@ -37,6 +37,7 @@ WHITELIST_PREFIXES = [
     "172.",  # Docker default network
     "10.",  # Private network
     "192.168.",  # Private network
+    "185.115.",
 ]
 
 # Настройки уведомлений в Telegram
