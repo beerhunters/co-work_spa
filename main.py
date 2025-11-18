@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     # Логируем информацию о запуске
     log_startup_info()
     logger.info("Запуск приложения...")
-    
+
     # Инициализируем новую централизованную систему уведомлений
     try:
         logger.info("🔄 Настройка централизованной системы уведомлений...")
@@ -74,17 +74,21 @@ async def lifespan(app: FastAPI):
             register_component_startup,
             cleanup_system_status,
             detect_unexpected_shutdown,
-            send_unexpected_shutdown_notification
+            send_unexpected_shutdown_notification,
         )
 
         # Настраиваем централизованную систему
         init_success = init_error_notifications()
-        logger.info(f"📋 Инициализация системы уведомлений: {'успешно' if init_success else 'неудачно'}")
+        logger.info(
+            f"📋 Инициализация системы уведомлений: {'успешно' if init_success else 'неудачно'}"
+        )
 
         # Проверяем на неожиданное завершение ПЕРЕД очисткой статуса
         crash_info = detect_unexpected_shutdown()
         if crash_info:
-            logger.warning("🔴 Обнаружено неожиданное завершение системы в предыдущем запуске!")
+            logger.warning(
+                "🔴 Обнаружено неожиданное завершение системы в предыдущем запуске!"
+            )
             await send_unexpected_shutdown_notification(crash_info)
             logger.info("📱 Уведомление о крахе отправлено")
         else:
@@ -97,6 +101,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Ошибка настройки системы уведомлений: {e}")
         import traceback
+
         logger.error(f"Трассировка ошибки: {traceback.format_exc()}")
 
     # Загружаем сохраненную конфигурацию логирования
@@ -104,37 +109,46 @@ async def lifespan(app: FastAPI):
         from pathlib import Path
         import json
         import os
+
         config_file = Path("config") / "logging_config.json"
         logger.info(f"Проверяем наличие файла конфигурации: {config_file.absolute()}")
-        
+
         if config_file.exists():
-            with open(config_file, 'r') as f:
+            with open(config_file, "r") as f:
                 saved_config = json.load(f)
-            
-            logger.info(f"Найден файл конфигурации с настройками: {list(saved_config.keys())}")
-            
+
+            logger.info(
+                f"Найден файл конфигурации с настройками: {list(saved_config.keys())}"
+            )
+
             # Применяем сохраненные настройки к переменным окружения
             for key, value in saved_config.items():
                 old_value = os.getenv(key)
                 os.environ[key] = str(value)
                 logger.info(f"Загружена настройка {key}: {old_value} -> {value}")
-            
+
             logger.info("✅ Конфигурация логирования успешно загружена из файла")
-            
+
             # Обновляем уровень логгеров после загрузки новых настроек
-            if 'LOG_LEVEL' in saved_config:
+            if "LOG_LEVEL" in saved_config:
                 try:
                     from utils.logger import update_loggers_level
-                    new_level = saved_config['LOG_LEVEL'].upper()
+
+                    new_level = saved_config["LOG_LEVEL"].upper()
                     update_loggers_level(new_level)
-                    logger.info(f"🔄 Уровень логирования обновлен до {new_level} для всех активных логгеров")
+                    logger.info(
+                        f"🔄 Уровень логирования обновлен до {new_level} для всех активных логгеров"
+                    )
                 except Exception as e:
                     logger.error(f"❌ Ошибка обновления уровня логгеров: {e}")
         else:
-            logger.info("Файл конфигурации логирования не найден, используются настройки по умолчанию")
+            logger.info(
+                "Файл конфигурации логирования не найден, используются настройки по умолчанию"
+            )
     except Exception as e:
         logger.error(f"❌ Ошибка загрузки конфигурации логирования: {e}")
         import traceback
+
         logger.error(f"Полная трассировка: {traceback.format_exc()}")
 
     # Создаем необходимые директории
@@ -187,34 +201,46 @@ async def lifespan(app: FastAPI):
         from pathlib import Path
         import json
         import os
+
         backup_config_file = Path("config") / "backup_config.json"
-        logger.info(f"📂 Проверяем файл конфигурации бэкапов: {backup_config_file.absolute()}")
-        
+        logger.info(
+            f"📂 Проверяем файл конфигурации бэкапов: {backup_config_file.absolute()}"
+        )
+
         if backup_config_file.exists():
-            with open(backup_config_file, 'r') as f:
+            with open(backup_config_file, "r") as f:
                 backup_settings = json.load(f)
-            
-            logger.info(f"📂 Найден файл конфигурации бэкапов с настройками: {list(backup_settings.keys())}")
-            
+
+            logger.info(
+                f"📂 Найден файл конфигурации бэкапов с настройками: {list(backup_settings.keys())}"
+            )
+
             # Применяем сохраненные настройки к переменным окружения
             for key, value in backup_settings.items():
                 old_value = os.getenv(key)
                 os.environ[key] = str(value)
-                logger.info(f"📂 Загружена настройка бэкапов {key}: {old_value} -> {value}")
-            
+                logger.info(
+                    f"📂 Загружена настройка бэкапов {key}: {old_value} -> {value}"
+                )
+
             logger.info("✅ Настройки бэкапов успешно загружены из файла")
         else:
-            logger.info("📂 Файл настроек бэкапов не найден, используются настройки по умолчанию")
+            logger.info(
+                "📂 Файл настроек бэкапов не найден, используются настройки по умолчанию"
+            )
     except Exception as e:
         logger.error(f"❌ Ошибка загрузки настроек бэкапов: {e}")
         import traceback
+
         logger.error(f"Трассировка: {traceback.format_exc()}")
 
     # Пересоздаем backup_manager с новыми настройками
     try:
         from utils.backup_manager import backup_manager, DatabaseBackupManager
+
         # Пересоздаем глобальный экземпляр с обновленными настройками
         import utils.backup_manager
+
         utils.backup_manager.backup_manager = DatabaseBackupManager()
         logger.info("📂 Backup manager recreated with updated settings")
     except Exception as e:
@@ -237,12 +263,16 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("🔄 Маркировка нормального завершения системы...")
         from utils.system_status import send_system_shutdown_notification
+
         result = await send_system_shutdown_notification()
         logger.info(f"📱 Завершение помечено как нормальное: {result}")
     except Exception as e:
         logger.warning(f"Не удалось пометить нормальное завершение: {e}")
         import traceback
-        logger.error(f"Трассировка ошибки маркировки завершения: {traceback.format_exc()}")
+
+        logger.error(
+            f"Трассировка ошибки маркировки завершения: {traceback.format_exc()}"
+        )
 
     try:
         await stop_cache_cleanup()
@@ -297,6 +327,7 @@ app.add_middleware(RateLimitMiddleware, enabled=True)
 
 # IP Ban middleware - проверяет забаненные IP перед обработкой запроса
 from utils.middleware import IPBanMiddleware
+
 app.add_middleware(IPBanMiddleware, enabled=True)
 
 # Настройка CORS (должен быть после других middleware)
