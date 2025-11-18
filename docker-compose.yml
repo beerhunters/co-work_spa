@@ -129,6 +129,15 @@ services:
       - RUBITIME_BRANCH_ID=${RUBITIME_BRANCH_ID}
       - RUBITIME_COOPERATOR_ID=${RUBITIME_COOPERATOR_ID}
 
+      # Email/SMTP настройки
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-Coworking}
+      - EMAIL_TRACKING_DOMAIN=${EMAIL_TRACKING_DOMAIN}
+
       # Backup настройки
       - BACKUP_ENABLED=${BACKUP_ENABLED:-true}
       - BACKUP_INTERVAL_HOURS=${BACKUP_INTERVAL_HOURS:-6}
@@ -282,6 +291,15 @@ services:
 
       # Кэширование и очереди
       - REDIS_URL=redis://redis:6379/0
+
+      # Email/SMTP настройки
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT:-465}
+      - SMTP_USERNAME=${SMTP_USERNAME}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL}
+      - SMTP_FROM_NAME=${SMTP_FROM_NAME:-Coworking}
+      - EMAIL_TRACKING_DOMAIN=${EMAIL_TRACKING_DOMAIN}
 
       # Логирование
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

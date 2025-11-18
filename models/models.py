@@ -434,6 +434,14 @@ class Permission(enum.Enum):
     # Бэкапы (только для super_admin)
     MANAGE_BACKUPS = "manage_backups"
 
+    # Email рассылки
+    VIEW_EMAIL_CAMPAIGNS = "view_email_campaigns"
+    CREATE_EMAIL_CAMPAIGNS = "create_email_campaigns"
+    EDIT_EMAIL_CAMPAIGNS = "edit_email_campaigns"
+    DELETE_EMAIL_CAMPAIGNS = "delete_email_campaigns"
+    SEND_EMAIL_CAMPAIGNS = "send_email_campaigns"
+    MANAGE_EMAIL_TEMPLATES = "manage_email_templates"
+
 
 class Admin(Base):
     __tablename__ = "admins"
@@ -805,6 +813,151 @@ class Notification(Base):
     user = relationship("User", back_populates="notifications")
     booking = relationship("Booking", back_populates="notifications")
     ticket = relationship("Ticket", back_populates="notifications")
+
+
+# ===================================
+# Email Рассылки
+# ===================================
+
+
+class EmailCampaign(Base):
+    """Модель email кампании/рассылки."""
+
+    __tablename__ = "email_campaigns"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)  # Название кампании
+    subject = Column(String(500), nullable=False)  # Тема письма
+    html_content = Column(Text, nullable=False)  # HTML контент письма
+    unlayer_design = Column(Text, nullable=True)  # JSON дизайн Unlayer
+
+    # Получатели
+    recipient_type = Column(String(50), nullable=False, index=True)  # 'all', 'selected', 'segment', 'custom'
+    recipient_ids = Column(Text, nullable=True)  # user_id через запятую для 'selected'
+    segment_type = Column(String(100), nullable=True, index=True)  # Тип сегмента
+    segment_params = Column(Text, nullable=True)  # JSON параметры сегмента
+    custom_emails = Column(Text, nullable=True)  # Email адреса через запятую для 'custom'
+
+    # Статус и планирование
+    status = Column(String(50), nullable=False, default='draft', index=True)  # 'draft', 'scheduled', 'sending', 'sent', 'failed'
+    scheduled_at = Column(DateTime(timezone=True), nullable=True, index=True)  # Время отправки
+
+    # Статистика
+    total_count = Column(Integer, default=0, nullable=False)
+    sent_count = Column(Integer, default=0, nullable=False)
+    delivered_count = Column(Integer, default=0, nullable=False)
+    opened_count = Column(Integer, default=0, nullable=False)
+    clicked_count = Column(Integer, default=0, nullable=False)
+    failed_count = Column(Integer, default=0, nullable=False)
+    bounced_count = Column(Integer, default=0, nullable=False)
+
+    # A/B тестирование
+    is_ab_test = Column(Boolean, default=False, nullable=False)
+    ab_test_percentage = Column(Integer, nullable=True)  # % для варианта A (50 = 50/50)
+    ab_variant_b_subject = Column(String(500), nullable=True)  # Альтернативная тема
+    ab_variant_b_content = Column(Text, nullable=True)  # Альтернативный контент
+
+    # Даты
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_by = Column(String(255), nullable=True)  # Логин администратора
+
+    # Связи
+    recipients = relationship("EmailCampaignRecipient", back_populates="campaign", cascade="all, delete-orphan")
+    tracking_events = relationship("EmailTracking", back_populates="campaign", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<EmailCampaign(id={self.id}, name={self.name}, status={self.status})>"
+
+
+class EmailCampaignRecipient(Base):
+    """Модель получателя email рассылки с трекингом."""
+
+    __tablename__ = "email_campaign_recipients"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("email_campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)  # Nullable для custom emails
+
+    # Данные получателя (кэшированные на момент отправки)
+    email = Column(String(255), nullable=False, index=True)
+    full_name = Column(String(255), nullable=True)
+
+    # Трекинг
+    tracking_token = Column(String(255), unique=True, nullable=False, index=True)  # UUID для трекинга
+    status = Column(String(50), nullable=False, default='pending', index=True)  # 'pending', 'sent', 'delivered', 'bounced', 'failed'
+    error_message = Column(Text, nullable=True)
+
+    # Статистика взаимодействия
+    sent_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    opened_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    first_click_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    clicks_count = Column(Integer, default=0, nullable=False)
+
+    # A/B тестирование
+    ab_variant = Column(String(1), nullable=True, index=True)  # 'A' или 'B'
+
+    # Связи
+    campaign = relationship("EmailCampaign", back_populates="recipients")
+    user = relationship("User")
+    tracking_events = relationship("EmailTracking", back_populates="recipient", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<EmailCampaignRecipient(id={self.id}, email={self.email}, status={self.status})>"
+
+
+class EmailTemplate(Base):
+    """Модель шаблона email письма."""
+
+    __tablename__ = "email_templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(100), nullable=True, index=True)  # 'welcome', 'promotion', 'newsletter', 'event', etc.
+
+    # Дизайн и контент
+    thumbnail_url = Column(String(500), nullable=True)  # URL скриншота шаблона
+    unlayer_design = Column(Text, nullable=False)  # JSON дизайн Unlayer
+    html_content = Column(Text, nullable=False)  # Готовый HTML
+
+    # Мета-данные
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    usage_count = Column(Integer, default=0, nullable=False)  # Счетчик использований
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), onupdate=lambda: datetime.now(MOSCOW_TZ), nullable=False)
+    created_by = Column(String(255), nullable=True)  # Логин администратора
+
+    def __repr__(self) -> str:
+        return f"<EmailTemplate(id={self.id}, name={self.name}, category={self.category})>"
+
+
+class EmailTracking(Base):
+    """Модель детального трекинга событий email рассылок."""
+
+    __tablename__ = "email_tracking"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_id = Column(Integer, ForeignKey("email_campaigns.id", ondelete="CASCADE"), nullable=False, index=True)
+    recipient_id = Column(Integer, ForeignKey("email_campaign_recipients.id", ondelete="CASCADE"), nullable=False, index=True)
+
+    # Тип события
+    event_type = Column(String(50), nullable=False, index=True)  # 'open', 'click', 'bounce', 'unsubscribe', 'spam_report'
+
+    # Данные события
+    ip_address = Column(String(45), nullable=True)  # IPv4 или IPv6
+    user_agent = Column(Text, nullable=True)  # User-Agent браузера
+    link_url = Column(Text, nullable=True)  # URL кликнутой ссылки (для event_type='click')
+
+    # Мета-данные
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+
+    # Связи
+    campaign = relationship("EmailCampaign", back_populates="tracking_events")
+    recipient = relationship("EmailCampaignRecipient", back_populates="tracking_events")
+
+    def __repr__(self) -> str:
+        return f"<EmailTracking(id={self.id}, event_type={self.event_type}, created_at={self.created_at})>"
 
 
 # Обновленная функция создания админа

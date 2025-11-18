@@ -23,6 +23,7 @@ import Promocodes from './sections/Promocodes';
 import Tickets from './sections/Tickets';
 import Notifications from './sections/Notifications';
 import Newsletters from './sections/Newsletters';
+import Emails from './sections/Emails';
 import Admins from './sections/Admins';
 import Backups from './sections/Backups';
 import SystemMonitoring from './sections/SystemMonitoring';
@@ -998,6 +999,7 @@ function App() {
       tickets: 'view_tickets',
       notifications: 'view_notifications',
       newsletters: 'view_newsletters',
+      emails: 'view_newsletters',
       admins: 'manage_admins',
       logging: 'view_logs',
       backups: 'manage_backups'
@@ -1106,6 +1108,8 @@ function App() {
         );
       case 'newsletters':
         return <Newsletters newsletters={newsletters} currentAdmin={currentAdmin} />;
+      case 'emails':
+        return <Emails currentAdmin={currentAdmin} />;
       case 'admins':
         return (
           <Admins

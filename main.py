@@ -53,6 +53,7 @@ from routes.optimization import router as optimization_router
 from routes.cache import router as cache_router
 from routes.logging import router as logging_router
 from routes.ip_bans import router as ip_bans_router
+from routes.emails import router as emails_router
 
 logger = get_logger(__name__)
 
@@ -353,6 +354,7 @@ routers = [
     (payments_router, "payments"),
     (notifications_router, "notifications"),
     (newsletters_router, "newsletters"),
+    (emails_router, "emails"),
     (dashboard_router, "dashboard"),
     (health_router, "health"),
     (monitoring_router, "monitoring"),

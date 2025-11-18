@@ -12,11 +12,25 @@ DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # Директории
 BASE_DIR = Path(__file__).parent
-DATA_DIR = Path("/app/data")  # Используем абсолютный путь для Docker
+
+# Определяем окружение: Docker или хост
+# Если /app существует и доступен для записи - мы в Docker
+IS_DOCKER = Path("/app").exists() and os.access("/app", os.W_OK)
+
+if IS_DOCKER:
+    # В Docker используем абсолютные пути
+    DATA_DIR = Path("/app/data")
+    AVATARS_DIR = Path("/app/avatars")
+    TICKET_PHOTOS_DIR = Path("/app/ticket_photos")
+    NEWSLETTER_PHOTOS_DIR = Path("/app/newsletter_photos")
+else:
+    # На хосте используем относительные пути от BASE_DIR
+    DATA_DIR = BASE_DIR / "data"
+    AVATARS_DIR = BASE_DIR / "avatars"
+    TICKET_PHOTOS_DIR = BASE_DIR / "ticket_photos"
+    NEWSLETTER_PHOTOS_DIR = BASE_DIR / "newsletter_photos"
+
 LOGS_DIR = BASE_DIR / "logs"
-AVATARS_DIR = Path("/app/avatars")  # Абсолютный путь
-TICKET_PHOTOS_DIR = Path("/app/ticket_photos")  # Абсолютный путь
-NEWSLETTER_PHOTOS_DIR = Path("/app/newsletter_photos")  # Абсолютный путь
 
 # Создаем директории если не существуют
 for directory in [
@@ -124,6 +138,32 @@ EXCLUDE_PATHS_FROM_LOGGING = os.getenv(
 ).split(",")
 MIDDLEWARE_LOG_LEVEL = os.getenv("MIDDLEWARE_LOG_LEVEL", "INFO").upper()
 LOG_SLOW_REQUEST_THRESHOLD_MS = int(os.getenv("LOG_SLOW_REQUEST_THRESHOLD_MS", "1000"))
+
+# ===================================
+# Email / SMTP настройки
+# ===================================
+
+# Яндекс SMTP конфигурация
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.yandex.ru")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))  # 465 для SSL, 587 для TLS
+SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() == "true"
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")  # Email адрес
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")  # Пароль приложения
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USERNAME)  # По умолчанию = username
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Coworking Space")
+SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT", "30"))  # Таймаут в секундах
+SMTP_MAX_RETRIES = int(os.getenv("SMTP_MAX_RETRIES", "3"))  # Количество попыток
+
+# Email настройки
+EMAIL_BATCH_SIZE = int(os.getenv("EMAIL_BATCH_SIZE", "50"))  # Количество писем в батче
+EMAIL_BATCH_DELAY = int(os.getenv("EMAIL_BATCH_DELAY", "1"))  # Задержка между батчами (секунды)
+EMAIL_RATE_LIMIT_PER_MINUTE = int(os.getenv("EMAIL_RATE_LIMIT_PER_MINUTE", "100"))  # Яндекс лимит
+
+# Tracking - используем FRONTEND_URL если EMAIL_TRACKING_DOMAIN не указан
+# Это важно, так как для трекинга нужен публично доступный URL
+FRONTEND_URL = os.getenv("FRONTEND_URL", f"http://{HOST}")
+EMAIL_TRACKING_DOMAIN = os.getenv("EMAIL_TRACKING_DOMAIN", FRONTEND_URL)  # Домен для трекинга
 
 # Настройки временной зоны
 import pytz

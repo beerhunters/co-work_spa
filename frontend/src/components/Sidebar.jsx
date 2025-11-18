@@ -10,7 +10,7 @@ import {
   Collapse,
   Text
 } from '@chakra-ui/react';
-import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronDown, FiChevronRight, FiFileText } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiMail, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronDown, FiChevronRight, FiFileText } from 'react-icons/fi';
 import { colors, sizes, styles, typography, spacing, animations } from '../styles/styles';
 
 const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
@@ -25,7 +25,8 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin }) => {
     { icon: FiPercent, label: 'Промокоды', section: 'promocodes', color: 'orange' },
     { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
-    { icon: FiSend, label: 'Рассылка', section: 'newsletters', color: 'teal' },
+    { icon: FiSend, label: 'Рассылка (Telegram)', section: 'newsletters', color: 'teal' },
+    { icon: FiMail, label: 'Email Рассылки', section: 'emails', color: 'blue' },
   ];
 
   // Административные функции для super_admin
