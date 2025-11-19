@@ -379,9 +379,13 @@ def create_payment_keyboard(
 ) -> InlineKeyboardMarkup:
     """Создаёт клавиатуру с кнопкой оплаты и отмены."""
     keyboard = InlineKeyboardBuilder()
-
+    pay_text_template = get_button_text(lang, "booking.pay")
+    pay_text = pay_text_template.format(amount=f"{amount:.0f}")
+    # keyboard.add(
+    #     InlineKeyboardButton(text=get_button_text(lang, "booking.pay", amount=f"{amount:.0f}"), url=confirmation_url)
+    # )
     keyboard.add(
-        InlineKeyboardButton(text=get_button_text(lang, "booking.pay", amount=f"{amount:.0f}"), url=confirmation_url)
+        InlineKeyboardButton(text=pay_text, url=confirmation_url)
     )
     keyboard.row(
         InlineKeyboardButton(text=get_button_text(lang, "booking.cancel_payment"), callback_data="cancel_payment")
