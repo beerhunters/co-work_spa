@@ -88,6 +88,7 @@ COPY --chown=appuser:appuser routes/ ./routes/
 COPY --chown=appuser:appuser schemas/ ./schemas/
 COPY --chown=appuser:appuser tasks/ ./tasks/
 COPY --chown=appuser:appuser migrations/ ./migrations/
+COPY --chown=appuser:appuser scripts/ ./scripts/
 
 # Переключаемся на непривилегированного пользователя
 USER appuser
