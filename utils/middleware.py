@@ -215,27 +215,32 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         # Информация о запросе
         client_ip = self._get_client_ip(request)
-        user_agent = request.headers.get("User-Agent", "")[:100]  # Обрезаем для логов
+        is_debug = self._is_debug_enabled()
 
         # Получаем уровень логирования из config
         log_level = getattr(logging, config.MIDDLEWARE_LOG_LEVEL, logging.INFO)
 
-        # Логируем входящий запрос
-        extra_data = {
+        # Минимальные данные для INFO/WARNING логов
+        minimal_data = {
             "request_id": request_id,
             "method": request.method,
             "path": request.url.path,
-            "query": str(request.query_params) if request.query_params else None,
             "client_ip": client_ip,
-            "user_agent": user_agent,
-            "headers": dict(request.headers) if self._is_debug_enabled() else None,
         }
+
+        # Дополнительные данные только для DEBUG
+        if is_debug:
+            minimal_data.update({
+                "query": str(request.query_params) if request.query_params else None,
+                "user_agent": request.headers.get("User-Agent", "")[:100],
+                "headers": dict(request.headers),
+            })
 
         # Используем соответствующий метод logger в зависимости от уровня
         if log_level == logging.WARNING:
-            logger.warning(f"Request started", extra=extra_data)
+            logger.warning(f"{request.method} {request.url.path}", extra=minimal_data)
         else:  # INFO или DEBUG
-            logger.info(f"Request started", extra=extra_data)
+            logger.info(f"{request.method} {request.url.path}", extra=minimal_data)
 
         try:
             # Выполняем запрос
@@ -257,8 +262,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 # Не прерываем выполнение запроса если метрики не работают
                 logger.debug(f"Failed to track request metrics: {metric_error}")
 
-            # Логируем ответ
-            extra_data = {
+            # Логируем ответ (используем формат похожий на nginx)
+            response_data = {
                 "request_id": request_id,
                 "method": request.method,
                 "path": request.url.path,
@@ -267,11 +272,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "client_ip": client_ip,
             }
 
+            # Форматируем сообщение в стиле nginx
+            log_message = f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms}ms)"
+
             # Используем соответствующий метод logger в зависимости от уровня
             if log_level == logging.WARNING:
-                logger.warning(f"Request completed", extra=extra_data)
+                logger.warning(log_message, extra=response_data)
             else:  # INFO или DEBUG
-                logger.info(f"Request completed", extra=extra_data)
+                logger.info(log_message, extra=response_data)
 
             # Добавляем заголовок с request ID для отладки
             response.headers["X-Request-ID"] = request_id

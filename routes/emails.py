@@ -63,9 +63,10 @@ def get_users_by_segment(session: Session, segment_type: str, segment_params: Op
 
     params = segment_params or {}
 
-    # Базовый запрос - исключаем забаненных и пользователей без email
+    # Базовый запрос - исключаем забаненных, заблокировавших бота и пользователей без email
     query = session.query(User).filter(
         User.is_banned == False,
+        User.bot_blocked == False,
         User.email.isnot(None),
         User.email != ""
     )

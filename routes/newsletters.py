@@ -39,8 +39,8 @@ def get_users_by_segment(session, segment_type: str, params: dict = None):
     params = params or {}
     query = session.query(User).filter(User.telegram_id.isnot(None))
 
-    # Исключаем забаненных пользователей из рассылки
-    query = query.filter(User.is_banned == False)
+    # Исключаем забаненных пользователей и заблокировавших бота из рассылки
+    query = query.filter(User.is_banned == False, User.bot_blocked == False)
 
     if segment_type == "active_users":
         days = params.get("days", 30)
@@ -198,17 +198,19 @@ async def send_newsletter(
     # Получение получателей
     def _get_recipients(session):
         if recipient_type == "all":
-            # Исключаем забаненных пользователей
+            # Исключаем забаненных пользователей и заблокировавших бота
             users = session.query(User).filter(
                 User.telegram_id.isnot(None),
-                User.is_banned == False
+                User.is_banned == False,
+                User.bot_blocked == False
             ).all()
         elif recipient_type == "selected":
             telegram_ids = [int(uid) for uid in user_ids if uid.isdigit()]
-            # Исключаем забаненных пользователей
+            # Исключаем забаненных пользователей и заблокировавших бота
             users = session.query(User).filter(
                 User.telegram_id.in_(telegram_ids),
-                User.is_banned == False
+                User.is_banned == False,
+                User.bot_blocked == False
             ).all()
         elif recipient_type == "segment":
             # Парсим параметры сегментации

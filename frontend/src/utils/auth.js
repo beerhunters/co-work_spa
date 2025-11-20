@@ -24,10 +24,17 @@ const getApiBaseUrl = () => {
 const DEFAULT_API_BASE_URL = getApiBaseUrl();
 
 
-// Работа с токеном в localStorage
+// Работа с токенами в localStorage
 export const getAuthToken = () => localStorage.getItem('authToken');
 export const setAuthToken = (token) => localStorage.setItem('authToken', token);
-export const removeAuthToken = () => localStorage.removeItem('authToken');
+export const removeAuthToken = () => {
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('refreshToken');
+};
+
+export const getRefreshToken = () => localStorage.getItem('refreshToken');
+export const setRefreshToken = (token) => localStorage.setItem('refreshToken', token);
+export const removeRefreshToken = () => localStorage.removeItem('refreshToken');
 
 // Ссылка на axios instance, к которому привязаны интерцепторы
 let boundClient = null;
@@ -59,30 +66,100 @@ export const initAuth = (axiosInstance) => {
     (error) => Promise.reject(error)
   );
 
-  // RESPONSE: обработка 401 и истекших токенов
+  // RESPONSE: обработка 401 и истекших токенов с автоматическим обновлением
+  let isRefreshing = false;
+  let failedQueue = [];
+
+  const processQueue = (error, token = null) => {
+    failedQueue.forEach(prom => {
+      if (error) {
+        prom.reject(error);
+      } else {
+        prom.resolve(token);
+      }
+    });
+    failedQueue = [];
+  };
+
   boundClient.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
       const status = error?.response?.status;
-      const url = error?.config?.url || '';
-      const errorMessage = error?.response?.data?.detail || '';
+      const originalRequest = error.config;
+      const url = originalRequest?.url || '';
 
-      // Обрабатываем 401 ошибки (включая истекшие токены)
-      if (status === 401 && !url.includes('/login')) {
-        console.log('🚨 Token expired or unauthorized - logging out', { url, errorMessage });
-        
-        // Очищаем токен из localStorage
-        removeAuthToken();
-        
-        // Для периодических запросов (уведомления) не показываем alert
-        if (!url.includes('/notifications/check_new')) {
-          console.warn('Сессия истекла. Необходимо повторно авторизоваться.');
+      // Обрабатываем 401 ошибки (токен истек)
+      if (status === 401 && !url.includes('/login') && !url.includes('/auth/refresh')) {
+        const refreshToken = getRefreshToken();
+
+        // Если нет refresh токена, разлогиниваем
+        if (!refreshToken) {
+          console.log('🚨 No refresh token available - logging out');
+          removeAuthToken();
+          window.location.href = '/';
+          return Promise.reject(error);
         }
-        
-        // Редиректим на главную страницу для повторного логина
-        window.location.href = '/';
+
+        // Если уже идет процесс обновления токена, добавляем запрос в очередь
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject });
+          }).then(token => {
+            originalRequest.headers['Authorization'] = 'Bearer ' + token;
+            return boundClient(originalRequest);
+          }).catch(err => {
+            return Promise.reject(err);
+          });
+        }
+
+        originalRequest._retry = true;
+        isRefreshing = true;
+
+        try {
+          // Попытка обновить токен
+          console.log('🔄 Attempting to refresh access token');
+          const response = await axios.post(`${DEFAULT_API_BASE_URL}/auth/refresh`, {
+            refresh_token: refreshToken
+          });
+
+          if (response.data?.access_token) {
+            setAuthToken(response.data.access_token);
+          }
+          if (response.data?.refresh_token) {
+            setRefreshToken(response.data.refresh_token);
+          }
+
+          const newToken = response.data.access_token;
+          console.log('✅ Token refreshed successfully');
+
+          // Обновляем заголовок оригинального запроса
+          originalRequest.headers['Authorization'] = 'Bearer ' + newToken;
+
+          // Обрабатываем очередь ожидающих запросов
+          processQueue(null, newToken);
+
+          // Повторяем оригинальный запрос
+          return boundClient(originalRequest);
+
+        } catch (refreshError) {
+          // Не удалось обновить токен - разлогиниваем пользователя
+          console.log('❌ Failed to refresh token - logging out');
+          processQueue(refreshError, null);
+          removeAuthToken();
+
+          // Показываем предупреждение только если это не фоновый запрос
+          if (!url.includes('/notifications/check_new')) {
+            console.warn('Сессия истекла. Необходимо повторно авторизоваться.');
+          }
+
+          window.location.href = '/';
+          return Promise.reject(refreshError);
+
+        } finally {
+          isRefreshing = false;
+        }
       }
-      
+
       return Promise.reject(error);
     }
   );
@@ -132,6 +209,32 @@ export const isTokenValid = async () => {
   }
 };
 
+// Обновление access токена с помощью refresh токена
+export const refreshAccessToken = async () => {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    throw new Error('Нет refresh токена');
+  }
+
+  try {
+    const client = ensureClient();
+    const response = await client.post('/auth/refresh', { refresh_token: refreshToken });
+
+    if (response.data?.access_token) {
+      setAuthToken(response.data.access_token);
+    }
+    if (response.data?.refresh_token) {
+      setRefreshToken(response.data.refresh_token);
+    }
+
+    return response.data;
+  } catch (error) {
+    // При ошибке обновления токена очищаем всё
+    removeAuthToken();
+    throw error;
+  }
+};
+
 
 export const login = async (loginData) => {
   try {
@@ -139,6 +242,9 @@ export const login = async (loginData) => {
     const response = await client.post('/login', loginData, { withCredentials: true });
     if (response.data?.access_token) {
       setAuthToken(response.data.access_token);
+    }
+    if (response.data?.refresh_token) {
+      setRefreshToken(response.data.refresh_token);
     }
     return response.data;
   } catch (error) {

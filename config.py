@@ -62,7 +62,21 @@ if not SECRET_KEY:
 if not SECRET_KEY_JWT:
     raise ValueError("SECRET_KEY_JWT не задан в переменных окружения")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
+
+# Срок действия токенов
+# ⚠️ ДЛЯ ТЕСТИРОВАНИЯ: установите ACCESS_TOKEN_EXPIRE_MINUTES=2 для быстрой проверки refresh токена
+# Для продакшена используйте ACCESS_TOKEN_EXPIRE_HOURS=24
+if os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"):
+    # Режим тестирования с минутами
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+    ACCESS_TOKEN_EXPIRE_HOURS = None
+    print(f"⚠️ ТЕСТОВЫЙ РЕЖИМ: Access token истекает через {ACCESS_TOKEN_EXPIRE_MINUTES} минут")
+else:
+    # Обычный режим с часами
+    ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
+    ACCESS_TOKEN_EXPIRE_MINUTES = None
+
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # Администратор
 ADMIN_LOGIN = os.getenv("ADMIN_LOGIN")

@@ -96,11 +96,17 @@ class JSONFormatter(logging.Formatter):
 class TextFormatter(logging.Formatter):
     """Форматтер для текстового вывода с поддержкой московского времени"""
 
-    def converter(self, timestamp: float) -> time.struct_time:
-        """Преобразует временную метку в struct_time с учётом московского времени"""
-        dt = datetime.fromtimestamp(timestamp, tz=pytz.UTC)
+    def formatTime(self, record, datefmt=None):
+        """Переопределяем formatTime для корректной работы с timezone"""
+        # Создаем datetime объект с московским временем
+        dt = datetime.fromtimestamp(record.created, tz=pytz.UTC)
         dt_moscow = dt.astimezone(MOSCOW_TZ)
-        return dt_moscow.timetuple()
+
+        # Форматируем в стиле nginx
+        if datefmt:
+            return dt_moscow.strftime(datefmt)
+        else:
+            return dt_moscow.strftime("%d/%b/%Y:%H:%M:%S %z")
 
     def format(self, record):
         # Добавляем информацию о местоположении для WARNING и выше
@@ -154,12 +160,12 @@ class UnifiedLogger:
             formatter = JSONFormatter()
             console_formatter = JSONFormatter()
         else:
-            # Текстовый формат
+            # Текстовый формат (точно как nginx: 20/Nov/2025:14:29:33 +0300)
             detailed_format = "[%(asctime)s] [%(levelname)s] [%(name)s]%(location)s %(message)s"
             simple_format = "[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"
 
-            formatter = TextFormatter(detailed_format, datefmt="%Y-%m-%d %H:%M:%S")
-            console_formatter = TextFormatter(simple_format, datefmt="%Y-%m-%d %H:%M:%S")
+            formatter = TextFormatter(detailed_format, datefmt="%d/%b/%Y:%H:%M:%S %z")
+            console_formatter = TextFormatter(simple_format, datefmt="%d/%b/%Y:%H:%M:%S %z")
 
         # Консольный обработчик
         console_handler = logging.StreamHandler(sys.stdout)

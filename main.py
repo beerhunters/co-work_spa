@@ -169,6 +169,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка инициализации БД: {e}")
 
+    # Запускаем миграции БД
+    try:
+        logger.info("Запуск миграций БД...")
+        from scripts.migrate_db import run_migrations
+        run_migrations()
+        logger.info("Миграции БД выполнены успешно")
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении миграций БД: {e}")
+        # Не критично, продолжаем работу
+
     # Создаем админа
     try:
         create_admin(ADMIN_LOGIN, ADMIN_PASSWORD)

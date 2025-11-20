@@ -583,6 +583,25 @@ class AdminPermission(Base):
     )
 
 
+class RefreshToken(Base):
+    """Модель для хранения refresh токенов администраторов."""
+
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True)
+    admin_id = Column(Integer, ForeignKey("admins.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(String(500), unique=True, nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False)
+    revoked = Column(Boolean, default=False, nullable=False)
+
+    # Связь с администратором
+    admin = relationship("Admin", backref="refresh_tokens")
+
+    def __repr__(self):
+        return f"<RefreshToken(admin_id={self.admin_id}, expires_at={self.expires_at}, revoked={self.revoked})>"
+
+
 class User(Base):
     """Модель пользователя."""
 
@@ -610,6 +629,10 @@ class User(Base):
     banned_at = Column(DateTime, nullable=True, index=True)
     ban_reason = Column(Text, nullable=True)
     banned_by = Column(String, nullable=True)  # login администратора, который забанил
+
+    # Блокировка бота пользователем
+    bot_blocked = Column(Boolean, default=False, nullable=False, index=True)
+    bot_blocked_at = Column(DateTime, nullable=True)
 
     # Связи
     notifications = relationship(

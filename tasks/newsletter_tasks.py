@@ -8,10 +8,11 @@ from typing import List, Dict, Optional
 import aiofiles
 from celery import Task
 from aiogram.types import BufferedInputFile, InputMediaPhoto
+from aiogram.exceptions import TelegramForbiddenError
 
 from celery_app import celery_app
 from config import MOSCOW_TZ
-from models.models import Newsletter, DatabaseManager
+from models.models import Newsletter, DatabaseManager, User
 from utils.logger import get_logger
 from dependencies import get_bot
 
@@ -212,6 +213,27 @@ async def _send_newsletter_async(
 
             # Small delay to avoid rate limiting
             await asyncio.sleep(0.05)
+
+        except TelegramForbiddenError as e:
+            # Пользователь заблокировал бота
+            failed_count += 1
+            send_status = 'bot_blocked'
+            error_message = "Пользователь заблокировал бота"
+            logger.warning(f"User {telegram_id} has blocked the bot")
+
+            # Обновляем статус блокировки в базе данных
+            def _mark_bot_blocked(session):
+                user = session.query(User).filter(User.telegram_id == telegram_id).first()
+                if user:
+                    user.bot_blocked = True
+                    user.bot_blocked_at = datetime.now(MOSCOW_TZ)
+                    session.commit()
+                    logger.info(f"Marked user {telegram_id} as bot_blocked in database")
+
+            try:
+                DatabaseManager.safe_execute(_mark_bot_blocked)
+            except Exception as db_error:
+                logger.error(f"Failed to update bot_blocked status for {telegram_id}: {db_error}")
 
         except Exception as e:
             failed_count += 1
