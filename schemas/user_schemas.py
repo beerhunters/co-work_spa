@@ -25,6 +25,8 @@ class UserBase(BaseModel):
     banned_at: Optional[datetime] = None
     ban_reason: Optional[str] = None
     banned_by: Optional[str] = None
+    bot_blocked: bool = False
+    bot_blocked_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -44,6 +46,8 @@ class UserUpdate(BaseModel):
     successful_bookings: Optional[int] = None
     invited_count: Optional[int] = None
     admin_comment: Optional[str] = Field(None, max_length=500)
+    bot_blocked: Optional[bool] = None
+    bot_blocked_at: Optional[datetime] = None
 
 
 class UserCreate(BaseModel):

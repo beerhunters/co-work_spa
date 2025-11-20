@@ -197,6 +197,19 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         is_new = result.get("is_new", False)
         is_complete = result.get("is_complete", False)
 
+        # Если пользователь уже существует (не новый), сбрасываем флаг bot_blocked
+        # Это означает, что пользователь вернулся и снова начал взаимодействие с ботом
+        if not is_new and user:
+            try:
+                await api_client.update_user_by_telegram_id(
+                    user_id,
+                    {"bot_blocked": False, "bot_blocked_at": None}
+                )
+                logger.info(f"Сброшен флаг bot_blocked для пользователя {user_id}")
+            except Exception as e:
+                # Логируем ошибку, но не прерываем процесс приветствия
+                logger.warning(f"Не удалось сбросить флаг bot_blocked для пользователя {user_id}: {e}")
+
         if is_complete:
             # Пользователь полностью зарегистрирован - приветствуем и показываем главное меню
             full_name = user.get("full_name", get_text(language_code, "common.user"))
