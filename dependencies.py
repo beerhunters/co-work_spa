@@ -8,7 +8,7 @@ import threading
 import time
 import asyncio
 
-from config import SECRET_KEY_JWT, ALGORITHM, BOT_TOKEN
+from config import get_secret_key_jwt, get_bot_token, ALGORITHM
 from models.models import DatabaseManager, Admin, Permission, AdminRole
 from utils.logger import get_logger
 from utils.cache_manager import cache_manager
@@ -207,7 +207,7 @@ def verify_token(
 
     try:
         token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_secret_key_jwt(), algorithms=[ALGORITHM])
         username: str = payload.get("sub")
 
         if username is None:
@@ -343,25 +343,27 @@ def require_super_admin(
 def get_bot() -> Optional[Bot]:
     """Thread-safe получение экземпляра бота"""
     global _bot
-    if _bot is None and BOT_TOKEN:
-        try:
-            _bot = Bot(token=BOT_TOKEN)
+    try:
+        bot_token = get_bot_token()
+        if _bot is None and bot_token:
+            _bot = Bot(token=bot_token)
             logger.info("Bot instance created successfully")
-        except Exception as e:
-            logger.error(f"Failed to create bot instance: {e}")
-            return None
+    except Exception as e:
+        logger.error(f"Failed to create bot instance: {e}")
+        return None
     return _bot
 
 
 def init_bot():
     """Инициализация бота"""
     global _bot
-    if BOT_TOKEN:
-        try:
-            _bot = Bot(token=BOT_TOKEN)
+    try:
+        bot_token = get_bot_token()
+        if bot_token:
+            _bot = Bot(token=bot_token)
             logger.info("Bot initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize bot: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize bot: {e}")
 
 
 async def close_bot():

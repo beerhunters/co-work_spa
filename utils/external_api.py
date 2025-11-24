@@ -8,16 +8,21 @@ from config import (
     RUBITIME_BRANCH_ID,
     RUBITIME_COOPERATOR_ID,
     YOKASSA_ACCOUNT_ID,
-    YOKASSA_SECRET_KEY,
+    get_yokassa_secret_key,  # Lazy loading функция
 )
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Настройка YooKassa
-if YOKASSA_ACCOUNT_ID and YOKASSA_SECRET_KEY:
-    Configuration.account_id = YOKASSA_ACCOUNT_ID
-    Configuration.secret_key = YOKASSA_SECRET_KEY
+# Настройка YooKassa (lazy initialization)
+def _init_yookassa():
+    """Ленивая инициализация YooKassa конфигурации"""
+    yokassa_secret = get_yokassa_secret_key()
+    if YOKASSA_ACCOUNT_ID and yokassa_secret:
+        Configuration.account_id = YOKASSA_ACCOUNT_ID
+        Configuration.secret_key = yokassa_secret
+        return True
+    return False
 
 
 async def rubitime(method: str, extra_params: dict) -> Optional[str]:
@@ -121,7 +126,8 @@ async def rubitime(method: str, extra_params: dict) -> Optional[str]:
 async def create_yookassa_payment(payment_data: Dict[str, Any]) -> Dict[str, Any]:
     """Создание платежа через YooKassa."""
     try:
-        if not YOKASSA_ACCOUNT_ID or not YOKASSA_SECRET_KEY:
+        # Инициализируем YooKassa при первом вызове
+        if not _init_yookassa():
             raise Exception("YooKassa не настроена")
 
         payment = Payment.create(

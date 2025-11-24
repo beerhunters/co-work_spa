@@ -9,7 +9,7 @@ from werkzeug.security import check_password_hash
 
 from models.models import Admin, RefreshToken, DatabaseManager
 from config import (
-    SECRET_KEY_JWT,
+    get_secret_key_jwt,  # Используем lazy loading функцию
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_HOURS,
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -60,7 +60,7 @@ def create_access_token(data: dict):
         logger.debug(f"Creating access token with {ACCESS_TOKEN_EXPIRE_HOURS} hours expiration")
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY_JWT, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, get_secret_key_jwt(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -89,7 +89,7 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Проверка JWT токена."""
     try:
         token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY_JWT, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, get_secret_key_jwt(), algorithms=[ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=401, detail="Invalid token")

@@ -120,6 +120,106 @@ class TextFormatter(logging.Formatter):
         return super().format(record)
 
 
+class SensitiveDataFilter(logging.Filter):
+    """
+    Фильтр для маскирования sensitive данных в логах.
+    Автоматически заменяет токены, пароли, ключи на ***
+    """
+
+    # Паттерны для поиска sensitive данных
+    SENSITIVE_PATTERNS = [
+        # Токены и ключи
+        (r'(token["\']?\s*[:=]\s*["\']?)([^"\'}\s,]{20,})', r'\1***'),
+        (r'(bearer\s+)([a-zA-Z0-9\-._~+/]{20,})', r'\1***', ),
+        (r'(api[_-]?key["\']?\s*[:=]\s*["\']?)([^"\'}\s,]{10,})', r'\1***'),
+
+        # Пароли
+        (r'(password["\']?\s*[:=]\s*["\']?)([^"\'}\s,]+)', r'\1***'),
+        (r'(pwd["\']?\s*[:=]\s*["\']?)([^"\'}\s,]+)', r'\1***'),
+        (r'(pass["\']?\s*[:=]\s*["\']?)([^"\'}\s,]+)', r'\1***'),
+
+        # JWT токены (3 части разделенные точками)
+        (r'(eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+)', r'eyJ***.eyJ***.***'),
+
+        # Secrets
+        (r'(secret["\']?\s*[:=]\s*["\']?)([^"\'}\s,]{10,})', r'\1***'),
+
+        # Authorization headers
+        (r"('authorization':\s*')([^']+)", r"\1***"),
+        (r'("authorization":\s*")([^"]+)', r'\1***'),
+    ]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        Фильтрует запись лога, заменяя sensitive данные на ***
+
+        Args:
+            record: Запись лога
+
+        Returns:
+            True (всегда пропускаем запись, только модифицируем)
+        """
+        import re
+
+        # Обрабатываем сообщение
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            for pattern, replacement, *_ in self.SENSITIVE_PATTERNS:
+                record.msg = re.sub(pattern, replacement, record.msg, flags=re.IGNORECASE)
+
+        # Обрабатываем аргументы
+        if hasattr(record, 'args') and record.args:
+            if isinstance(record.args, dict):
+                record.args = self._sanitize_dict(record.args)
+            elif isinstance(record.args, (list, tuple)):
+                record.args = tuple(
+                    self._sanitize_value(arg) for arg in record.args
+                )
+
+        return True
+
+    def _sanitize_dict(self, data: dict) -> dict:
+        """Рекурсивно маскирует sensitive данные в словаре"""
+        import re
+
+        sensitive_keys = {
+            'password', 'token', 'secret', 'api_key', 'authorization',
+            'cookie', 'apikey', 'access_token', 'refresh_token', 'jwt',
+            'bearer', 'secret_key', 'private_key'
+        }
+
+        sanitized = {}
+        for key, value in data.items():
+            key_lower = key.lower()
+
+            # Проверяем ключ
+            if any(sensitive in key_lower for sensitive in sensitive_keys):
+                sanitized[key] = '***'
+            elif isinstance(value, dict):
+                sanitized[key] = self._sanitize_dict(value)
+            elif isinstance(value, str):
+                # Проверяем значение на паттерны
+                sanitized_value = value
+                for pattern, replacement, *_ in self.SENSITIVE_PATTERNS:
+                    sanitized_value = re.sub(pattern, replacement, sanitized_value, flags=re.IGNORECASE)
+                sanitized[key] = sanitized_value
+            else:
+                sanitized[key] = value
+
+        return sanitized
+
+    def _sanitize_value(self, value):
+        """Маскирует одиночное значение"""
+        import re
+
+        if isinstance(value, str):
+            for pattern, replacement, *_ in self.SENSITIVE_PATTERNS:
+                value = re.sub(pattern, replacement, value, flags=re.IGNORECASE)
+        elif isinstance(value, dict):
+            value = self._sanitize_dict(value)
+
+        return value
+
+
 class UnifiedLogger:
     """Единая система логирования с поддержкой JSON и текстового формата"""
 
@@ -154,6 +254,10 @@ class UnifiedLogger:
         # Устанавливаем уровень
         level = getattr(logging, self.effective_log_level)
         self.logger.setLevel(level)
+
+        # Добавляем фильтр для маскирования sensitive данных
+        sensitive_filter = SensitiveDataFilter()
+        self.logger.addFilter(sensitive_filter)
 
         # Создаем форматтеры
         if self.log_format == "json":

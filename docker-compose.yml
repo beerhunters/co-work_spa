@@ -5,6 +5,11 @@ services:
       dockerfile: Dockerfile.bot
       target: ${BUILD_TARGET:-production}
     user: "1000:1000"
+    secrets:
+      - secret_key
+      - secret_key_jwt
+      - bot_token
+      - admin_password
     environment:
       # Основные настройки
       - DEBUG=${DEBUG:-false}
@@ -94,6 +99,13 @@ services:
       dockerfile: Dockerfile.web
       target: ${BUILD_TARGET:-production}
     user: "1000:1000"
+    secrets:
+      - secret_key
+      - secret_key_jwt
+      - bot_token
+      - admin_password
+      - yokassa_secret_key
+      - smtp_password
     environment:
       # Основные настройки
       - DEBUG=${DEBUG:-false}
@@ -276,6 +288,12 @@ services:
       target: ${BUILD_TARGET:-production}
     user: "1000:1000"
     command: celery -A celery_app worker --loglevel=info --concurrency=2 --queues=newsletters
+    secrets:
+      - secret_key
+      - secret_key_jwt
+      - bot_token
+      - admin_password
+      - smtp_password
     environment:
       # Основные настройки
       - DEBUG=${DEBUG:-false}
@@ -363,6 +381,22 @@ volumes:
   logs_volume:
   config_volume:
   redis_data:
+
+# Docker Secrets - file-based для локальной разработки
+# В production используйте Docker Swarm secrets или Kubernetes secrets
+secrets:
+  secret_key:
+    file: ./secrets/SECRET_KEY.txt
+  secret_key_jwt:
+    file: ./secrets/SECRET_KEY_JWT.txt
+  bot_token:
+    file: ./secrets/BOT_TOKEN.txt
+  admin_password:
+    file: ./secrets/ADMIN_PASSWORD.txt
+  yokassa_secret_key:
+    file: ./secrets/YOKASSA_SECRET_KEY.txt
+  smtp_password:
+    file: ./secrets/SMTP_PASSWORD.txt
 
 networks:
   coworking_network:

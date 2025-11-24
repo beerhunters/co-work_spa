@@ -1,9 +1,104 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Optional
+import logging
 
 # Загружаем переменные окружения
 load_dotenv()
+
+# ===================================
+# Secret Manager - Lazy Loading
+# ===================================
+
+class SecretManager:
+    """
+    Управляет загрузкой секретов с поддержкой:
+    1. Docker secrets (/run/secrets/<name>)
+    2. Fallback на environment variables
+    3. Кэширование прочитанных значений
+    """
+
+    _cache = {}
+    _logger = logging.getLogger("SecretManager")
+
+    @classmethod
+    def get_secret(cls, name: str, env_var: Optional[str] = None, required: bool = True) -> Optional[str]:
+        """
+        Получить секрет с lazy loading.
+
+        Args:
+            name: Имя секрета (например, 'secret_key')
+            env_var: Имя environment variable для fallback (по умолчанию равно name в верхнем регистре)
+            required: Выбросить ошибку если секрет не найден
+
+        Returns:
+            Значение секрета или None если не найден и required=False
+        """
+        # Проверить кэш
+        cache_key = name
+        if cache_key in cls._cache:
+            return cls._cache[cache_key]
+
+        secret_value = None
+
+        # 1. Попробовать прочитать из Docker secrets
+        docker_secret_path = Path(f"/run/secrets/{name}")
+        if docker_secret_path.exists():
+            try:
+                secret_value = docker_secret_path.read_text().strip()
+                cls._logger.debug(f"Loaded secret '{name}' from Docker secrets")
+            except Exception as e:
+                cls._logger.warning(f"Failed to read Docker secret '{name}': {e}")
+
+        # 2. Fallback на environment variable
+        if not secret_value:
+            env_name = env_var or name.upper()
+            secret_value = os.getenv(env_name)
+            if secret_value:
+                cls._logger.debug(f"Loaded secret '{name}' from environment variable '{env_name}'")
+
+        # 3. Валидация если required
+        if not secret_value and required:
+            raise ValueError(
+                f"Secret '{name}' not found. "
+                f"Provide it via Docker secret (/run/secrets/{name}) or environment variable."
+            )
+
+        # Кэшировать и вернуть
+        cls._cache[cache_key] = secret_value
+        return secret_value
+
+    @classmethod
+    def clear_cache(cls):
+        """Очистить кэш секретов (для тестирования)"""
+        cls._cache.clear()
+
+
+# Функции-геттеры для секретов (lazy loading)
+def get_secret_key() -> str:
+    """Получить SECRET_KEY"""
+    return SecretManager.get_secret("secret_key", "SECRET_KEY", required=True)
+
+def get_secret_key_jwt() -> str:
+    """Получить SECRET_KEY_JWT"""
+    return SecretManager.get_secret("secret_key_jwt", "SECRET_KEY_JWT", required=True)
+
+def get_bot_token() -> str:
+    """Получить BOT_TOKEN"""
+    return SecretManager.get_secret("bot_token", "BOT_TOKEN", required=True)
+
+def get_admin_password() -> str:
+    """Получить ADMIN_PASSWORD"""
+    return SecretManager.get_secret("admin_password", "ADMIN_PASSWORD", required=True)
+
+def get_yokassa_secret_key() -> Optional[str]:
+    """Получить YOKASSA_SECRET_KEY"""
+    return SecretManager.get_secret("yokassa_secret_key", "YOKASSA_SECRET_KEY", required=False)
+
+def get_smtp_password() -> Optional[str]:
+    """Получить SMTP_PASSWORD"""
+    return SecretManager.get_secret("smtp_password", "SMTP_PASSWORD", required=False)
 
 # Базовые настройки
 APP_NAME = os.getenv("APP_NAME", "Coworking API")
@@ -54,13 +149,10 @@ DATABASE_RETRY_ATTEMPTS = int(os.getenv("DB_RETRY_ATTEMPTS", "3"))
 DATABASE_RETRY_DELAY = float(os.getenv("DB_RETRY_DELAY", "0.1"))
 
 # Безопасность
-SECRET_KEY = os.getenv("SECRET_KEY")
-SECRET_KEY_JWT = os.getenv("SECRET_KEY_JWT")
-
-if not SECRET_KEY:
-    raise ValueError("SECRET_KEY не задан в переменных окружения")
-if not SECRET_KEY_JWT:
-    raise ValueError("SECRET_KEY_JWT не задан в переменных окружения")
+# ВАЖНО: Секреты загружаются через lazy loading функции выше
+# Для обратной совместимости оставляем переменные, но они будут None до первого вызова
+SECRET_KEY = None  # Используйте get_secret_key() вместо прямого доступа
+SECRET_KEY_JWT = None  # Используйте get_secret_key_jwt() вместо прямого доступа
 ALGORITHM = "HS256"
 
 # Срок действия токенов
@@ -80,15 +172,13 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # Администратор
 ADMIN_LOGIN = os.getenv("ADMIN_LOGIN")
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
+ADMIN_PASSWORD = None  # Используйте get_admin_password() вместо прямого доступа
 
 if not ADMIN_LOGIN:
     raise ValueError("ADMIN_LOGIN не задан в переменных окружения")
-if not ADMIN_PASSWORD:
-    raise ValueError("ADMIN_PASSWORD не задан в переменных окружения")
 
 # Telegram Bot
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+BOT_TOKEN = None  # Используйте get_bot_token() вместо прямого доступа
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 BOT_LINK = os.getenv("BOT_LINK", "https://t.me/your_bot")
 INVITE_LINK = os.getenv("INVITE_LINK", "https://t.me/your_bot")
@@ -97,7 +187,7 @@ FOR_LOGS = os.getenv("FOR_LOGS")
 
 # YooKassa
 YOKASSA_ACCOUNT_ID = os.getenv("YOKASSA_ACCOUNT_ID")
-YOKASSA_SECRET_KEY = os.getenv("YOKASSA_SECRET_KEY")
+YOKASSA_SECRET_KEY = None  # Используйте get_yokassa_secret_key() вместо прямого доступа
 
 # Rubitime
 RUBITIME_API_KEY = os.getenv("RUBITIME_API_KEY")
@@ -163,7 +253,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))  # 465 для SSL, 587 для TLS
 SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() == "true"
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
 SMTP_USERNAME = os.getenv("SMTP_USERNAME")  # Email адрес
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")  # Пароль приложения
+SMTP_PASSWORD = None  # Используйте get_smtp_password() вместо прямого доступа
 SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USERNAME)  # По умолчанию = username
 SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Coworking Space")
 SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT", "30"))  # Таймаут в секундах
@@ -188,12 +278,5 @@ MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 import logging
 logger = logging.getLogger(__name__)
 
-required_env_vars = {
-    "BOT_TOKEN": BOT_TOKEN,
-}
-
-missing_vars = [key for key, value in required_env_vars.items() if not value]
-if missing_vars:
-    logger.warning(
-        f"Отсутствуют переменные окружения: {', '.join(missing_vars)}"
-    )
+# Валидация критичных секретов перенесена в функции-геттеры
+# Секреты будут проверены при первом использовании, а не при импорте модуля

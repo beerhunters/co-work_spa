@@ -19,6 +19,71 @@ import logging
 logger = get_logger(__name__)
 
 
+# ===================================
+# Sensitive Data Filtering
+# ===================================
+
+def sanitize_headers(headers: dict) -> dict:
+    """
+    Фильтрует sensitive данные из headers для безопасного логирования.
+
+    Args:
+        headers: Словарь headers
+
+    Returns:
+        Словарь headers с замаскированными sensitive значениями
+    """
+    sensitive_headers = {
+        'authorization',
+        'cookie',
+        'x-api-key',
+        'x-csrf-token',
+        'x-auth-token',
+        'proxy-authorization',
+    }
+
+    sanitized = {}
+    for key, value in headers.items():
+        key_lower = key.lower()
+        if key_lower in sensitive_headers:
+            # Показываем только первые 10 символов
+            sanitized[key] = value[:10] + '***' if len(value) > 10 else '***'
+        else:
+            sanitized[key] = value
+
+    return sanitized
+
+
+def sanitize_query_params(params: dict) -> dict:
+    """
+    Фильтрует sensitive данные из query parameters.
+
+    Args:
+        params: Словарь query parameters
+
+    Returns:
+        Словарь с замаскированными sensitive значениями
+    """
+    sensitive_params = {
+        'password',
+        'token',
+        'secret',
+        'api_key',
+        'access_token',
+        'refresh_token',
+    }
+
+    sanitized = {}
+    for key, value in params.items():
+        key_lower = key.lower()
+        if key_lower in sensitive_params:
+            sanitized[key] = '***'
+        else:
+            sanitized[key] = value
+
+    return sanitized
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Middleware для автоматического применения rate limiting
@@ -228,12 +293,12 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             "client_ip": client_ip,
         }
 
-        # Дополнительные данные только для DEBUG
+        # Дополнительные данные только для DEBUG (с фильтрацией sensitive data)
         if is_debug:
             minimal_data.update({
-                "query": str(request.query_params) if request.query_params else None,
+                "query": sanitize_query_params(dict(request.query_params)) if request.query_params else None,
                 "user_agent": request.headers.get("User-Agent", "")[:100],
-                "headers": dict(request.headers),
+                "headers": sanitize_headers(dict(request.headers)),
             })
 
         # Используем соответствующий метод logger в зависимости от уровня
