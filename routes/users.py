@@ -603,7 +603,9 @@ async def download_telegram_avatar(
                 detail="User has no profile photo or photo is not accessible",
             )
 
-        photo = profile_photos.photos[0][-1]
+        # Получаем средний размер аватара (обычно 320x320), если доступно несколько размеров
+        # Если доступен только один размер, используем его
+        photo = profile_photos.photos[0][-2] if len(profile_photos.photos[0]) > 1 else profile_photos.photos[0][-1]
         file = await bot.get_file(photo.file_id)
 
         avatar_filename = f"{user_data['telegram_id']}.jpg"
@@ -720,7 +722,9 @@ async def bulk_download_telegram_avatars(
                     logger.debug(f"Пользователь {user_data['telegram_id']} ({user_data.get('full_name', 'Unknown')}) не имеет аватара")
                     continue
 
-                photo = profile_photos.photos[0][-1]
+                # Получаем средний размер аватара (обычно 320x320), если доступно несколько размеров
+                # Если доступен только один размер, используем его
+                photo = profile_photos.photos[0][-2] if len(profile_photos.photos[0]) > 1 else profile_photos.photos[0][-1]
                 file = await bot.get_file(photo.file_id)
 
                 avatar_filename = f"{user_data['telegram_id']}.jpg"

@@ -43,10 +43,18 @@ class PermissionEnum(str, Enum):
     VIEW_NOTIFICATIONS = "view_notifications"
     MANAGE_NOTIFICATIONS = "manage_notifications"
 
-    # Рассылки
-    VIEW_NEWSLETTERS = "view_newsletters"
-    SEND_NEWSLETTERS = "send_newsletters"
-    MANAGE_NEWSLETTERS = "manage_newsletters"
+    # Telegram рассылки
+    VIEW_TELEGRAM_NEWSLETTERS = "view_telegram_newsletters"
+    SEND_TELEGRAM_NEWSLETTERS = "send_telegram_newsletters"
+    MANAGE_TELEGRAM_NEWSLETTERS = "manage_telegram_newsletters"
+
+    # Email рассылки
+    VIEW_EMAIL_CAMPAIGNS = "view_email_campaigns"
+    CREATE_EMAIL_CAMPAIGNS = "create_email_campaigns"
+    EDIT_EMAIL_CAMPAIGNS = "edit_email_campaigns"
+    DELETE_EMAIL_CAMPAIGNS = "delete_email_campaigns"
+    SEND_EMAIL_CAMPAIGNS = "send_email_campaigns"
+    MANAGE_EMAIL_TEMPLATES = "manage_email_templates"
 
     # Управление администраторами
     MANAGE_ADMINS = "manage_admins"
@@ -166,10 +174,17 @@ class AvailablePermissions(BaseModel):
             # Уведомления
             "view_notifications": "Просмотр уведомлений",
             "manage_notifications": "Управление уведомлениями",
-            # Рассылки
-            "view_newsletters": "Просмотр рассылок",
-            "send_newsletters": "Отправка рассылок",
-            "manage_newsletters": "Управление рассылками",
+            # Telegram рассылки
+            "view_telegram_newsletters": "Просмотр Telegram рассылок",
+            "send_telegram_newsletters": "Отправка Telegram рассылок",
+            "manage_telegram_newsletters": "Управление Telegram рассылками",
+            # Email рассылки
+            "view_email_campaigns": "Просмотр Email рассылок",
+            "create_email_campaigns": "Создание Email рассылок",
+            "edit_email_campaigns": "Редактирование Email рассылок",
+            "delete_email_campaigns": "Удаление Email рассылок",
+            "send_email_campaigns": "Отправка Email рассылок",
+            "manage_email_templates": "Управление Email шаблонами",
             # Администраторы
             "manage_admins": "Управление администраторами",
             # Дашборд
@@ -205,9 +220,15 @@ class AvailablePermissions(BaseModel):
             "delete_tickets": "Тикеты",
             "view_notifications": "Уведомления",
             "manage_notifications": "Уведомления",
-            "view_newsletters": "Рассылки",
-            "send_newsletters": "Рассылки",
-            "manage_newsletters": "Рассылки",
+            "view_telegram_newsletters": "Telegram рассылки",
+            "send_telegram_newsletters": "Telegram рассылки",
+            "manage_telegram_newsletters": "Telegram рассылки",
+            "view_email_campaigns": "Email рассылки",
+            "create_email_campaigns": "Email рассылки",
+            "edit_email_campaigns": "Email рассылки",
+            "delete_email_campaigns": "Email рассылки",
+            "send_email_campaigns": "Email рассылки",
+            "manage_email_templates": "Email рассылки",
             "manage_admins": "Администрирование",
             "view_dashboard": "Система",
             "view_logs": "Система",

@@ -718,7 +718,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       </Modal>
 
       {/* Модальное окно для аватара */}
-      <ChakraModal isOpen={isAvatarModalOpen} onClose={() => setAvatarModalOpen(false)} size="xl">
+      <ChakraModal isOpen={isAvatarModalOpen} onClose={() => setAvatarModalOpen(false)} size="2xl">
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Аватар пользователя</ModalHeader>
@@ -729,7 +729,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 key={`modal-avatar-${currentUser.id}-${avatarVersion}`}
                 src={`${avatarUrl}&t=${avatarVersion}`}
                 alt="Аватар в полном размере"
-                boxSize="300px"
+                boxSize="500px"
                 objectFit="contain"
                 fallbackSrc={`/avatars/placeholder_avatar.png?v=${Date.now()}`}
                 mx="auto"

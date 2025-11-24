@@ -106,6 +106,29 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
     }
   };
 
+  const handleSelectAllPermissions = () => {
+    const allPermissions = availablePermissions.permissions.map(p =>
+      typeof p === 'string' ? p : p.value
+    );
+    setFormData({...formData, permissions: allPermissions});
+    toast({
+      title: 'Выбраны все права',
+      status: 'success',
+      duration: 2000,
+      isClosable: true,
+    });
+  };
+
+  const handleDeselectAllPermissions = () => {
+    setFormData({...formData, permissions: []});
+    toast({
+      title: 'Права сняты',
+      status: 'info',
+      duration: 2000,
+      isClosable: true,
+    });
+  };
+
   const getRoleLabel = (role) => {
     const labels = {
       'super_admin': 'Главный администратор',
@@ -332,10 +355,17 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
       // Уведомления
       'view_notifications': 'Просмотр уведомлений',
       'manage_notifications': 'Управление уведомлениями',
-      // Рассылки
-      'view_newsletters': 'Просмотр рассылок',
-      'send_newsletters': 'Отправка рассылок',
-      'manage_newsletters': 'Управление рассылками',
+      // Telegram рассылки
+      'view_telegram_newsletters': 'Просмотр Telegram рассылок',
+      'send_telegram_newsletters': 'Отправка Telegram рассылок',
+      'manage_telegram_newsletters': 'Управление Telegram рассылками',
+      // Email рассылки
+      'view_email_campaigns': 'Просмотр Email рассылок',
+      'create_email_campaigns': 'Создание Email рассылок',
+      'edit_email_campaigns': 'Редактирование Email рассылок',
+      'delete_email_campaigns': 'Удаление Email рассылок',
+      'send_email_campaigns': 'Отправка Email рассылок',
+      'manage_email_templates': 'Управление Email шаблонами',
       // Администраторы
       'manage_admins': 'Управление администраторами',
       // Дашборд
@@ -372,7 +402,8 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
     const simplePermissions = permissions.map(p => typeof p === 'string' ? p : p.value || p);
     return {
       'Пользователи': simplePermissions.filter(p => p.includes('users')),
-      'Рассылки': simplePermissions.filter(p => p.includes('newsletters')),
+      'Telegram рассылки': simplePermissions.filter(p => p.includes('telegram_newsletters')),
+      'Email рассылки': simplePermissions.filter(p => p.includes('email_campaigns') || p.includes('email_templates')),
       'Уведомления': simplePermissions.filter(p => p.includes('notifications')),
       'Система': simplePermissions.filter(p => p.includes('analytics') || p.includes('export') || p.includes('system'))
     };
@@ -493,7 +524,29 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
 
                   {/* Разрешения */}
                   <FormControl>
-                    <FormLabel>Разрешения</FormLabel>
+                    <HStack justify="space-between" mb={3}>
+                      <FormLabel mb={0}>Разрешения</FormLabel>
+                      <HStack spacing={2}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="blue"
+                          onClick={handleSelectAllPermissions}
+                          isDisabled={!availablePermissions.permissions || availablePermissions.permissions.length === 0}
+                        >
+                          Выбрать все
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          colorScheme="gray"
+                          onClick={handleDeselectAllPermissions}
+                          isDisabled={formData.permissions.length === 0}
+                        >
+                          Снять все
+                        </Button>
+                      </HStack>
+                    </HStack>
                     {Object.keys(groupedPermissions).length > 0 ? (
                       <Accordion allowMultiple>
                         {Object.entries(groupedPermissions).map(([category, permissions]) => (

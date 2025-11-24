@@ -416,10 +416,10 @@ class Permission(enum.Enum):
     VIEW_NOTIFICATIONS = "view_notifications"
     MANAGE_NOTIFICATIONS = "manage_notifications"
 
-    # Рассылки
-    VIEW_NEWSLETTERS = "view_newsletters"
-    SEND_NEWSLETTERS = "send_newsletters"
-    MANAGE_NEWSLETTERS = "manage_newsletters"
+    # Telegram рассылки
+    VIEW_TELEGRAM_NEWSLETTERS = "view_telegram_newsletters"
+    SEND_TELEGRAM_NEWSLETTERS = "send_telegram_newsletters"
+    MANAGE_TELEGRAM_NEWSLETTERS = "manage_telegram_newsletters"
 
     # Управление администраторами (только для super_admin)
     MANAGE_ADMINS = "manage_admins"

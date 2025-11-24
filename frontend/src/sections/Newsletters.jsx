@@ -235,19 +235,19 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   // Проверка прав доступа (мемоизировано для предотвращения лишних ре-рендеров)
   const canViewNewsletters = useMemo(() =>
     currentAdmin?.role === 'super_admin' ||
-    (currentAdmin?.permissions && currentAdmin.permissions.includes('view_newsletters')),
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('view_telegram_newsletters')),
     [currentAdmin]
   );
 
   const canSendNewsletters = useMemo(() =>
     currentAdmin?.role === 'super_admin' ||
-    (currentAdmin?.permissions && currentAdmin.permissions.includes('send_newsletters')),
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('send_telegram_newsletters')),
     [currentAdmin]
   );
 
   const canManageNewsletters = useMemo(() =>
     currentAdmin?.role === 'super_admin' ||
-    (currentAdmin?.permissions && currentAdmin.permissions.includes('manage_newsletters')),
+    (currentAdmin?.permissions && currentAdmin.permissions.includes('manage_telegram_newsletters')),
     [currentAdmin]
   );
 

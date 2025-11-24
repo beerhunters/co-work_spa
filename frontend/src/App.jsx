@@ -371,7 +371,8 @@ function App() {
         promocodes: 'view_promocodes',
         tickets: 'view_tickets',
         notifications: 'view_notifications',
-        newsletters: 'view_newsletters',
+        newsletters: 'view_telegram_newsletters',
+        emails: 'view_email_campaigns',
         admins: 'manage_admins',
         dashboard: 'view_dashboard'
       };
@@ -770,7 +771,8 @@ function App() {
             promocodes: 'view_promocodes',
             tickets: 'view_tickets',
             notifications: 'view_notifications',
-            newsletters: 'view_newsletters',
+            newsletters: 'view_telegram_newsletters',
+            emails: 'view_email_campaigns',
             admins: 'manage_admins',
             dashboard: 'view_dashboard'
           };
@@ -998,8 +1000,8 @@ function App() {
       promocodes: 'view_promocodes',
       tickets: 'view_tickets',
       notifications: 'view_notifications',
-      newsletters: 'view_newsletters',
-      emails: 'view_newsletters',
+      newsletters: 'view_telegram_newsletters',
+      emails: 'view_email_campaigns',
       admins: 'manage_admins',
       logging: 'view_logs',
       backups: 'manage_backups'

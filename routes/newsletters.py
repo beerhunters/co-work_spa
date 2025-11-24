@@ -120,7 +120,7 @@ async def get_newsletters(
     search: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    current_admin: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+    current_admin: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
 ):
     """Получение рассылок (для фронтенда)."""
     return await get_newsletter_history(
@@ -144,7 +144,7 @@ async def send_newsletter(
     segment_type: Optional[str] = Form(None),
     segment_params: Optional[str] = Form(None),  # JSON string
     photos: Optional[List[UploadFile]] = File(None),
-    _: str = Depends(verify_token_with_permissions([Permission.SEND_NEWSLETTERS])),
+    _: str = Depends(verify_token_with_permissions([Permission.SEND_TELEGRAM_NEWSLETTERS])),
 ):
     """Отправка рассылки пользователям через Telegram бота с использованием фоновой очереди."""
     bot = get_bot()
@@ -284,7 +284,7 @@ async def send_newsletter(
 @router.get("/task/{task_id}")
 async def get_newsletter_task_status(
     task_id: str,
-    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
 ):
     """Получение статуса задачи рассылки по task_id."""
     try:
@@ -350,7 +350,7 @@ async def get_newsletter_history(
     search: Optional[str] = Query(None, description="Поиск по тексту сообщения"),
     date_from: Optional[str] = Query(None, description="Фильтр от даты (YYYY-MM-DD)"),
     date_to: Optional[str] = Query(None, description="Фильтр до даты (YYYY-MM-DD)"),
-    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
 ):
     """Получение истории рассылок с фильтрацией и поиском."""
 
@@ -425,7 +425,7 @@ async def export_newsletters_csv(
     search: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
-    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
 ):
     """Экспорт истории рассылок в CSV с фильтрацией."""
 
@@ -542,7 +542,7 @@ async def export_newsletters_csv(
 @router.delete("/clear-history")
 async def clear_newsletter_history(
     current_admin: str = Depends(
-        verify_token_with_permissions([Permission.MANAGE_NEWSLETTERS])
+        verify_token_with_permissions([Permission.MANAGE_TELEGRAM_NEWSLETTERS])
     ),
 ):
     """Очистка всей истории рассылок."""
@@ -578,7 +578,7 @@ async def clear_newsletter_history(
 @router.get("/{newsletter_id}", response_model=NewsletterResponse)
 async def get_newsletter_detail(
     newsletter_id: int,
-    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
 ):
     """Получение деталей конкретной рассылки."""
 
@@ -615,7 +615,7 @@ async def get_newsletter_detail(
 @router.get("/{newsletter_id}/recipients")
 async def get_newsletter_recipients(
     newsletter_id: int,
-    _: str = Depends(verify_token_with_permissions([Permission.VIEW_NEWSLETTERS])),
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
 ):
     """Получение детальной информации о получателях конкретной рассылки."""
 
@@ -670,7 +670,7 @@ async def get_newsletter_recipients(
 async def delete_newsletter(
     newsletter_id: int,
     current_admin: str = Depends(
-        verify_token_with_permissions([Permission.MANAGE_NEWSLETTERS])
+        verify_token_with_permissions([Permission.MANAGE_TELEGRAM_NEWSLETTERS])
     ),
 ):
     """Удаление конкретной рассылки."""
