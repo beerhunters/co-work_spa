@@ -43,6 +43,7 @@ import {
   StatNumber,
   StatHelpText,
   useColorModeValue,
+  useBreakpointValue,
   Tabs,
   TabList,
   TabPanels,
@@ -50,6 +51,7 @@ import {
   TabPanel,
   Checkbox,
   CheckboxGroup,
+  Stack,
 } from '@chakra-ui/react';
 import {
   FiMail,
@@ -99,6 +101,9 @@ const Emails = ({ currentAdmin }) => {
   const toast = useToast();
   const bgColor = useColorModeValue('gray.50', 'gray.900');
   const cardBg = useColorModeValue('white', 'gray.800');
+
+  // Responsive breakpoint для адаптивного отображения
+  const isMobile = useBreakpointValue({ base: true, md: false });
 
   useEffect(() => {
     fetchCampaigns();
@@ -474,7 +479,7 @@ const Emails = ({ currentAdmin }) => {
     }, [localSelectedUserIds, onSelectedUserIdsChange, onClose]);
 
     return (
-      <Modal isOpen={isOpen} onClose={onClose} size="xl">
+      <Modal isOpen={isOpen} onClose={onClose} size={{ base: "full", md: "xl" }}>
         <ModalOverlay />
         <ModalContent maxH="80vh">
           <ModalHeader>Выбор получателей</ModalHeader>
@@ -508,11 +513,11 @@ const Emails = ({ currentAdmin }) => {
                           value={user.id.toString()}
                           isDisabled={!user.email}
                         >
-                          <VStack align="start" spacing={0}>
-                            <Text fontWeight="medium">
+                          <VStack align="start" spacing={0} maxW="100%">
+                            <Text fontWeight="medium" isTruncated maxW="100%">
                               {user.full_name || user.username || 'Без имени'}
                             </Text>
-                            <Text fontSize="sm" color="gray.600">
+                            <Text fontSize="sm" color="gray.600" isTruncated maxW="100%">
                               {user.email}
                             </Text>
                           </VStack>
@@ -556,15 +561,20 @@ const Emails = ({ currentAdmin }) => {
         {/* Заголовок */}
         <Card bg={cardBg}>
           <CardHeader>
-            <HStack justify="space-between">
-              <Heading size="lg">📧 Email Рассылки</Heading>
-              <HStack>
-                <Stat textAlign="right" size="sm">
+            <Stack
+              direction={{ base: "column", md: "row" }}
+              justify="space-between"
+              spacing={{ base: 3, md: 0 }}
+              align={{ base: "stretch", md: "center" }}
+            >
+              <Heading size={{ base: "md", md: "lg" }}>📧 Email Рассылки</Heading>
+              <Box>
+                <Stat textAlign={{ base: "left", md: "right" }} size="sm">
                   <StatLabel>Пользователей с email</StatLabel>
                   <StatNumber>{usersWithEmail.length}</StatNumber>
                 </Stat>
-              </HStack>
-            </HStack>
+              </Box>
+            </Stack>
           </CardHeader>
         </Card>
 
@@ -681,16 +691,17 @@ const Emails = ({ currentAdmin }) => {
 
                 <Divider />
 
-                <HStack>
+                <Stack direction={{ base: "column", sm: "row" }} spacing={3}>
                   <Button
                     colorScheme="blue"
                     leftIcon={<FiSend />}
                     onClick={handleCreateCampaign}
                     isLoading={isSending}
+                    width={{ base: "full", sm: "auto" }}
                   >
                     Создать черновик
                   </Button>
-                </HStack>
+                </Stack>
               </VStack>
             </CardBody>
           </Collapse>
@@ -746,7 +757,112 @@ const Emails = ({ currentAdmin }) => {
                 <Text textAlign="center" py={10} color="gray.500">
                   Нет созданных кампаний
                 </Text>
+              ) : isMobile ? (
+                // Карточный вид для мобильных устройств
+                <VStack spacing={3} width="full">
+                  {campaigns.map((campaign) => (
+                    <Card key={campaign.id} width="full" size="sm">
+                      <CardBody>
+                        <VStack align="stretch" spacing={3}>
+                          {/* Заголовок с названием и статусом */}
+                          <HStack justify="space-between" align="start">
+                            <VStack align="start" spacing={1} flex={1}>
+                              <Text fontWeight="bold" fontSize="sm" noOfLines={2}>
+                                {campaign.name}
+                              </Text>
+                              <Text fontSize="xs" color="gray.500" noOfLines={1}>
+                                {campaign.subject}
+                              </Text>
+                            </VStack>
+                            <Badge colorScheme={getStatusColor(campaign.status)} fontSize="xs">
+                              {getStatusLabel(campaign.status)}
+                            </Badge>
+                          </HStack>
+
+                          <Divider />
+
+                          {/* Статистика в сетке 2x2 */}
+                          <SimpleGrid columns={2} spacing={2} fontSize="xs">
+                            <Box>
+                              <Text color="gray.500">Получатели:</Text>
+                              <Text fontWeight="medium">{campaign.total_count}</Text>
+                            </Box>
+                            <Box>
+                              <Text color="gray.500">Отправлено:</Text>
+                              <Text fontWeight="medium">{campaign.sent_count}</Text>
+                            </Box>
+                            <Box>
+                              <HStack>
+                                <FiEye size={12} />
+                                <Text color="gray.500">Открыто:</Text>
+                              </HStack>
+                              <Text fontWeight="medium">{campaign.opened_count}</Text>
+                            </Box>
+                            <Box>
+                              <HStack>
+                                <FiMousePointer size={12} />
+                                <Text color="gray.500">Клики:</Text>
+                              </HStack>
+                              <Text fontWeight="medium">{campaign.clicked_count}</Text>
+                            </Box>
+                          </SimpleGrid>
+
+                          <Text fontSize="xs" color="gray.500">
+                            Создано: {new Date(campaign.created_at).toLocaleDateString('ru-RU')}
+                          </Text>
+
+                          <Divider />
+
+                          {/* Кнопки действий */}
+                          <HStack spacing={2} justify="flex-end">
+                            {campaign.status === 'draft' && (
+                              <>
+                                <Button
+                                  leftIcon={<FiSend />}
+                                  size="sm"
+                                  colorScheme="green"
+                                  onClick={() => handleSendCampaign(campaign.id)}
+                                  isLoading={isSending}
+                                  flex={1}
+                                >
+                                  Отправить
+                                </Button>
+                                <IconButton
+                                  icon={<FiMail />}
+                                  size="sm"
+                                  colorScheme="blue"
+                                  onClick={() => {
+                                    setSelectedCampaign(campaign);
+                                    onTestEmailOpen();
+                                  }}
+                                  aria-label="Тест"
+                                />
+                              </>
+                            )}
+                            <IconButton
+                              icon={<FiBarChart2 />}
+                              size="sm"
+                              onClick={() => handleShowAnalytics(campaign)}
+                              aria-label="Аналитика"
+                            />
+                            {campaign.status === 'draft' && (
+                              <IconButton
+                                icon={<FiTrash2 />}
+                                size="sm"
+                                colorScheme="red"
+                                variant="ghost"
+                                onClick={() => handleDeleteCampaign(campaign.id)}
+                                aria-label="Удалить"
+                              />
+                            )}
+                          </HStack>
+                        </VStack>
+                      </CardBody>
+                    </Card>
+                  ))}
+                </VStack>
               ) : (
+                // Табличный вид для планшетов и десктопов
                 <TableContainer>
                   <Table variant="simple" size="sm">
                     <Thead>
@@ -802,12 +918,12 @@ const Emails = ({ currentAdmin }) => {
                             {new Date(campaign.created_at).toLocaleDateString('ru-RU')}
                           </Td>
                           <Td>
-                            <HStack spacing={2}>
+                            <HStack spacing={{ base: 1, md: 2 }}>
                               {campaign.status === 'draft' && (
                                 <Tooltip label="Отправить">
                                   <IconButton
                                     icon={<FiSend />}
-                                    size="sm"
+                                    size={{ base: "xs", md: "sm" }}
                                     colorScheme="green"
                                     onClick={() => handleSendCampaign(campaign.id)}
                                     isLoading={isSending}
@@ -819,7 +935,7 @@ const Emails = ({ currentAdmin }) => {
                                 <Tooltip label="Тестовая отправка">
                                   <IconButton
                                     icon={<FiMail />}
-                                    size="sm"
+                                    size={{ base: "xs", md: "sm" }}
                                     colorScheme="blue"
                                     onClick={() => {
                                       setSelectedCampaign(campaign);
@@ -832,7 +948,7 @@ const Emails = ({ currentAdmin }) => {
                               <Tooltip label="Аналитика">
                                 <IconButton
                                   icon={<FiBarChart2 />}
-                                  size="sm"
+                                  size={{ base: "xs", md: "sm" }}
                                   onClick={() => handleShowAnalytics(campaign)}
                                 />
                               </Tooltip>
@@ -841,7 +957,7 @@ const Emails = ({ currentAdmin }) => {
                                 <Tooltip label="Удалить">
                                   <IconButton
                                     icon={<FiTrash2 />}
-                                    size="sm"
+                                    size={{ base: "xs", md: "sm" }}
                                     colorScheme="red"
                                     variant="ghost"
                                     onClick={() => handleDeleteCampaign(campaign.id)}
@@ -862,7 +978,7 @@ const Emails = ({ currentAdmin }) => {
       </VStack>
 
       {/* Модалка аналитики */}
-      <Modal isOpen={isStatsOpen} onClose={onStatsClose} size="xl">
+      <Modal isOpen={isStatsOpen} onClose={onStatsClose} size={{ base: "full", md: "xl" }}>
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>
@@ -876,7 +992,7 @@ const Emails = ({ currentAdmin }) => {
               </Box>
             ) : (
               <VStack spacing={4} align="stretch">
-                <SimpleGrid columns={2} spacing={4}>
+                <SimpleGrid columns={{ base: 1, md: 2, lg: 3 }} spacing={4}>
                   <Stat>
                     <StatLabel>Всего получателей</StatLabel>
                     <StatNumber>{campaignAnalytics.total_recipients}</StatNumber>
@@ -952,7 +1068,7 @@ const Emails = ({ currentAdmin }) => {
       </Modal>
 
       {/* Модалка тестовой отправки */}
-      <Modal isOpen={isTestEmailOpen} onClose={onTestEmailClose}>
+      <Modal isOpen={isTestEmailOpen} onClose={onTestEmailClose} size={{ base: "full", md: "md" }}>
         <ModalOverlay />
         <ModalContent>
           <ModalHeader>Тестовая отправка</ModalHeader>
