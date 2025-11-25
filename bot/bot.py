@@ -19,7 +19,7 @@ from utils.api_client import get_api_client, close_api_client
 from utils.bot_instance import get_bot
 from utils.logger import get_logger
 from utils.error_notifier import notify_error
-from config import ADMIN_URL
+from config import ADMIN_URL, DATA_DIR
 
 logger = get_logger(__name__)
 LOGS_CHAT_ID = os.getenv("FOR_LOGS")
@@ -241,7 +241,8 @@ async def main() -> None:
 
     # Создаем файл-индикатор для healthcheck
     try:
-        with open("/app/data/bot_initialized", "w") as f:
+        bot_init_file = DATA_DIR / "bot_initialized"
+        with open(bot_init_file, "w") as f:
             f.write("1")
         logger.info("Файл инициализации создан")
     except Exception as e:

@@ -18,6 +18,13 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Импортируем DATA_DIR из config для совместимости с CI и Docker
+try:
+    from config import DATA_DIR
+except ImportError:
+    # Fallback для тестов если config не доступен
+    DATA_DIR = Path("./data")
+
 
 class BackupConfig:
     """Конфигурация системы бэкапов"""
@@ -26,7 +33,10 @@ class BackupConfig:
         # Основные настройки (читаем динамически при создании экземпляра)
         self.BACKUP_ENABLED = os.getenv("BACKUP_ENABLED", "true").lower() == "true"
         self.BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "6"))  # Каждые 6 часов
-        self.BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "/app/data/backups"))
+
+        # Используем DATA_DIR из config вместо hardcoded /app/data
+        default_backup_dir = DATA_DIR / "backups"
+        self.BACKUP_DIR = Path(os.getenv("BACKUP_DIR", str(default_backup_dir)))
 
         # Ротация бэкапов
         self.KEEP_HOURLY_BACKUPS = int(os.getenv("KEEP_HOURLY_BACKUPS", "48"))  # 2 дня почасовых
@@ -39,8 +49,9 @@ class BackupConfig:
         self.BACKUP_ENCRYPTION = os.getenv("BACKUP_ENCRYPTION", "false").lower() == "true"
         self.MAX_BACKUP_SIZE_MB = int(os.getenv("MAX_BACKUP_SIZE_MB", "1000"))  # 1GB лимит
 
-        # База данных
-        self.DB_PATH = Path(os.getenv("DB_PATH", "/app/data/coworking.db"))
+        # База данных - используем DATA_DIR
+        default_db_path = DATA_DIR / "coworking.db"
+        self.DB_PATH = Path(os.getenv("DB_PATH", str(default_db_path)))
 
 
 class BackupMetadata:

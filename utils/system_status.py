@@ -9,25 +9,17 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional
-from config import ENVIRONMENT, MOSCOW_TZ, FOR_LOGS, BOT_TOKEN
+from config import ENVIRONMENT, MOSCOW_TZ, FOR_LOGS, BOT_TOKEN, DATA_DIR
 from utils.bot_instance import get_bot
 
 logger = logging.getLogger(__name__)
 
 class SystemStatusManager:
     """Менеджер статуса системы и уведомлений"""
-    
+
     def __init__(self):
-        # Определяем путь к файлу статуса в зависимости от окружения
-        if os.path.exists("/app/data"):
-            # Продакшн/Docker окружение
-            self.status_file = Path("/app/data/system_status.json")
-        else:
-            # Локальная разработка
-            base_dir = Path(__file__).parent.parent
-            data_dir = base_dir / "data"
-            data_dir.mkdir(exist_ok=True)
-            self.status_file = data_dir / "system_status.json"
+        # Используем DATA_DIR из config для совместимости с CI и Docker
+        self.status_file = DATA_DIR / "system_status.json"
             
         self.components = ["web", "bot"]  # Основные компоненты системы
         self.startup_timeout = 300  # 5 минут на запуск всех компонентов
