@@ -579,7 +579,7 @@ const Emails = ({ currentAdmin }) => {
         </Card>
 
         {/* Новая кампания */}
-        <Card bg={cardBg}>
+        <Card bg={cardBg} data-tour="emails-create">
           <CardHeader cursor="pointer" onClick={() => setIsNewCampaignOpen(!isNewCampaignOpen)}>
             <HStack justify="space-between">
               <Heading size="md">
@@ -680,7 +680,7 @@ const Emails = ({ currentAdmin }) => {
 
                 <Divider />
 
-                <FormControl>
+                <FormControl data-tour="emails-template">
                   <FormLabel>Дизайн письма</FormLabel>
                   <EmailEditor
                     initialDesign={unlayerDesign}

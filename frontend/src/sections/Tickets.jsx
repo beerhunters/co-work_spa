@@ -288,7 +288,7 @@ const Tickets = ({
           </HStack>
 
           {/* Фильтры */}
-          <HStack spacing={4} wrap="wrap">
+          <HStack spacing={4} wrap="wrap" data-tour="tickets-filters">
             {/* Поиск по пользователю */}
             <form onSubmit={handleSearchSubmit}>
               <InputGroup maxW="300px">
@@ -396,6 +396,7 @@ const Tickets = ({
             borderColor={borderColor}
             borderRadius="lg"
             overflow="hidden"
+            data-tour="tickets-list"
           >
             <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>

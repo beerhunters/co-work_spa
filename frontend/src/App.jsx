@@ -46,10 +46,13 @@ import {
 } from './utils/api.js';
 import notificationManager from './utils/notifications';
 import { createLogger } from './utils/logger.js';
+import { OnboardingProvider, useOnboarding } from './contexts/OnboardingContext';
 
 const logger = createLogger('App');
 
-function App() {
+function AppContent() {
+  const { autoStartTour } = useOnboarding();
+
   // Защита от ошибок рендеринга
   if (typeof useState === 'undefined') {
     return <div>Loading...</div>;
@@ -649,6 +652,24 @@ function App() {
     const unreadCount = notifications.filter(n => !n.is_read).length;
     setHasNewNotifications(unreadCount > 0);
   }, [notifications]);
+
+  // Автозапуск onboarding тура при первом входе
+  useEffect(() => {
+    if (isAuthenticated && currentAdmin && section === 'dashboard') {
+      // Проверяем, был ли уже показан онбординг
+      const hasSeenOnboarding = localStorage.getItem('onboarding_completed');
+
+      if (!hasSeenOnboarding) {
+        // Запускаем тур с задержкой в 2 секунды после загрузки дашборда
+        const timer = setTimeout(() => {
+          logger.info('Запуск onboarding тура для нового администратора');
+          autoStartTour('dashboard');
+        }, 2000);
+
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [isAuthenticated, currentAdmin, section, autoStartTour]);
 
   // Обработчики для браузерных уведомлений
   const handleNotificationPermissionGranted = () => {
@@ -1260,6 +1281,14 @@ function App() {
         onPermissionGranted={handleNotificationPermissionGranted}
       />
     </ChakraProvider>
+  );
+}
+
+function App() {
+  return (
+    <OnboardingProvider>
+      <AppContent />
+    </OnboardingProvider>
   );
 }
 

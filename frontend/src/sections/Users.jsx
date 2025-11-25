@@ -309,8 +309,8 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
           </VStack>
 
           <VStack spacing={3} align="end">
-            <HStack spacing={4}>
-              <InputGroup maxWidth="300px">
+            <HStack spacing={4} data-tour="users-filters">
+              <InputGroup maxWidth="300px" data-tour="users-search">
                 <InputLeftElement pointerEvents="none">
                   <FiSearch color="gray.300" />
                 </InputLeftElement>
@@ -594,7 +594,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
                     </Td>
 
                     {canDeleteUsers && (
-                      <Td>
+                      <Td data-tour="users-actions">
                         {!isSelectionMode && (
                           <Tooltip label="Удалить пользователя">
                             <IconButton

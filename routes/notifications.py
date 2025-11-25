@@ -168,10 +168,51 @@ async def create_notification(
     }
 
 
+@router.delete("/clear_all")
+async def clear_all_notifications(
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token)
+):
+    """
+    Удаление всех уведомлений.
+
+    Endpoint для массовой очистки всех уведомлений из системы.
+    Требует аутентификацию.
+    """
+    try:
+        # Подсчитываем количество уведомлений для удаления
+        count = db.query(Notification).count()
+
+        if count == 0:
+            logger.info("Нет уведомлений для удаления")
+            return {
+                "message": "No notifications to delete",
+                "deleted_count": 0
+            }
+
+        # Удаляем все уведомления
+        db.query(Notification).delete()
+        db.commit()
+
+        logger.info(f"Удалено {count} уведомлений")
+        return {
+            "message": "All notifications deleted successfully",
+            "deleted_count": count
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка при очистке всех уведомлений: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to clear all notifications: {str(e)}"
+        )
+
+
 @router.delete("/{notification_id}")
 async def delete_notification(
-    notification_id: int, 
-    db: Session = Depends(get_db), 
+    notification_id: int,
+    db: Session = Depends(get_db),
     _: str = Depends(verify_token)
 ):
     """Удаление конкретного уведомления."""

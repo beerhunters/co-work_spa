@@ -52,6 +52,7 @@ const Layout = ({
         >
           <Navbar
             section={section}
+            setSection={setSection}
             login={login}
             notifications={notifications}
             hasNewNotifications={hasNewNotifications}

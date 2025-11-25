@@ -21,9 +21,10 @@ import {
   useToast,
   useColorModeValue
 } from '@chakra-ui/react';
-import { FiBell, FiBellOff, FiVolume2, FiSettings } from 'react-icons/fi';
+import { FiBell, FiBellOff, FiVolume2, FiSettings, FiHelpCircle, FiRotateCcw } from 'react-icons/fi';
 import { colors, sizes } from '../styles/styles';
 import notificationManager from '../utils/notifications';
+import { useOnboarding } from '../contexts/OnboardingContext';
 
 const Navbar = ({
   section,
@@ -38,6 +39,7 @@ const Navbar = ({
 }) => {
   const [soundTestLoading, setSoundTestLoading] = useState(false);
   const toast = useToast();
+  const { startTour, resetTours, isTourCompleted } = useOnboarding();
 
   const sectionTitles = {
     dashboard: 'Дашборд',
@@ -289,6 +291,74 @@ const Navbar = ({
                   </MenuItem>
                 ))
               )}
+            </MenuList>
+          </Menu>
+
+          {/* Кнопка помощи / обучение */}
+          <Menu>
+            <MenuButton
+              as={IconButton}
+              icon={
+                <Box position="relative">
+                  <FiHelpCircle size={20} />
+                  {/* Badge если тур для текущей секции не пройден */}
+                  {!isTourCompleted(section) && ['dashboard', 'users', 'bookings', 'tickets', 'emails', 'notifications'].includes(section) && (
+                    <Box
+                      position="absolute"
+                      top="-2px"
+                      right="-2px"
+                      w="8px"
+                      h="8px"
+                      bg="purple.500"
+                      borderRadius="full"
+                      border="2px solid white"
+                    />
+                  )}
+                </Box>
+              }
+              variant="ghost"
+              borderRadius="lg"
+              _hover={{ bg: 'gray.100' }}
+              aria-label="Помощь"
+            />
+            <MenuList boxShadow="xl" borderRadius="xl">
+              <MenuItem
+                icon={<FiHelpCircle />}
+                onClick={() => {
+                  if (['dashboard', 'users', 'bookings', 'tickets', 'emails', 'notifications'].includes(section)) {
+                    startTour(section);
+                    toast({
+                      title: "Обучение запущено",
+                      description: `Начинаем тур по разделу "${sectionTitles[section]}"`,
+                      status: "info",
+                      duration: 3000,
+                    });
+                  } else {
+                    toast({
+                      title: "Обучение недоступно",
+                      description: "Для этого раздела обучение не предусмотрено",
+                      status: "warning",
+                      duration: 3000,
+                    });
+                  }
+                }}
+              >
+                Запустить обучение
+              </MenuItem>
+              <MenuItem
+                icon={<FiRotateCcw />}
+                onClick={() => {
+                  resetTours();
+                  toast({
+                    title: "Обучение сброшено",
+                    description: "Все туры будут показаны заново при посещении разделов",
+                    status: "success",
+                    duration: 3000,
+                  });
+                }}
+              >
+                Сбросить все туры
+              </MenuItem>
             </MenuList>
           </Menu>
 

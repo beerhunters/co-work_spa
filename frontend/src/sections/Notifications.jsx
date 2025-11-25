@@ -31,7 +31,12 @@ import {
   IconButton,
   Tooltip,
   Checkbox,
-  Icon
+  Icon,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon
 } from '@chakra-ui/react';
 import {
   FiSearch,
@@ -58,6 +63,7 @@ const Notifications = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all'); // all, read, unread
   const [typeFilter, setTypeFilter] = useState('all'); // all, ticket, booking, user
+  const [groupBy, setGroupBy] = useState('none'); // none, date, type
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
@@ -106,19 +112,182 @@ const Notifications = ({
     return filtered;
   }, [notifications, searchQuery, statusFilter, typeFilter]);
 
-  // Пагинация
-  const totalPages = Math.ceil(filteredNotifications.length / itemsPerPage);
+  // Группировка уведомлений
+  const groupedNotifications = useMemo(() => {
+    if (groupBy === 'none') {
+      return { none: filteredNotifications };
+    }
+
+    if (groupBy === 'type') {
+      return {
+        tickets: filteredNotifications.filter(n => n.ticket_id),
+        bookings: filteredNotifications.filter(n => n.booking_id),
+        users: filteredNotifications.filter(n => n.user_id && !n.ticket_id && !n.booking_id),
+        other: filteredNotifications.filter(n => !n.ticket_id && !n.booking_id && !n.user_id)
+      };
+    }
+
+    // Группировка по дате
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date(today);
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+    return {
+      today: filteredNotifications.filter(n => {
+        const date = new Date(n.created_at);
+        return date >= today;
+      }),
+      yesterday: filteredNotifications.filter(n => {
+        const date = new Date(n.created_at);
+        return date >= yesterday && date < today;
+      }),
+      thisWeek: filteredNotifications.filter(n => {
+        const date = new Date(n.created_at);
+        return date >= weekAgo && date < yesterday;
+      }),
+      thisMonth: filteredNotifications.filter(n => {
+        const date = new Date(n.created_at);
+        return date >= monthAgo && date < weekAgo;
+      }),
+      older: filteredNotifications.filter(n => {
+        const date = new Date(n.created_at);
+        return date < monthAgo;
+      })
+    };
+  }, [filteredNotifications, groupBy]);
+
+  // Пагинация (только для негруппированного режима)
+  const totalPages = groupBy === 'none' ? Math.ceil(filteredNotifications.length / itemsPerPage) : 1;
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentNotifications = filteredNotifications.slice(startIndex, endIndex);
+  const currentNotifications = groupBy === 'none'
+    ? filteredNotifications.slice(startIndex, endIndex)
+    : filteredNotifications; // Для группировки показываем все
 
   // Сброс на первую страницу при изменении фильтров
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, typeFilter]);
+  }, [searchQuery, statusFilter, typeFilter, groupBy]);
 
   const handlePageChange = (newPage) => {
     setCurrentPage(Math.max(1, Math.min(newPage, totalPages)));
+  };
+
+  // Функция для получения названия группы
+  const getGroupLabel = (groupKey) => {
+    const labels = {
+      // Группировка по дате
+      today: 'Сегодня',
+      yesterday: 'Вчера',
+      thisWeek: 'На этой неделе',
+      thisMonth: 'В этом месяце',
+      older: 'Ранее',
+      // Группировка по типу
+      tickets: 'Тикеты поддержки',
+      bookings: 'Бронирования',
+      users: 'Пользователи',
+      other: 'Другое'
+    };
+    return labels[groupKey] || groupKey;
+  };
+
+  // Функция для рендеринга одного уведомления
+  const renderNotification = (notification) => {
+    const IconComponent = getNotificationIcon(notification);
+    const iconColor = getNotificationIconColor(notification);
+    const isSelected = selectedNotifications.has(notification.id);
+
+    return (
+      <Box
+        key={notification.id}
+        p={styles.listItem.padding}
+        borderRadius={styles.listItem.borderRadius}
+        border={styles.listItem.border}
+        borderColor={styles.listItem.borderColor}
+        bg={isSelectionMode && isSelected ? "purple.50" : (notification.is_read ? colors.notification.readBg : colors.notification.unreadBg)}
+        cursor={loadingNotification === notification.id ? "wait" : "pointer"}
+        _hover={loadingNotification === notification.id ? {} : (isSelectionMode && isSelected ? {bg: "purple.100"} : styles.listItem.hover)}
+        transition={styles.listItem.transition}
+        onClick={() => {
+          if (loadingNotification === notification.id) return;
+          if (isSelectionMode) {
+            handleSelectNotification(notification.id, !isSelected);
+          } else {
+            handleNotificationClick(notification);
+          }
+        }}
+        borderLeft={!notification.is_read ? "4px solid" : "none"}
+        borderLeftColor={!notification.is_read ? "blue.400" : "transparent"}
+        opacity={loadingNotification === notification.id ? 0.7 : 1}
+      >
+        <HStack justify="space-between" align="start">
+          <HStack spacing={3} align="start" flex={1}>
+            {isSelectionMode && (
+              <Box pt={1}>
+                <Checkbox
+                  isChecked={isSelected}
+                  onChange={(e) => {
+                    e.stopPropagation();
+                    handleSelectNotification(notification.id, e.target.checked);
+                  }}
+                  colorScheme="purple"
+                />
+              </Box>
+            )}
+            <Box pt={1}>
+              <IconComponent size={16} color={iconColor} />
+            </Box>
+            <VStack align="start" spacing={1} flex={1}>
+              <Text
+                fontSize="md"
+                fontWeight={notification.is_read ? "normal" : "semibold"}
+                lineHeight="1.4"
+              >
+                {notification.message}
+              </Text>
+              <HStack spacing={3} fontSize="sm" color="gray.600">
+                <Text>
+                  {new Date(notification.created_at).toLocaleString('ru-RU')}
+                </Text>
+                {notification.ticket_id && (
+                  <Badge colorScheme="orange" fontSize="xs">
+                    Тикет #{notification.ticket_id}
+                  </Badge>
+                )}
+                {notification.booking_id && (
+                  <Badge colorScheme="blue" fontSize="xs">
+                    Бронь #{notification.booking_id}
+                  </Badge>
+                )}
+                {notification.user_id && !notification.ticket_id && !notification.booking_id && (
+                  <Badge colorScheme="green" fontSize="xs">
+                    Пользователь
+                  </Badge>
+                )}
+              </HStack>
+            </VStack>
+          </HStack>
+          <VStack spacing={1} align="end">
+            <Badge
+              colorScheme={getStatusColor(notification.is_read ? 'read' : 'unread')}
+              fontSize="xs"
+            >
+              {notification.is_read ? 'Прочитано' : 'Новое'}
+            </Badge>
+            {loadingNotification === notification.id ? (
+              <Spinner size="xs" color="blue.500" />
+            ) : (
+              <FiExternalLink size={12} color="gray" />
+            )}
+          </VStack>
+        </HStack>
+      </Box>
+    );
   };
 
   const getNotificationIcon = (notification) => {
@@ -413,7 +582,7 @@ const Notifications = ({
                     <Badge colorScheme="red" ml={2}>{unreadCount} новых</Badge>
                   )}
                 </Heading>
-                <HStack spacing={2}>
+                <HStack spacing={2} data-tour="notifications-actions">
                   <Button
                     leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
                     onClick={handleToggleSelectionMode}
@@ -449,7 +618,7 @@ const Notifications = ({
               </HStack>
 
               {/* Фильтры и поиск */}
-              <HStack spacing={4}>
+              <HStack spacing={4} data-tour="notifications-filters">
                 <InputGroup maxW="300px">
                   <InputLeftElement>
                     <FiSearch color="gray" />
@@ -483,9 +652,21 @@ const Notifications = ({
                 </Select>
 
                 <Select
+                  value={groupBy}
+                  onChange={(e) => setGroupBy(e.target.value)}
+                  maxW="180px"
+                  data-tour="notifications-grouping"
+                >
+                  <option value="none">Без группировки</option>
+                  <option value="date">По дате</option>
+                  <option value="type">По типу</option>
+                </Select>
+
+                <Select
                   value={itemsPerPage}
                   onChange={(e) => setItemsPerPage(Number(e.target.value))}
                   maxW="120px"
+                  isDisabled={groupBy !== 'none'}
                 >
                   <option value={10}>10 на странице</option>
                   <option value={20}>20 на странице</option>
@@ -558,104 +739,50 @@ const Notifications = ({
                     }
                   </Text>
                 </Box>
+              ) : groupBy === 'none' ? (
+                // Плоский список без группировки
+                currentNotifications.map(notification => renderNotification(notification))
               ) : (
-                currentNotifications.map(notification => {
-                  const IconComponent = getNotificationIcon(notification);
-                  const iconColor = getNotificationIconColor(notification);
-                  const isSelected = selectedNotifications.has(notification.id);
+                // Группированное отображение с Accordion
+                <Accordion allowMultiple defaultIndex={[0]}>
+                  {Object.entries(groupedNotifications).map(([groupKey, notifications]) => {
+                    if (notifications.length === 0) return null;
 
-                  return (
-                    <Box
-                      key={notification.id}
-                      p={styles.listItem.padding}
-                      borderRadius={styles.listItem.borderRadius}
-                      border={styles.listItem.border}
-                      borderColor={styles.listItem.borderColor}
-                      bg={isSelectionMode && isSelected ? "purple.50" : (notification.is_read ? colors.notification.readBg : colors.notification.unreadBg)}
-                      cursor={loadingNotification === notification.id ? "wait" : "pointer"}
-                      _hover={loadingNotification === notification.id ? {} : (isSelectionMode && isSelected ? {bg: "purple.100"} : styles.listItem.hover)}
-                      transition={styles.listItem.transition}
-                      onClick={() => {
-                        if (loadingNotification === notification.id) return;
-                        if (isSelectionMode) {
-                          handleSelectNotification(notification.id, !isSelected);
-                        } else {
-                          handleNotificationClick(notification);
-                        }
-                      }}
-                      borderLeft={!notification.is_read ? "4px solid" : "none"}
-                      borderLeftColor={!notification.is_read ? "blue.400" : "transparent"}
-                      opacity={loadingNotification === notification.id ? 0.7 : 1}
-                    >
-                      <HStack justify="space-between" align="start">
-                        <HStack spacing={3} align="start" flex={1}>
-                          {isSelectionMode && (
-                            <Box pt={1}>
-                              <Checkbox
-                                isChecked={isSelected}
-                                onChange={(e) => {
-                                  e.stopPropagation();
-                                  handleSelectNotification(notification.id, e.target.checked);
-                                }}
-                                colorScheme="purple"
-                              />
-                            </Box>
-                          )}
-                          <Box pt={1}>
-                            <IconComponent size={16} color={iconColor} />
-                          </Box>
-                          <VStack align="start" spacing={1} flex={1}>
-                            <Text
-                              fontSize="md"
-                              fontWeight={notification.is_read ? "normal" : "semibold"}
-                              lineHeight="1.4"
-                            >
-                              {notification.message}
-                            </Text>
-                            <HStack spacing={3} fontSize="sm" color="gray.600">
-                              <Text>
-                                {new Date(notification.created_at).toLocaleString('ru-RU')}
+                    return (
+                      <AccordionItem key={groupKey} border="none" mb={2}>
+                        <AccordionButton
+                          bg="gray.50"
+                          _hover={{ bg: 'gray.100' }}
+                          borderRadius="md"
+                          px={4}
+                          py={3}
+                        >
+                          <Box flex="1" textAlign="left">
+                            <HStack>
+                              <Text fontWeight="semibold" fontSize="md">
+                                {getGroupLabel(groupKey)}
                               </Text>
-                              {notification.ticket_id && (
-                                <Badge colorScheme="orange" fontSize="xs">
-                                  Тикет #{notification.ticket_id}
-                                </Badge>
-                              )}
-                              {notification.booking_id && (
-                                <Badge colorScheme="blue" fontSize="xs">
-                                  Бронь #{notification.booking_id}
-                                </Badge>
-                              )}
-                              {notification.user_id && !notification.ticket_id && !notification.booking_id && (
-                                <Badge colorScheme="green" fontSize="xs">
-                                  Пользователь
-                                </Badge>
-                              )}
+                              <Badge colorScheme="blue" fontSize="xs">
+                                {notifications.length}
+                              </Badge>
                             </HStack>
+                          </Box>
+                          <AccordionIcon />
+                        </AccordionButton>
+                        <AccordionPanel pb={2} px={0} pt={2}>
+                          <VStack align="stretch" spacing={2}>
+                            {notifications.map(notification => renderNotification(notification))}
                           </VStack>
-                        </HStack>
-                        <VStack spacing={1} align="end">
-                          <Badge
-                            colorScheme={getStatusColor(notification.is_read ? 'read' : 'unread')}
-                            fontSize="xs"
-                          >
-                            {notification.is_read ? 'Прочитано' : 'Новое'}
-                          </Badge>
-                          {loadingNotification === notification.id ? (
-                            <Spinner size="xs" color="blue.500" />
-                          ) : (
-                            <FiExternalLink size={12} color="gray" />
-                          )}
-                        </VStack>
-                      </HStack>
-                    </Box>
-                  );
-                })
+                        </AccordionPanel>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
               )}
             </VStack>
 
-            {/* Пагинация */}
-            {totalPages > 1 && (
+            {/* Пагинация (только для негруппированного режима) */}
+            {groupBy === 'none' && totalPages > 1 && (
               <Flex justify="center" align="center" mt={6} gap={2}>
                 <IconButton
                   icon={<FiChevronLeft />}

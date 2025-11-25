@@ -1115,7 +1115,7 @@ const Dashboard = ({
         </Flex>
 
         {/* Статистические карточки */}
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={spacing.md}>
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={spacing.md} data-tour="dashboard-stats">
           {!stats ? (
             // Skeleton для карточек при загрузке
             <>
@@ -1390,6 +1390,7 @@ const Dashboard = ({
           borderRadius={styles.card.borderRadius}
           boxShadow="lg"
           overflow="hidden"
+          data-tour="dashboard-charts"
         >
           <CardHeader
             bg="white"
@@ -1444,7 +1445,7 @@ const Dashboard = ({
                 )}
 
                 {/* Выбор месяца */}
-                <Flex align="center" gap={2}>
+                <Flex align="center" gap={2} data-tour="dashboard-filter">
                   <Icon as={FiCalendar} color="gray.500" />
                   <Select
                     value={`${selectedPeriod.year}-${selectedPeriod.month}`}

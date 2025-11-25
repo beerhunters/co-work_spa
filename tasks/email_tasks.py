@@ -106,8 +106,39 @@ def send_email_campaign_task(self, campaign_id: int):
 
         return result
 
+    except ValueError as e:
+        # Non-recoverable ошибки (кампания не найдена, неправильный статус и т.д.)
+        # НЕ делаем retry, просто логируем и завершаем задачу
+        error_msg = str(e)
+        logger.warning(f"Non-recoverable ошибка для кампании {campaign_id}: {error_msg}")
+
+        # Пытаемся обновить статус на failed если кампания существует
+        def _mark_failed(session):
+            campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
+            if campaign:
+                campaign.status = "failed"
+                session.commit()
+                logger.info(f"Кампания {campaign_id} помечена как failed: {error_msg}")
+
+        try:
+            DatabaseManager.safe_execute(_mark_failed)
+        except Exception:
+            # Кампания не существует или другая ошибка БД - игнорируем
+            pass
+
+        # Завершаем задачу без retry
+        return {
+            'campaign_id': campaign_id,
+            'sent_count': 0,
+            'failed_count': 0,
+            'status': 'failed',
+            'error': error_msg,
+            'duration_seconds': (datetime.now() - start_time).total_seconds()
+        }
+
     except Exception as e:
-        logger.error(f"Ошибка в send_email_campaign_task для кампании {campaign_id}: {e}", exc_info=True)
+        # Recoverable ошибки (сетевые проблемы, временные сбои и т.д.)
+        logger.error(f"Recoverable ошибка в send_email_campaign_task для кампании {campaign_id}: {e}", exc_info=True)
 
         # Обновляем статус кампании на failed
         def _mark_failed(session):
@@ -121,6 +152,7 @@ def send_email_campaign_task(self, campaign_id: int):
         except Exception as db_error:
             logger.error(f"Не удалось обновить статус кампании на failed: {db_error}")
 
+        # Делаем retry только для recoverable ошибок
         raise self.retry(exc=e)
 
 

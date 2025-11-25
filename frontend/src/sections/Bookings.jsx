@@ -498,6 +498,7 @@ const Bookings = ({
             borderColor={borderColor}
             borderRadius="lg"
             overflow="hidden"
+            data-tour="bookings-list"
           >
             <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
@@ -568,7 +569,7 @@ const Bookings = ({
                       )}
                     </Td>
 
-                    <Td>
+                    <Td data-tour="bookings-status">
                       <VStack align="start" spacing={1}>
                         <Badge
                           colorScheme={getStatusColor(booking.paid ? 'paid' : 'unpaid')}
