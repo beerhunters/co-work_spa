@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 # Импорты приложения
 from main import app
-from models.models import get_db, Base, Admin
+from models.models import Base, Admin
 from config import SECRET_KEY_JWT
 from dependencies import get_db as get_db_dependency
 from utils.logger import get_logger
@@ -87,11 +87,12 @@ def client(test_db):
 @pytest.fixture
 def test_admin(db_session):
     """Создание тестового администратора"""
-    from werkzeug.security import generate_password_hash
+    from datetime import datetime
+    from utils.password_security import hash_password_bcrypt
 
     admin = Admin(
         login="test_admin",
-        password_hash=generate_password_hash("test_password"),
+        password=hash_password_bcrypt("test_password"),
         role="super_admin",
         permissions=[
             "manage_users",
@@ -99,7 +100,7 @@ def test_admin(db_session):
             "manage_tickets",
             "view_dashboard",
         ],
-        created_at=pytest.datetime.now(),
+        created_at=datetime.now(),
     )
     db_session.add(admin)
     db_session.commit()
