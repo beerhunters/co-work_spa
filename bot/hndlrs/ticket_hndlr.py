@@ -16,6 +16,7 @@ from utils.logger import get_logger
 from utils.api_client import get_api_client
 from bot.config import create_back_keyboard
 from bot.utils.localization import get_text, get_button_text
+from bot.utils.error_handler import send_user_error, handle_api_error
 
 logger = get_logger(__name__)
 
@@ -125,27 +126,39 @@ async def process_description(message: Message, state: FSMContext) -> None:
     """Обработка описания проблемы"""
     data = await state.get_data()
     lang = data.get("lang", "ru")
-    description = message.text.strip()
 
-    if len(description) < 10:
+    try:
+        description = message.text.strip()
+
+        if len(description) < 10:
+            await message.answer(
+                get_text(lang, "support.description_too_short")
+            )
+            return
+
+        if len(description) > 1000:
+            await message.answer(
+                get_text(lang, "support.description_too_long")
+            )
+            return
+
+        await state.update_data(description=description)
+
         await message.answer(
-            get_text(lang, "support.description_too_short")
+            get_text(lang, "support.want_add_photo"),
+            reply_markup=create_photo_choice_keyboard(lang),
         )
-        return
-
-    if len(description) > 1000:
-        await message.answer(
-            get_text(lang, "support.description_too_long")
+        await state.set_state(TicketForm.ASK_PHOTO)
+    except Exception as e:
+        logger.error(f"Ошибка при обработке описания тикета: {e}")
+        await send_user_error(
+            message,
+            "errors.ticket_description_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
-        return
-
-    await state.update_data(description=description)
-
-    await message.answer(
-        get_text(lang, "support.want_add_photo"),
-        reply_markup=create_photo_choice_keyboard(lang),
-    )
-    await state.set_state(TicketForm.ASK_PHOTO)
 
 
 @router.callback_query(TicketForm.ASK_PHOTO, F.data == "add_photo")
@@ -308,9 +321,12 @@ async def create_ticket(
 
     except Exception as e:
         logger.error(f"Критическая ошибка при создании тикета: {e}")
-        await message.answer(
-            get_text(lang, "booking.system_error"),
-            reply_markup=create_back_keyboard(lang),
+        await send_user_error(
+            message,
+            "errors.ticket_creation_failed",
+            lang=lang,
+            error=e,
+            show_support=True
         )
 
 

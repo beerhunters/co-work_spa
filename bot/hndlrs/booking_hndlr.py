@@ -21,6 +21,7 @@ from bot.config import create_user_keyboard
 from utils.api_client import get_api_client
 from utils.logger import get_logger
 from bot.utils.localization import get_text, get_button_text, pluralize_hours
+from bot.utils.error_handler import send_user_error, handle_api_error
 
 logger = get_logger(__name__)
 router = Router()
@@ -73,7 +74,7 @@ def format_payment_notification(user, booking_data, status="SUCCESS", lang="ru")
                     date_str = date_obj.strftime("%d.%m.%Y")
                 else:
                     date_str = str(visit_date)
-            except:
+            except Exception:
                 date_str = get_text(lang, "booking.date_unknown")
     else:
         date_str = get_text(lang, "booking.date_unknown")
@@ -428,9 +429,13 @@ async def start_booking(callback_query: CallbackQuery, state: FSMContext) -> Non
 
     except Exception as e:
         logger.error(f"Ошибка при показе тарифов: {e}")
-        await callback_query.message.edit_text(
-            get_text(lang, "booking.tariffs_load_error"),
-            reply_markup=None,
+        await send_user_error(
+            callback_query,
+            "errors.tariffs_load_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 
@@ -477,8 +482,12 @@ async def select_tariff(callback_query: CallbackQuery, state: FSMContext) -> Non
 
     except Exception as e:
         logger.error(f"Ошибка при выборе тарифа: {e}")
-        await callback_query.message.edit_text(
-            get_text(lang, "booking.general_error"), reply_markup=None
+        await send_user_error(
+            callback_query,
+            "errors.tariff_not_available",
+            lang=lang,
+            error=e,
+            show_support=False
         )
 
 
@@ -525,8 +534,13 @@ async def select_date(callback_query: CallbackQuery, state: FSMContext) -> None:
         logger.error(f"Ошибка при выборе даты: {e}")
         data = await state.get_data()
         lang = data.get("lang", "ru")
-        await callback_query.message.edit_text(
-            get_text(lang, "booking.general_error"), reply_markup=None
+        await send_user_error(
+            callback_query,
+            "errors.date_selection_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 
@@ -646,14 +660,22 @@ async def process_promocode_final(
             user = await api_client.get_user_by_telegram_id(message.from_user.id)
             if not user:
                 logger.error(f"Пользователь {message.from_user.id} не найден в БД")
-                await message.answer(
-                    get_text(lang, "booking.user_not_found_admin")
+                await send_user_error(
+                    message,
+                    "errors.user_not_found",
+                    lang=lang,
+                    show_support=True,
+                    state=state
                 )
                 return
         except Exception as e:
             logger.error(f"Ошибка получения пользователя {message.from_user.id}: {e}")
-            await message.answer(
-                get_text(lang, "booking.user_data_error")
+            await handle_api_error(
+                message,
+                e,
+                lang=lang,
+                operation="get_user_by_telegram_id",
+                state=state
             )
             return
 
@@ -673,11 +695,23 @@ async def process_promocode_final(
                     promocode_id = promocode.get("id")
                     promocode_name_final = promocode.get("name")
                 else:
-                    await message.answer(get_text(lang, "booking.promocode_not_found"))
+                    await send_user_error(
+                        message,
+                        "errors.promocode_not_found",
+                        lang=lang,
+                        show_support=False,
+                        state=state
+                    )
                     return
             except Exception as e:
                 logger.error(f"Ошибка проверки промокода: {e}")
-                await message.answer(get_text(lang, "booking.promocode_error"))
+                await handle_api_error(
+                    message,
+                    e,
+                    lang=lang,
+                    operation="get_promocode_by_name",
+                    state=state
+                )
                 return
 
         # ИСПРАВЛЕННАЯ ЛОГИКА расчета стоимости
@@ -751,8 +785,13 @@ async def process_promocode_final(
 
     except Exception as e:
         logger.error(f"Ошибка при обработке промокода: {e}")
-        await message.answer(
-            get_text(lang, "booking.promocode_processing_error")
+        await send_user_error(
+            message,
+            "errors.booking_processing_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 
@@ -810,7 +849,13 @@ async def create_payment_for_booking(
         payment_result = await api_client.create_payment(payment_data)
 
         if not payment_result or not payment_result.get("payment_id"):
-            await message.answer(get_text(lang, "booking.payment_create_error"))
+            await send_user_error(
+                message,
+                "errors.payment_creation_failed",
+                lang=lang,
+                show_support=True,
+                state=state
+            )
             return
 
         payment_id = payment_result["payment_id"]
@@ -842,8 +887,13 @@ async def create_payment_for_booking(
 
     except Exception as e:
         logger.error(f"Ошибка при создании платежа: {e}")
-        await message.answer(
-            get_text(lang, "booking.payment_create_error")
+        await send_user_error(
+            message,
+            "errors.payment_creation_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 
@@ -1156,8 +1206,13 @@ async def create_booking_after_payment(
 
     except Exception as e:
         logger.error(f"Ошибка при создании бронирования после оплаты: {e}")
-        await message.answer(
-            get_text(lang, "booking.booking_create_error")
+        await send_user_error(
+            message,
+            "errors.booking_creation_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 
@@ -1195,7 +1250,13 @@ async def create_booking_without_payment(
         booking_result = await api_client.create_booking(booking_data)
 
         if not booking_result:
-            await message.answer(get_text(lang, "booking.booking_create_error"))
+            await send_user_error(
+                message,
+                "errors.booking_creation_failed",
+                lang=lang,
+                show_support=True,
+                state=state
+            )
             return
 
         # Подготовка данных для уведомлений
@@ -1235,8 +1296,13 @@ async def create_booking_without_payment(
 
     except Exception as e:
         logger.error(f"Ошибка при создании брони переговорной: {e}")
-        await message.answer(
-            get_text(lang, "booking.booking_create_error")
+        await send_user_error(
+            message,
+            "errors.booking_creation_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 
@@ -1326,7 +1392,13 @@ async def create_booking_with_confirmation(
         booking_result = await api_client.create_booking(booking_data)
 
         if not booking_result:
-            await message.answer(get_text(lang, "booking.booking_create_error"))
+            await send_user_error(
+                message,
+                "errors.booking_creation_failed",
+                lang=lang,
+                show_support=True,
+                state=state
+            )
             return
 
         # Подготовка данных для уведомлений
@@ -1366,8 +1438,13 @@ async def create_booking_with_confirmation(
 
     except Exception as e:
         logger.error(f"Ошибка при создании бесплатной брони: {e}")
-        await message.answer(
-            get_text(lang, "booking.booking_create_error")
+        await send_user_error(
+            message,
+            "errors.booking_creation_failed",
+            lang=lang,
+            error=e,
+            show_support=True,
+            state=state
         )
 
 

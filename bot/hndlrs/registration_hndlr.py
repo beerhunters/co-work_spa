@@ -16,6 +16,7 @@ from utils.logger import get_logger
 from utils.api_client import get_api_client
 from bot.config import create_user_keyboard, save_user_avatar
 from bot.utils.localization import get_text, get_button_text
+from bot.utils.error_handler import send_user_error, handle_api_error
 
 logger = get_logger(__name__)
 
@@ -255,8 +256,12 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         await state.clear()
     except Exception as e:
         logger.error(f"Ошибка при обработке команды /start: {e}")
-        await message.answer(
-            get_text(language_code, "errors.general")
+        await send_user_error(
+            message,
+            "errors.registration_failed",
+            lang=language_code,
+            error=e,
+            show_support=True
         )
 
 
@@ -306,22 +311,33 @@ async def handle_invalid_agreement(message: Message, state: FSMContext) -> None:
 async def process_full_name(message: Message, state: FSMContext) -> None:
     """Обработка ввода имени"""
     user_language = message.from_user.language_code or "ru"
-    full_name = message.text.strip()
+    try:
+        full_name = message.text.strip()
 
-    if len(full_name) < 2:
-        await message.answer(get_text(user_language, "registration.name_too_short"))
-        return
+        if len(full_name) < 2:
+            await message.answer(get_text(user_language, "registration.name_too_short"))
+            return
 
-    if len(full_name) > 100:
-        await message.answer(get_text(user_language, "registration.name_too_long"))
-        return
+        if len(full_name) > 100:
+            await message.answer(get_text(user_language, "registration.name_too_long"))
+            return
 
-    await state.update_data(full_name=full_name)
-    await message.answer(
-        get_text(user_language, "registration.step_phone"),
-        parse_mode="HTML",
-    )
-    await state.set_state(Registration.phone)
+        await state.update_data(full_name=full_name)
+        await message.answer(
+            get_text(user_language, "registration.step_phone"),
+            parse_mode="HTML",
+        )
+        await state.set_state(Registration.phone)
+    except Exception as e:
+        logger.error(f"Ошибка при обработке имени: {e}")
+        await send_user_error(
+            message,
+            "errors.registration_name_failed",
+            lang=user_language,
+            error=e,
+            show_support=True,
+            state=state
+        )
 
 
 @router.message(Registration.phone)
@@ -329,29 +345,40 @@ async def process_phone(message: Message, state: FSMContext) -> None:
     """Обработка ввода телефона"""
     import re
 
-    phone = message.text.strip()
-
-    # Очищаем номер от лишних символов
-    phone_digits = re.sub(r"[^\d+]", "", phone)
-
-    # Проверяем формат
     user_language = message.from_user.language_code or "ru"
-    if not re.match(r"^(\+7|8|7)\d{10}$", phone_digits):
-        await message.answer(get_text(user_language, "registration.phone_invalid"))
-        return
+    try:
+        phone = message.text.strip()
 
-    # Приводим к единому формату +7
-    if phone_digits.startswith("8"):
-        phone_digits = "+7" + phone_digits[1:]
-    elif phone_digits.startswith("7"):
-        phone_digits = "+" + phone_digits
+        # Очищаем номер от лишних символов
+        phone_digits = re.sub(r"[^\d+]", "", phone)
 
-    await state.update_data(phone=phone_digits)
-    await message.answer(
-        get_text(user_language, "registration.step_email"),
-        parse_mode="HTML",
-    )
-    await state.set_state(Registration.email)
+        # Проверяем формат
+        if not re.match(r"^(\+7|8|7)\d{10}$", phone_digits):
+            await message.answer(get_text(user_language, "registration.phone_invalid"))
+            return
+
+        # Приводим к единому формату +7
+        if phone_digits.startswith("8"):
+            phone_digits = "+7" + phone_digits[1:]
+        elif phone_digits.startswith("7"):
+            phone_digits = "+" + phone_digits
+
+        await state.update_data(phone=phone_digits)
+        await message.answer(
+            get_text(user_language, "registration.step_email"),
+            parse_mode="HTML",
+        )
+        await state.set_state(Registration.email)
+    except Exception as e:
+        logger.error(f"Ошибка при обработке телефона: {e}")
+        await send_user_error(
+            message,
+            "errors.registration_phone_failed",
+            lang=user_language,
+            error=e,
+            show_support=True,
+            state=state
+        )
 
 
 @router.message(Registration.email)
@@ -500,7 +527,13 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
         await state.clear()
     except Exception as e:
         logger.error(f"Ошибка при завершении регистрации: {e}")
-        await message.answer(get_text(user_language, "registration.error"))
+        await send_user_error(
+            message,
+            "errors.registration_save_failed",
+            lang=user_language,
+            error=e,
+            show_support=True
+        )
 
 
 @router.callback_query(F.data == "invite_friends")
