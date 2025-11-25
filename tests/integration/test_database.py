@@ -74,11 +74,11 @@ class TestDatabaseIntegration:
     
     def test_admin_creation_with_permissions(self, db_session):
         """Тест создания администратора с разрешениями"""
-        from werkzeug.security import generate_password_hash
-        
+        from utils.password_security import hash_password_bcrypt
+
         admin = Admin(
             login="integration_admin",
-            password_hash=generate_password_hash("secure_password"),
+            password=hash_password_bcrypt("secure_password"),
             role="admin",
             permissions=["manage_users", "view_tickets"],
             created_at=datetime.now()

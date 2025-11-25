@@ -16,6 +16,7 @@ from models.models import (
     User,
     DatabaseManager,
 )
+from routes.emails import get_users_by_segment
 from utils.email_sender import (
     EmailSender,
     EmailPersonalizer,
@@ -202,12 +203,10 @@ async def _send_email_campaign_async(task: Task, campaign_id: int, start_time: d
             ).all()
 
         elif campaign_data["recipient_type"] == "segment":
-            from routes.emails import get_users_by_segment
             segment_params = json.loads(campaign_data["segment_params"]) if campaign_data["segment_params"] else {}
             users = get_users_by_segment(session, campaign_data["segment_type"], segment_params)
 
         else:  # all
-            from routes.emails import get_users_by_segment
             users = get_users_by_segment(session, "all")
 
         # Для типов кроме custom возвращаем пользователей из базы
