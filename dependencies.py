@@ -209,9 +209,76 @@ def verify_token(
         token = credentials.credentials
         payload = jwt.decode(token, get_secret_key_jwt(), algorithms=[ALGORITHM])
         username: str = payload.get("sub")
+        jti: str = payload.get("jti")  # JWT ID для revocation
 
         if username is None:
             raise credentials_exception
+
+        # Проверка jti в blacklist (если токен был отозван)
+        if jti:
+            # Проверяем Redis blacklist (синхронный вызов)
+            blacklist_key = f"blacklist:jti:{jti}"
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                is_blacklisted = loop.run_until_complete(cache_manager.get(blacklist_key))
+
+                if is_blacklisted:
+                    logger.warning(
+                        f"Attempt to use blacklisted token",
+                        extra={"jti": jti, "username": username}
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Token has been revoked"
+                    )
+            except RuntimeError:
+                # Если event loop не доступен, пропускаем проверку blacklist
+                # (может произойти в некоторых edge cases)
+                logger.debug("Could not check token blacklist (no event loop)")
+
+        # Проверка глобального отзыва токенов для администратора
+        # (все токены выданные до определенного времени)
+        iat = payload.get("iat")  # Issued at timestamp
+        if iat:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+
+                # Получаем admin_id из БД для проверки revocation
+                def _get_admin_id(session):
+                    admin = session.query(Admin).filter(Admin.login == username).first()
+                    return admin.id if admin else None
+
+                admin_id = DatabaseManager.safe_execute(_get_admin_id)
+
+                if admin_id:
+                    revoke_key = f"admin_revoked:{admin_id}"
+                    revoked_timestamp_str = loop.run_until_complete(cache_manager.get(revoke_key))
+
+                    if revoked_timestamp_str:
+                        revoked_timestamp = float(revoked_timestamp_str)
+                        # Если токен выдан до времени отзыва - отклоняем
+                        if iat < revoked_timestamp:
+                            logger.warning(
+                                f"Attempt to use revoked token (admin-wide revocation)",
+                                extra={
+                                    "username": username,
+                                    "admin_id": admin_id,
+                                    "token_iat": iat,
+                                    "revoked_at": revoked_timestamp
+                                }
+                            )
+                            raise HTTPException(
+                                status_code=status.HTTP_401_UNAUTHORIZED,
+                                detail="All your tokens have been revoked. Please log in again."
+                            )
+            except RuntimeError:
+                # Event loop не доступен
+                pass
+            except Exception as e:
+                # Не блокируем авторизацию при ошибках проверки revocation
+                logger.error(f"Error checking admin revocation: {e}")
 
     except ExpiredSignatureError:
         raise HTTPException(

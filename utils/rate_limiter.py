@@ -99,9 +99,9 @@ class RateLimiter:
     def _setup_default_rules(self):
         """Настройка правил по умолчанию"""
         self.rules = {
-            # Аутентификация - увеличенные лимиты для продакшена
+            # Аутентификация - строгие лимиты для защиты от brute force
             "auth:login": RateLimitRule(
-                requests=20,
+                requests=5,
                 window=300,  # 5 минут
                 message="Слишком много попыток входа. Попробуйте через 5 минут.",
                 status_code=429

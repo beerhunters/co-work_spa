@@ -170,6 +170,13 @@ else:
 
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
+# CAPTCHA настройки (hCaptcha)
+# CAPTCHA требуется после CAPTCHA_FAILED_ATTEMPTS_THRESHOLD неудачных попыток входа
+HCAPTCHA_SECRET_KEY = os.getenv("HCAPTCHA_SECRET_KEY")  # Опционально - если не задан, CAPTCHA отключен
+HCAPTCHA_SITE_KEY = os.getenv("HCAPTCHA_SITE_KEY")  # Для frontend
+CAPTCHA_ENABLED = bool(HCAPTCHA_SECRET_KEY)  # Автоматически включается если есть секретный ключ
+CAPTCHA_FAILED_ATTEMPTS_THRESHOLD = int(os.getenv("CAPTCHA_FAILED_ATTEMPTS_THRESHOLD", "3"))
+
 # Администратор
 ADMIN_LOGIN = os.getenv("ADMIN_LOGIN")
 ADMIN_PASSWORD = None  # Используйте get_admin_password() вместо прямого доступа

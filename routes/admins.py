@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash
+from utils.password_security import hash_password_bcrypt
+from utils.cache_manager import cache_manager
 
 from dependencies import (
     get_db,
@@ -112,10 +114,8 @@ async def create_admin(
                 detail="Администратор с таким логином уже существует",
             )
 
-        # Создаем нового админа
-        hashed_password = generate_password_hash(
-            admin_data.password, method="pbkdf2:sha256"
-        )
+        # Создаем нового админа с bcrypt хешированием
+        hashed_password = hash_password_bcrypt(admin_data.password, rounds=12)
 
         new_admin = Admin(
             login=admin_data.login,
@@ -257,11 +257,9 @@ async def update_admin(
                 )
             admin.login = admin_data.login
 
-        # Обновляем пароль
+        # Обновляем пароль с bcrypt хешированием
         if admin_data.password:
-            admin.password = generate_password_hash(
-                admin_data.password, method="pbkdf2:sha256"
-            )
+            admin.password = hash_password_bcrypt(admin_data.password, rounds=12)
 
         # Обновляем статус
         if admin_data.is_active is not None:
@@ -410,10 +408,8 @@ async def change_password(
                 detail="Неверный текущий пароль",
             )
 
-        # Устанавливаем новый пароль
-        admin_in_db.password = generate_password_hash(
-            password_data.new_password, method="pbkdf2:sha256"
-        )
+        # Устанавливаем новый пароль с bcrypt хешированием
+        admin_in_db.password = hash_password_bcrypt(password_data.new_password, rounds=12)
         db.commit()
 
         # Очищаем кеш после смены пароля
@@ -470,4 +466,73 @@ async def get_current_admin_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get admin profile",
+        )
+
+
+@router.post("/admins/{admin_id}/revoke-tokens", status_code=status.HTTP_200_OK)
+async def revoke_admin_tokens(
+    admin_id: int,
+    db: Session = Depends(get_db),
+    current_admin: CachedAdmin = Depends(require_super_admin),
+):
+    """
+    Отзыв всех токенов конкретного администратора (только для SUPER_ADMIN).
+
+    Устанавливает timestamp в Redis, все токены выданные до этого времени
+    станут недействительными. Используется при компрометации учетной записи.
+
+    Args:
+        admin_id: ID администратора, чьи токены нужно отозвать
+
+    Returns:
+        Сообщение об успешном отзыве токенов
+    """
+    try:
+        # Проверяем что админ существует
+        admin = db.query(Admin).filter(Admin.id == admin_id).first()
+        if not admin:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Администратор не найден",
+            )
+
+        # Устанавливаем timestamp отзыва всех токенов
+        from datetime import datetime, timedelta
+        revocation_timestamp = datetime.utcnow().timestamp()
+
+        # Сохраняем в Redis с TTL 7 дней (макс. время жизни refresh token)
+        revoke_key = f"admin_revoked:{admin_id}"
+        await cache_manager.set(
+            key=revoke_key,
+            value=str(revocation_timestamp),
+            ttl=7 * 24 * 60 * 60  # 7 дней
+        )
+
+        # Очищаем кэш администратора
+        clear_admin_cache()
+
+        logger.warning(
+            f"All tokens revoked for admin",
+            extra={
+                "target_admin_id": admin_id,
+                "target_admin_login": admin.login,
+                "revoked_by": current_admin.login,
+                "revocation_timestamp": revocation_timestamp
+            }
+        )
+
+        return {
+            "message": f"All tokens for admin '{admin.login}' have been revoked",
+            "admin_id": admin_id,
+            "admin_login": admin.login,
+            "revoked_at": datetime.utcnow().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error revoking admin tokens: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to revoke admin tokens",
         )

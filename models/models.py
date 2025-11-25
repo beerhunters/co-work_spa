@@ -39,7 +39,8 @@ from sqlalchemy.orm import (
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import QueuePool
 from sqlalchemy.exc import OperationalError, DisconnectionError
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash
+from utils.password_security import hash_password_bcrypt
 
 from utils.logger import get_logger
 
@@ -48,9 +49,11 @@ logger = get_logger(__name__)
 Base = declarative_base()
 MOSCOW_TZ = pytz.timezone("Europe/Moscow")
 
-# Создаем директорию data если её нет
-DB_DIR = Path("/app/data")
-DB_DIR.mkdir(exist_ok=True)
+# Получаем DATA_DIR из config (работает и в Docker, и в CI)
+from config import DATA_DIR
+DB_DIR = DATA_DIR
+# Директория уже создана в config.py, но на всякий случай проверяем
+DB_DIR.mkdir(parents=True, exist_ok=True)
 
 # Настройки connection pool - оптимизированы для production
 POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))  # Увеличено с 5 до 10
@@ -993,9 +996,8 @@ def create_admin(admin_login: str, admin_password: str) -> None:
             logger.info(f"Администратор {admin_login} уже существует")
             return
 
-        hashed_password = generate_password_hash(
-            admin_password, method="pbkdf2:sha256", salt_length=8
-        )
+        # Используем bcrypt для хеширования паролей (безопаснее pbkdf2)
+        hashed_password = hash_password_bcrypt(admin_password, rounds=12)
 
         admin = Admin(
             login=admin_login,

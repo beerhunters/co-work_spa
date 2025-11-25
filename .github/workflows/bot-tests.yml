@@ -57,6 +57,9 @@ jobs:
         ADMIN_PASSWORD: test_password
         BOT_TOKEN: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
         ADMIN_TELEGRAM_ID: 123456789
+        # CAPTCHA (опционально, тесты работают и без него)
+        HCAPTCHA_SECRET_KEY: test_hcaptcha_secret
+        HCAPTCHA_SITE_KEY: test_hcaptcha_site_key
         # Дополнительные переменные
         ENVIRONMENT: testing
         DEBUG: false
@@ -76,6 +79,9 @@ jobs:
         ADMIN_PASSWORD: test_password
         BOT_TOKEN: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
         ADMIN_TELEGRAM_ID: 123456789
+        # CAPTCHA (опционально, тесты работают и без него)
+        HCAPTCHA_SECRET_KEY: test_hcaptcha_secret
+        HCAPTCHA_SITE_KEY: test_hcaptcha_site_key
         # Дополнительные переменные
         ENVIRONMENT: testing
         DEBUG: false
@@ -95,6 +101,9 @@ jobs:
         ADMIN_PASSWORD: test_password
         BOT_TOKEN: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
         ADMIN_TELEGRAM_ID: 123456789
+        # CAPTCHA (опционально, тесты работают и без него)
+        HCAPTCHA_SECRET_KEY: test_hcaptcha_secret
+        HCAPTCHA_SITE_KEY: test_hcaptcha_site_key
         # Дополнительные переменные
         ENVIRONMENT: testing
         DEBUG: false
