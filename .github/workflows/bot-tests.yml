@@ -49,16 +49,58 @@ jobs:
         mkdir -p data logs avatars ticket_photos newsletter_photos config
 
     - name: Run P0 (Critical) tests
+      env:
+        # Обязательные переменные для запуска тестов
+        SECRET_KEY: test_secret_key_for_testing_only
+        SECRET_KEY_JWT: test_jwt_secret_key_for_testing_only
+        ADMIN_LOGIN: test_admin
+        ADMIN_PASSWORD: test_password
+        BOT_TOKEN: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+        ADMIN_TELEGRAM_ID: 123456789
+        # Дополнительные переменные
+        ENVIRONMENT: testing
+        DEBUG: false
+        LOG_LEVEL: ERROR
+        LOG_TO_FILE: false
+        TELEGRAM_LOGGING_ENABLED: false
       run: |
         pytest tests/bot/ -m p0 -v --tb=short
       continue-on-error: false
 
     - name: Run P1 (High Priority) tests
+      env:
+        # Обязательные переменные для запуска тестов
+        SECRET_KEY: test_secret_key_for_testing_only
+        SECRET_KEY_JWT: test_jwt_secret_key_for_testing_only
+        ADMIN_LOGIN: test_admin
+        ADMIN_PASSWORD: test_password
+        BOT_TOKEN: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+        ADMIN_TELEGRAM_ID: 123456789
+        # Дополнительные переменные
+        ENVIRONMENT: testing
+        DEBUG: false
+        LOG_LEVEL: ERROR
+        LOG_TO_FILE: false
+        TELEGRAM_LOGGING_ENABLED: false
       run: |
         pytest tests/bot/ -m p1 -v --tb=short
       continue-on-error: false
 
     - name: Run all bot tests with coverage
+      env:
+        # Обязательные переменные для запуска тестов
+        SECRET_KEY: test_secret_key_for_testing_only
+        SECRET_KEY_JWT: test_jwt_secret_key_for_testing_only
+        ADMIN_LOGIN: test_admin
+        ADMIN_PASSWORD: test_password
+        BOT_TOKEN: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+        ADMIN_TELEGRAM_ID: 123456789
+        # Дополнительные переменные
+        ENVIRONMENT: testing
+        DEBUG: false
+        LOG_LEVEL: ERROR
+        LOG_TO_FILE: false
+        TELEGRAM_LOGGING_ENABLED: false
       run: |
         pytest tests/bot/ \
           --cov=bot \

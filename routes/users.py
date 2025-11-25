@@ -22,6 +22,7 @@ from dependencies import (
 from schemas.user_schemas import UserBase, UserUpdate, UserCreate
 from config import AVATARS_DIR, MOSCOW_TZ
 from utils.logger import get_logger
+from utils.file_security import sanitize_filename
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/users", tags=["users"])
@@ -516,7 +517,23 @@ async def delete_avatar(
 @router.get("/avatars/{filename}")
 async def get_avatar(filename: str):
     """Получение аватара по имени файла. Публичный доступ."""
-    file_path = AVATARS_DIR / filename
+    # Санитизация имени файла для предотвращения path traversal
+    safe_filename = sanitize_filename(filename)
+
+    # Проверка допустимых расширений
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+    file_ext = Path(safe_filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+
+    file_path = AVATARS_DIR / safe_filename
+
+    # Проверка что путь не выходит за пределы AVATARS_DIR (защита от path traversal)
+    try:
+        file_path.resolve().relative_to(AVATARS_DIR.resolve())
+    except ValueError:
+        logger.warning(f"Path traversal attempt blocked: {filename}")
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
     if not file_path.exists():
         placeholder_path = AVATARS_DIR / "placeholder_avatar.png"
@@ -533,7 +550,7 @@ async def get_avatar(filename: str):
 
     mtime = file_path.stat().st_mtime
     last_modified = f"{mtime}"
-    etag_base = f"{filename}-{mtime}"
+    etag_base = f"{safe_filename}-{mtime}"
     etag = hashlib.md5(etag_base.encode()).hexdigest()
 
     return FileResponse(

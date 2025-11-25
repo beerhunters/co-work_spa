@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Optional
+import io
 
 from aiogram import Bot
 from aiogram.types import (
@@ -8,6 +9,7 @@ from aiogram.types import (
     UserProfilePhotos,
     File,
 )
+from PIL import Image
 
 from config import ADMIN_URL, RULES_URL
 from utils.logger import get_logger
@@ -92,6 +94,26 @@ async def save_user_avatar(bot: Bot, user_id: int) -> Optional[str]:
                 if hasattr(file_content, "getvalue")
                 else bytes(file_content)
             )
+
+        # Валидация MIME-типа и целостности изображения
+        try:
+            img = Image.open(io.BytesIO(content_bytes))
+            img.verify()  # Проверяет целостность изображения
+
+            # Проверка формата
+            if img.format not in ['JPEG', 'PNG', 'GIF', 'WEBP']:
+                logger.warning(f"Неподдерживаемый формат изображения для пользователя {user_id}: {img.format}")
+                return None
+
+            # Проверка размера файла (максимум 10 МБ)
+            max_size = 10 * 1024 * 1024
+            if len(content_bytes) > max_size:
+                logger.warning(f"Изображение пользователя {user_id} слишком большое: {len(content_bytes)} bytes")
+                return None
+
+        except Exception as e:
+            logger.error(f"Ошибка валидации изображения для пользователя {user_id}: {e}")
+            return None
 
         # Сохраняем файл
         with open(file_path, "wb") as f:

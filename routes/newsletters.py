@@ -12,6 +12,7 @@ import io
 from celery.result import AsyncResult
 from utils.async_file_utils import AsyncFileManager
 from utils.file_validation import FileValidator
+from utils.file_security import validate_upload_file
 from dependencies import verify_token, verify_token_with_permissions, get_bot
 from config import NEWSLETTER_PHOTOS_DIR, MOSCOW_TZ
 from models.models import Newsletter, User, DatabaseManager, Permission
@@ -75,8 +76,12 @@ def get_users_by_segment(session, segment_type: str, params: dict = None):
 async def save_uploaded_photo_async(photo: UploadFile, idx: int) -> Optional[str]:
     """Безопасное сохранение фотографии с валидацией"""
     try:
-        # Валидация файла (MIME-type и расширение)
-        FileValidator.validate_image_file(photo)
+        # Расширенная валидация файла (MIME-type, расширение, magic numbers, целостность)
+        file_info = await validate_upload_file(
+            photo,
+            file_type='image',
+            check_content=True  # Проверяет реальное содержимое файла
+        )
 
         # Читаем содержимое
         contents = await photo.read()

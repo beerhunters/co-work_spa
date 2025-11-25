@@ -11,6 +11,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
 )
+from pydantic import EmailStr, ValidationError
 
 from utils.logger import get_logger
 from utils.api_client import get_api_client
@@ -384,15 +385,16 @@ async def process_phone(message: Message, state: FSMContext) -> None:
 @router.message(Registration.email)
 async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
     """Обработка ввода email и завершение регистрации"""
-    import re
-
     email = message.text.strip().lower()
-
-    # Проверяем формат email
     user_language = message.from_user.language_code or "ru"
-    if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
+
+    # Проверяем формат email через Pydantic EmailStr (более строгая валидация)
+    try:
+        EmailStr._validate(email)
+    except (ValidationError, ValueError):
         await message.answer(get_text(user_language, "registration.email_invalid"))
         return
+
     try:
         # Получаем данные из состояния
         data = await state.get_data()

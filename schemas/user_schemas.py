@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 
 
 class UserBase(BaseModel):
@@ -10,7 +10,7 @@ class UserBase(BaseModel):
     telegram_id: int
     full_name: Optional[str]
     phone: Optional[str]
-    email: Optional[str]
+    email: Optional[EmailStr]
     username: Optional[str]
     successful_bookings: int
     language_code: str
@@ -37,7 +37,7 @@ class UserUpdate(BaseModel):
 
     full_name: Optional[str] = None
     phone: Optional[str] = None
-    email: Optional[str] = None
+    email: Optional[EmailStr] = None
     username: Optional[str] = None
     language_code: Optional[str] = None
     avatar: Optional[str] = None
