@@ -347,21 +347,18 @@ async def delete_campaign(
     campaign_id: int,
     _: CachedAdmin = Depends(verify_token_with_permissions([Permission.DELETE_EMAIL_CAMPAIGNS])),
 ):
-    """Удаление email кампании (только черновиков)."""
+    """Удаление email кампании независимо от статуса."""
 
     def _delete_campaign(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
             raise HTTPException(status_code=404, detail="Кампания не найдена")
 
-        # Можно удалять только черновики
-        if campaign.status not in ["draft"]:
-            raise HTTPException(status_code=400, detail="Можно удалять только черновики")
-
+        # Удаляем независимо от статуса
         session.delete(campaign)
         session.commit()
 
-        logger.info(f"Удалена email кампания {campaign_id}")
+        logger.info(f"Удалена email кампания {campaign_id} (статус: {campaign.status})")
 
         return {"success": True, "message": "Кампания удалена"}
 
@@ -450,8 +447,8 @@ async def send_campaign(
         if not campaign:
             raise HTTPException(status_code=404, detail="Кампания не найдена")
 
-        # Проверка статуса
-        if campaign.status not in ["draft", "scheduled"]:
+        # Проверка статуса - можно отправить draft, scheduled или failed (для повторной отправки)
+        if campaign.status not in ["draft", "scheduled", "failed"]:
             raise HTTPException(status_code=400, detail="Кампания уже отправлена или отправляется")
 
         # Получение списка получателей

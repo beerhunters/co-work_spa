@@ -839,22 +839,32 @@ const Emails = ({ currentAdmin }) => {
                                 />
                               </>
                             )}
+                            {campaign.status === 'failed' && (
+                              <Button
+                                leftIcon={<FiSend />}
+                                size="sm"
+                                colorScheme="orange"
+                                onClick={() => handleSendCampaign(campaign.id)}
+                                isLoading={isSending}
+                                flex={1}
+                              >
+                                Переотправить
+                              </Button>
+                            )}
                             <IconButton
                               icon={<FiBarChart2 />}
                               size="sm"
                               onClick={() => handleShowAnalytics(campaign)}
                               aria-label="Аналитика"
                             />
-                            {campaign.status === 'draft' && (
-                              <IconButton
-                                icon={<FiTrash2 />}
-                                size="sm"
-                                colorScheme="red"
-                                variant="ghost"
-                                onClick={() => handleDeleteCampaign(campaign.id)}
-                                aria-label="Удалить"
-                              />
-                            )}
+                            <IconButton
+                              icon={<FiTrash2 />}
+                              size="sm"
+                              colorScheme="red"
+                              variant="ghost"
+                              onClick={() => handleDeleteCampaign(campaign.id)}
+                              aria-label="Удалить"
+                            />
                           </HStack>
                         </VStack>
                       </CardBody>
@@ -931,6 +941,18 @@ const Emails = ({ currentAdmin }) => {
                                 </Tooltip>
                               )}
 
+                              {campaign.status === 'failed' && (
+                                <Tooltip label="Переотправить">
+                                  <IconButton
+                                    icon={<FiSend />}
+                                    size={{ base: "xs", md: "sm" }}
+                                    colorScheme="orange"
+                                    onClick={() => handleSendCampaign(campaign.id)}
+                                    isLoading={isSending}
+                                  />
+                                </Tooltip>
+                              )}
+
                               {campaign.status === 'draft' && (
                                 <Tooltip label="Тестовая отправка">
                                   <IconButton
@@ -953,17 +975,15 @@ const Emails = ({ currentAdmin }) => {
                                 />
                               </Tooltip>
 
-                              {campaign.status === 'draft' && (
-                                <Tooltip label="Удалить">
-                                  <IconButton
-                                    icon={<FiTrash2 />}
-                                    size={{ base: "xs", md: "sm" }}
-                                    colorScheme="red"
-                                    variant="ghost"
-                                    onClick={() => handleDeleteCampaign(campaign.id)}
-                                  />
-                                </Tooltip>
-                              )}
+                              <Tooltip label="Удалить">
+                                <IconButton
+                                  icon={<FiTrash2 />}
+                                  size={{ base: "xs", md: "sm" }}
+                                  colorScheme="red"
+                                  variant="ghost"
+                                  onClick={() => handleDeleteCampaign(campaign.id)}
+                                />
+                              </Tooltip>
                             </HStack>
                           </Td>
                         </Tr>

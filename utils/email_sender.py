@@ -23,13 +23,13 @@ from config import (
     SMTP_USE_SSL,
     SMTP_USE_TLS,
     SMTP_USERNAME,
-    SMTP_PASSWORD,
     SMTP_FROM_EMAIL,
     SMTP_FROM_NAME,
     SMTP_TIMEOUT,
     SMTP_MAX_RETRIES,
     EMAIL_TRACKING_DOMAIN,
     MOSCOW_TZ,
+    get_smtp_password,
 )
 from utils.logger import get_logger
 
@@ -44,7 +44,7 @@ class EmailSender:
         self.smtp_host = SMTP_HOST
         self.smtp_port = SMTP_PORT
         self.smtp_username = SMTP_USERNAME
-        self.smtp_password = SMTP_PASSWORD
+        self.smtp_password = get_smtp_password()  # Получаем из секретов или переменных окружения
         self.from_email = SMTP_FROM_EMAIL or SMTP_USERNAME
         self.from_name = SMTP_FROM_NAME
         self.use_ssl = SMTP_USE_SSL
@@ -126,27 +126,29 @@ class EmailSender:
 
         # Создаем SMTP клиент
         if self.use_ssl:
-            # SSL на порту 465
+            # SSL на порту 465 - implicit TLS с самого начала
             smtp = aiosmtplib.SMTP(
                 hostname=self.smtp_host,
                 port=self.smtp_port,
-                use_tls=True,  # Для SSL порта
+                use_tls=True,  # Использовать implicit TLS
                 tls_context=ssl_context,
                 timeout=self.timeout,
             )
         else:
-            # STARTTLS на порту 587
+            # STARTTLS на порту 587 или обычный SMTP
             smtp = aiosmtplib.SMTP(
                 hostname=self.smtp_host,
                 port=self.smtp_port,
-                use_tls=False,
-                start_tls=self.use_tls,
-                tls_context=ssl_context if self.use_tls else None,
+                use_tls=False,  # Не использовать implicit TLS
                 timeout=self.timeout,
             )
 
         try:
             await smtp.connect()
+
+            # Для STARTTLS явно вызываем starttls() перед аутентификацией
+            if self.use_tls and not self.use_ssl:
+                await smtp.starttls(tls_context=ssl_context)
 
             # Аутентификация
             if self.smtp_username and self.smtp_password:
@@ -156,7 +158,10 @@ class EmailSender:
             await smtp.send_message(message)
 
         finally:
-            await smtp.quit()
+            try:
+                await smtp.quit()
+            except Exception:
+                pass  # Игнорируем ошибки при закрытии соединения
 
     def _personalize_text(self, text: str, data: Dict) -> str:
         """
