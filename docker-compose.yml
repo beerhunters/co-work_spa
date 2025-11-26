@@ -1,4 +1,35 @@
 services:
+  # ====================================================================
+  # Base Images (P-HIGH-5) - Shared dependencies for web and bot
+  # Benefits: Faster builds, smaller images, better caching
+  # ====================================================================
+
+  # Base OS image with appuser
+  base:
+    image: cowork-base:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      target: base
+    profiles:
+      - base-build
+
+  # Python dependencies builder (includes build tools)
+  python-deps:
+    image: cowork-python-deps:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      target: python-dependencies-builder
+    profiles:
+      - base-build
+    depends_on:
+      - base
+
+  # ====================================================================
+  # Application Services
+  # ====================================================================
+
   bot:
     build:
       context: .

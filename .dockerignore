@@ -180,3 +180,44 @@ cython_debug/
 .idea/
 /CLAUDE.md
 /правки/
+
+# ====================================================================
+# Additional optimizations (P-HIGH-5)
+# ====================================================================
+
+# Tests - not needed in production images
+tests/
+test/
+*.test.py
+*.test.js
+
+# Frontend build artifacts and dependencies
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/build/
+
+# Runtime data directories - managed by volumes
+data/
+logs/
+avatars/
+ticket_photos/
+newsletter_photos/
+backups/
+
+# Config files that are injected at runtime
+config/
+.env*
+
+# Docker files themselves
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# CI/CD files
+.github/
+.gitlab-ci.yml
+
+# Scripts (may contain sensitive info or not needed in container)
+scripts/*.sh
+!scripts/entrypoint.sh

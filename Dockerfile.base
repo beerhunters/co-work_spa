@@ -1,0 +1,43 @@
+# ====================================================================
+# Shared Base Image for Python Services (P-HIGH-5)
+# Used by: Dockerfile.web, Dockerfile.bot
+# Benefits: Reduce image size, improve build caching, consistency
+# ====================================================================
+
+# Stage 1: Base OS with non-root user
+FROM python:3.11-slim AS base
+
+# Create application user with specific uid/gid for Docker volume compatibility
+# Using uid=1000 for consistency across web and bot services
+RUN groupadd -g 1000 appuser && \
+    useradd -u 1000 -g appuser -m -s /bin/bash appuser
+
+# Stage 2: Python Dependencies Builder (with build tools)
+# This stage includes gcc and python3-dev needed for compiling packages like psutil
+# Build tools are NOT copied to production stage - saves 50-100MB
+FROM base AS python-dependencies-builder
+
+# Install build tools temporarily (will not be in final image)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        gcc \
+        python3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+WORKDIR /app
+
+# Copy only requirements.txt for better layer caching
+# This layer is cached unless requirements.txt changes
+COPY requirements.txt .
+
+# Install Python dependencies
+# --no-cache-dir reduces image size
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    # Cleanup compiled Python files to reduce size
+    find /usr/local -type f -name '*.pyc' -delete && \
+    find /usr/local -type d -name '__pycache__' -delete
+
+# Note: This stage ends here. Build tools (gcc, python3-dev) are discarded.
+# Production stage will copy only /usr/local/lib/python3.11/site-packages
