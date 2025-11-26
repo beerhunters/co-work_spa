@@ -200,23 +200,23 @@ async def send_newsletter(
 
         logger.info(f"Successfully processed {len(photo_paths)}/{len(photos)} photos")
 
-    # Получение получателей
-    def _get_recipients(session):
+    # Подсчет получателей (P-CRIT-3: не загружаем всех в память, только считаем)
+    def _count_recipients(session):
         if recipient_type == "all":
             # Исключаем забаненных пользователей и заблокировавших бота
-            users = session.query(User).filter(
+            count = session.query(User).filter(
                 User.telegram_id.isnot(None),
                 User.is_banned == False,
                 User.bot_blocked == False
-            ).all()
+            ).count()
         elif recipient_type == "selected":
             telegram_ids = [int(uid) for uid in user_ids if uid.isdigit()]
             # Исключаем забаненных пользователей и заблокировавших бота
-            users = session.query(User).filter(
+            count = session.query(User).filter(
                 User.telegram_id.in_(telegram_ids),
                 User.is_banned == False,
                 User.bot_blocked == False
-            ).all()
+            ).count()
         elif recipient_type == "segment":
             # Парсим параметры сегментации
             import json
@@ -227,52 +227,47 @@ async def send_newsletter(
                 except json.JSONDecodeError:
                     logger.warning(f"Invalid segment_params JSON: {segment_params}")
 
-            # Получаем пользователей по сегменту
+            # Получаем пользователей по сегменту и считаем
             users = get_users_by_segment(session, segment_type, params)
+            count = len(users)  # segment функция возвращает список
         else:
-            users = []
+            count = 0
 
-        return [
-            {
-                "user_id": user.id,
-                "telegram_id": user.telegram_id,
-                "full_name": user.full_name or f"User {user.telegram_id}",
-            }
-            for user in users
-        ]
+        return count
 
     try:
-        recipients = DatabaseManager.safe_execute(_get_recipients)
+        recipient_count = DatabaseManager.safe_execute(_count_recipients)
     except Exception as e:
         # Очищаем загруженные фото при ошибке
         await cleanup_photos_async(photo_paths)
-        logger.error(f"Error getting recipients: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get recipients")
+        logger.error(f"Error counting recipients: {e}")
+        raise HTTPException(status_code=500, detail="Failed to count recipients")
 
-    if not recipients:
+    if recipient_count == 0:
         await cleanup_photos_async(photo_paths)
         raise HTTPException(status_code=400, detail="Нет получателей для рассылки")
 
-    # Подготовка данных для Celery задачи
+    # Подготовка данных для Celery задачи (передаем query параметры вместо списка получателей)
     newsletter_data = {
         "recipient_type": recipient_type,
         "segment_type": segment_type if recipient_type == "segment" else None,
         "segment_params": segment_params if recipient_type == "segment" else None,
+        "user_ids": user_ids if recipient_type == "selected" else None,  # Для selected типа
     }
 
-    # Запуск Celery задачи для фоновой отправки
+    # Запуск Celery задачи для фоновой отправки (P-CRIT-3: НЕ передаем recipients)
     try:
         task = send_newsletter_task.apply_async(
-            args=[message, recipients, photo_paths, newsletter_data],
+            args=[message, photo_paths, newsletter_data],  # Убран recipients из args
             queue='newsletters'
         )
 
-        logger.info(f"Newsletter task queued: {task.id} for {len(recipients)} recipients")
+        logger.info(f"Newsletter task queued: {task.id} for {recipient_count} recipients")
 
         return {
             "task_id": task.id,
             "status": "queued",
-            "total_count": len(recipients),
+            "total_count": recipient_count,
             "message": "Рассылка поставлена в очередь на отправку"
         }
 

@@ -56,18 +56,16 @@ class CallbackTask(Task):
 def send_newsletter_task(
     self,
     message: str,
-    recipients: List[Dict[str, any]],
     photo_paths: List[str],
     newsletter_data: Dict[str, any]
 ):
     """
-    Celery task for sending newsletter to recipients.
+    Celery task for sending newsletter to recipients (P-CRIT-3: batch processing).
 
     Args:
         message: Newsletter message text
-        recipients: List of recipient dicts with telegram_id and full_name
         photo_paths: List of paths to photos
-        newsletter_data: Dict with newsletter metadata (recipient_type, segment_type, etc.)
+        newsletter_data: Dict with newsletter metadata (recipient_type, segment_type, user_ids, etc.)
 
     Returns:
         Dict with results: {
@@ -78,12 +76,47 @@ def send_newsletter_task(
         }
     """
     try:
+        # Count recipients first (P-CRIT-3: query instead of passing full list)
+        def _count_recipients_for_task(session):
+            recipient_type = newsletter_data.get("recipient_type")
+            if recipient_type == "all":
+                return session.query(User).filter(
+                    User.telegram_id.isnot(None),
+                    User.is_banned == False,
+                    User.bot_blocked == False
+                ).count()
+            elif recipient_type == "selected":
+                user_ids = newsletter_data.get("user_ids", [])
+                telegram_ids = [int(uid) for uid in user_ids if str(uid).isdigit()]
+                return session.query(User).filter(
+                    User.telegram_id.in_(telegram_ids),
+                    User.is_banned == False,
+                    User.bot_blocked == False
+                ).count()
+            elif recipient_type == "segment":
+                # Import here to avoid circular dependency
+                from routes.newsletters import get_users_by_segment
+                import json
+                segment_type = newsletter_data.get("segment_type")
+                segment_params_str = newsletter_data.get("segment_params")
+                params = {}
+                if segment_params_str:
+                    try:
+                        params = json.loads(segment_params_str)
+                    except json.JSONDecodeError:
+                        pass
+                users = get_users_by_segment(session, segment_type, params)
+                return len(users)
+            return 0
+
+        total_recipients = DatabaseManager.safe_execute(_count_recipients_for_task)
+
         # Update task state to show progress
         self.update_state(
             state='PROGRESS',
             meta={
                 'current': 0,
-                'total': len(recipients),
+                'total': total_recipients,
                 'status': 'Starting newsletter distribution...'
             }
         )
@@ -98,14 +131,14 @@ def send_newsletter_task(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-        # Run async send function
+        # Run async send function (P-CRIT-3: batch fetching inside)
         result = loop.run_until_complete(
             _send_newsletter_async(
                 self,
                 message,
-                recipients,
                 photo_paths,
-                newsletter_data
+                newsletter_data,
+                total_recipients
             )
         )
 
@@ -132,12 +165,13 @@ def send_newsletter_task(
 async def _send_newsletter_async(
     task: Task,
     message: str,
-    recipients: List[Dict[str, any]],
     photo_paths: List[str],
-    newsletter_data: Dict[str, any]
+    newsletter_data: Dict[str, any],
+    total_recipients: int
 ) -> Dict[str, any]:
     """
-    Async function to send newsletter to all recipients.
+    Async function to send newsletter to all recipients (P-CRIT-3: batch processing).
+    Fetches recipients in batches of 100 to avoid memory issues.
     """
     bot = get_bot()
     if not bot:
@@ -148,119 +182,187 @@ async def _send_newsletter_async(
 
     success_count = 0
     failed_count = 0
-    total = len(recipients)
+    total = total_recipients
 
     # Список для хранения деталей отправки каждому получателю
     recipient_details = []
 
-    for idx, recipient in enumerate(recipients, 1):
-        telegram_id = recipient['telegram_id']
-        full_name = recipient.get('full_name', 'Unknown')
-        user_id = recipient.get('user_id')
+    # P-CRIT-3: Batch size of 100
+    BATCH_SIZE = 100
+    offset = 0
+    processed_count = 0
 
-        send_status = 'success'
-        error_message = None
+    # Функция для получения batch получателей
+    def _get_recipients_batch(session, offset_val, limit_val):
+        recipient_type = newsletter_data.get("recipient_type")
 
-        try:
-            # Send newsletter based on photo count
-            if photo_paths:
-                if len(photo_paths) == 1:
-                    # Single photo
-                    async with aiofiles.open(photo_paths[0], 'rb') as photo_file:
-                        photo_content = await photo_file.read()
+        if recipient_type == "all":
+            users = session.query(User).filter(
+                User.telegram_id.isnot(None),
+                User.is_banned == False,
+                User.bot_blocked == False
+            ).offset(offset_val).limit(limit_val).all()
+        elif recipient_type == "selected":
+            user_ids = newsletter_data.get("user_ids", [])
+            telegram_ids = [int(uid) for uid in user_ids if str(uid).isdigit()]
+            users = session.query(User).filter(
+                User.telegram_id.in_(telegram_ids),
+                User.is_banned == False,
+                User.bot_blocked == False
+            ).offset(offset_val).limit(limit_val).all()
+        elif recipient_type == "segment":
+            # Import here to avoid circular dependency
+            from routes.newsletters import get_users_by_segment
+            import json
+            segment_type = newsletter_data.get("segment_type")
+            segment_params_str = newsletter_data.get("segment_params")
+            params = {}
+            if segment_params_str:
+                try:
+                    params = json.loads(segment_params_str)
+                except json.JSONDecodeError:
+                    pass
+            users = get_users_by_segment(session, segment_type, params)
+            # Manual pagination for segment (since it returns a list)
+            users = users[offset_val:offset_val + limit_val]
+        else:
+            users = []
 
-                    photo_file_obj = BufferedInputFile(
-                        photo_content,
-                        filename=Path(photo_paths[0]).name
-                    )
+        return [
+            {
+                "user_id": user.id,
+                "telegram_id": user.telegram_id,
+                "full_name": user.full_name or f"User {user.telegram_id}",
+            }
+            for user in users
+        ]
 
-                    await bot.send_photo(
-                        chat_id=telegram_id,
-                        photo=photo_file_obj,
-                        caption=prepared_message,
-                        parse_mode='HTML'
-                    )
-                else:
-                    # Multiple photos - send as media group
-                    media_group = []
-                    for photo_idx, photo_path in enumerate(photo_paths):
-                        async with aiofiles.open(photo_path, 'rb') as photo_file:
-                            photo_content = await photo_file.read()
+    # Process recipients in batches
+    while processed_count < total:
+        # Fetch batch from database
+        recipients_batch = DatabaseManager.safe_execute(
+            lambda session: _get_recipients_batch(session, offset, BATCH_SIZE)
+        )
 
-                        media = InputMediaPhoto(
-                            media=BufferedInputFile(
-                                photo_content,
-                                filename=f"photo_{photo_idx}.jpg"
-                            ),
-                            caption=prepared_message if photo_idx == 0 else None,
-                            parse_mode='HTML' if photo_idx == 0 else None
-                        )
-                        media_group.append(media)
+        if not recipients_batch:
+            break  # No more recipients
 
-                    await bot.send_media_group(
-                        chat_id=telegram_id,
-                        media=media_group
-                    )
-            else:
-                # Text only
-                await bot.send_message(
-                    chat_id=telegram_id,
-                    text=prepared_message,
-                    parse_mode='HTML'
-                )
+        logger.info(f"Processing batch: offset={offset}, size={len(recipients_batch)}")
 
-            success_count += 1
+        # Process each recipient in the current batch
+        for idx, recipient in enumerate(recipients_batch, 1):
+            telegram_id = recipient['telegram_id']
+            full_name = recipient.get('full_name', 'Unknown')
+            user_id = recipient.get('user_id')
 
-            # Small delay to avoid rate limiting
-            await asyncio.sleep(0.05)
-
-        except TelegramForbiddenError as e:
-            # Пользователь заблокировал бота
-            failed_count += 1
-            send_status = 'bot_blocked'
-            error_message = "Пользователь заблокировал бота"
-            logger.warning(f"User {telegram_id} has blocked the bot")
-
-            # Обновляем статус блокировки в базе данных
-            def _mark_bot_blocked(session):
-                user = session.query(User).filter(User.telegram_id == telegram_id).first()
-                if user:
-                    user.bot_blocked = True
-                    user.bot_blocked_at = datetime.now(MOSCOW_TZ)
-                    session.commit()
-                    logger.info(f"Marked user {telegram_id} as bot_blocked in database")
+            send_status = 'success'
+            error_message = None
 
             try:
-                DatabaseManager.safe_execute(_mark_bot_blocked)
-            except Exception as db_error:
-                logger.error(f"Failed to update bot_blocked status for {telegram_id}: {db_error}")
+                # Send newsletter based on photo count
+                if photo_paths:
+                    if len(photo_paths) == 1:
+                        # Single photo
+                        async with aiofiles.open(photo_paths[0], 'rb') as photo_file:
+                            photo_content = await photo_file.read()
 
-        except Exception as e:
-            failed_count += 1
-            send_status = 'failed'
-            error_message = str(e)
-            logger.error(f"Failed to send to {telegram_id}: {e}")
+                        photo_file_obj = BufferedInputFile(
+                            photo_content,
+                            filename=Path(photo_paths[0]).name
+                        )
 
-        # Сохраняем детали отправки для этого получателя
-        recipient_details.append({
-            'user_id': user_id,
-            'telegram_id': telegram_id,
-            'full_name': full_name,
-            'status': send_status,
-            'error_message': error_message,
-        })
+                        await bot.send_photo(
+                            chat_id=telegram_id,
+                            photo=photo_file_obj,
+                            caption=prepared_message,
+                            parse_mode='HTML'
+                        )
+                    else:
+                        # Multiple photos - send as media group
+                        media_group = []
+                        for photo_idx, photo_path in enumerate(photo_paths):
+                            async with aiofiles.open(photo_path, 'rb') as photo_file:
+                                photo_content = await photo_file.read()
 
-        # Update task progress
-        task.update_state(
-            state='PROGRESS',
-            meta={
-                'current': idx,
-                'total': total,
-                'success': success_count,
-                'failed': failed_count,
-                'status': f'Sent {idx}/{total} messages...'
-            }
-        )
+                            media = InputMediaPhoto(
+                                media=BufferedInputFile(
+                                    photo_content,
+                                    filename=f"photo_{photo_idx}.jpg"
+                                ),
+                                caption=prepared_message if photo_idx == 0 else None,
+                                parse_mode='HTML' if photo_idx == 0 else None
+                            )
+                            media_group.append(media)
+
+                        await bot.send_media_group(
+                            chat_id=telegram_id,
+                            media=media_group
+                        )
+                else:
+                    # Text only
+                    await bot.send_message(
+                        chat_id=telegram_id,
+                        text=prepared_message,
+                        parse_mode='HTML'
+                    )
+
+                success_count += 1
+
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(0.05)
+
+            except TelegramForbiddenError as e:
+                # Пользователь заблокировал бота
+                failed_count += 1
+                send_status = 'bot_blocked'
+                error_message = "Пользователь заблокировал бота"
+                logger.warning(f"User {telegram_id} has blocked the bot")
+
+                # Обновляем статус блокировки в базе данных
+                def _mark_bot_blocked(session):
+                    user = session.query(User).filter(User.telegram_id == telegram_id).first()
+                    if user:
+                        user.bot_blocked = True
+                        user.bot_blocked_at = datetime.now(MOSCOW_TZ)
+                        session.commit()
+                        logger.info(f"Marked user {telegram_id} as bot_blocked in database")
+
+                try:
+                    DatabaseManager.safe_execute(_mark_bot_blocked)
+                except Exception as db_error:
+                    logger.error(f"Failed to update bot_blocked status for {telegram_id}: {db_error}")
+
+            except Exception as e:
+                failed_count += 1
+                send_status = 'failed'
+                error_message = str(e)
+                logger.error(f"Failed to send to {telegram_id}: {e}")
+
+            # Сохраняем детали отправки для этого получателя
+            recipient_details.append({
+                'user_id': user_id,
+                'telegram_id': telegram_id,
+                'full_name': full_name,
+                'status': send_status,
+                'error_message': error_message,
+            })
+
+            # Update task progress (P-CRIT-3: processed_count tracks global progress)
+            processed_count += 1
+            task.update_state(
+                state='PROGRESS',
+                meta={
+                    'current': processed_count,
+                    'total': total,
+                    'success': success_count,
+                    'failed': failed_count,
+                    'status': f'Sent {processed_count}/{total} messages...'
+                }
+            )
+
+        # Move to next batch (P-CRIT-3: increment offset after processing batch)
+        offset += BATCH_SIZE
+        logger.info(f"Batch complete. Processed {processed_count}/{total} recipients so far.")
 
     # Determine status
     if success_count == total:

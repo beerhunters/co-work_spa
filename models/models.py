@@ -5,6 +5,8 @@ from typing import Optional, List
 import threading
 import time
 import os
+import signal
+import platform
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -54,6 +56,26 @@ from config import DATA_DIR
 DB_DIR = DATA_DIR
 # Директория уже создана в config.py, но на всякий случай проверяем
 DB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# P-CRIT-4: Query timeout support
+class QueryTimeoutError(Exception):
+    """Raised when a database query exceeds the timeout limit."""
+    pass
+
+
+def _timeout_handler(signum, frame):
+    """Signal handler for query timeout (Unix/Linux only)."""
+    raise QueryTimeoutError("Database query exceeded timeout limit")
+
+
+# Check if signal-based timeout is supported (Unix/Linux only)
+TIMEOUT_SUPPORTED = platform.system() != "Windows" and hasattr(signal, 'SIGALRM')
+
+if not TIMEOUT_SUPPORTED:
+    logger = None  # Will be set later
+    # Logger will warn about this limitation when first used
+
 
 # Настройки connection pool - оптимизированы для production
 POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))  # Увеличено с 5 до 10
@@ -268,16 +290,73 @@ class DatabaseManager:
                     logger.warning(f"Ошибка закрытия сессии: {e}")
 
     @classmethod
-    def safe_execute(cls, func, max_retries=3, retry_delay=0.1):
-        """Безопасное выполнение операций с retry и connection pooling"""
+    def safe_execute(cls, func, max_retries=3, retry_delay=0.1, timeout=30):
+        """
+        Безопасное выполнение операций с retry, connection pooling и timeout (P-CRIT-4).
+
+        Args:
+            func: Функция для выполнения, принимающая session
+            max_retries: Максимальное количество повторных попыток
+            retry_delay: Задержка между попытками в секундах
+            timeout: Таймаут выполнения запроса в секундах (по умолчанию 30s)
+                    Note: Timeout работает только на Unix/Linux, игнорируется на Windows
+
+        Returns:
+            Результат выполнения функции
+
+        Raises:
+            QueryTimeoutError: Если запрос превысил timeout (только Unix/Linux)
+            Various SQLAlchemy exceptions: При других ошибках БД
+        """
         last_exception = None
 
+        # Warn once about Windows limitation
+        if not TIMEOUT_SUPPORTED and timeout is not None:
+            logger.warning(
+                "Query timeout is not supported on Windows platform. "
+                "Timeout parameter will be ignored."
+            )
+
         for attempt in range(max_retries):
+            start_time = time.time()
+
+            # P-CRIT-4: Check if we're in main thread before using signal (signal only works in main thread!)
+            can_use_timeout = (
+                TIMEOUT_SUPPORTED and
+                timeout and
+                threading.current_thread() == threading.main_thread()
+            )
+
             try:
-                with cls.get_session_context() as session:
-                    result = func(session)
-                    session.commit()
-                    return result
+                # Set timeout alarm (Unix/Linux + main thread only)
+                if can_use_timeout:
+                    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+                    signal.alarm(timeout)
+
+                try:
+                    with cls.get_session_context() as session:
+                        result = func(session)
+                        session.commit()
+
+                        # Log slow queries (P-CRIT-4: slow query monitoring)
+                        execution_time = time.time() - start_time
+                        if execution_time > 1.0:  # Log queries > 1 second
+                            logger.warning(
+                                f"Slow query detected: {execution_time:.2f}s "
+                                f"(function: {func.__name__ if hasattr(func, '__name__') else 'lambda'})"
+                            )
+
+                        return result
+                finally:
+                    # Cancel timeout alarm
+                    if can_use_timeout:
+                        signal.alarm(0)
+                        signal.signal(signal.SIGALRM, old_handler)
+
+            except QueryTimeoutError as e:
+                # Query timeout - don't retry, fail immediately
+                logger.error(f"Query timeout after {timeout}s: {func.__name__ if hasattr(func, '__name__') else 'lambda'}")
+                raise
 
             except (OperationalError, DisconnectionError) as e:
                 last_exception = e
