@@ -2,7 +2,7 @@ from datetime import date, time as time_type, datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import text
+from sqlalchemy import text, or_, func
 
 from models.models import (
     Booking,
@@ -69,53 +69,28 @@ async def get_bookings_detailed(
                     query_title = query_stripped.capitalize()
                     logger.info(f"Текстовый поиск - оригинал: '{query_stripped}', нижний: '{query_lower}', верхний: '{query_upper}', заглавный: '{query_title}'")
 
-            base_query = """
-                SELECT 
-                    b.id, b.user_id, b.tariff_id, b.visit_date, b.visit_time,
-                    b.duration, b.promocode_id, b.amount, b.payment_id, b.paid,
-                    b.rubitime_id, b.confirmed, b.created_at,
-                    u.telegram_id, u.full_name, u.username, u.phone, u.email,
-                    t.name as tariff_name, t.price as tariff_price, 
-                    t.description as tariff_description, t.purpose as tariff_purpose, t.is_active
-                FROM bookings b
-                LEFT JOIN users u ON b.user_id = u.id
-                LEFT JOIN tariffs t ON b.tariff_id = t.id
-            """
+            # Построение ORM query с eager loading (исправлен P-HIGH-3: миграция raw SQL на ORM)
+            query = session.query(Booking).options(
+                joinedload(Booking.user),
+                joinedload(Booking.tariff)
+            )
 
-            where_conditions = []
-            params = {}
-
+            # Применение фильтров
             if user_query and user_query.strip():
-                # Проверяем, является ли запрос числом (ID бронирования)
                 query_stripped = user_query.strip()
                 if query_stripped.isdigit():
                     # Поиск по ID бронирования
-                    where_conditions.append("b.id = :booking_id")
-                    params["booking_id"] = int(query_stripped)
+                    query = query.filter(Booking.id == int(query_stripped))
                 else:
-                    # Поиск по имени пользователя и названию тарифа (регистронезависимо для кириллицы)
-                    # Создаем все варианты: оригинал, нижний, верхний, с заглавной
-                    query_lower = query_stripped.lower()
-                    query_upper = query_stripped.upper()
-                    query_title = query_stripped.capitalize()
-                    where_conditions.append("""(
-                        u.full_name LIKE :user_query_orig OR 
-                        u.full_name LIKE :user_query_lower OR 
-                        u.full_name LIKE :user_query_upper OR
-                        u.full_name LIKE :user_query_title OR
-                        t.name LIKE :tariff_query_orig OR 
-                        t.name LIKE :tariff_query_lower OR 
-                        t.name LIKE :tariff_query_upper OR
-                        t.name LIKE :tariff_query_title
-                    )""")
-                    params["user_query_orig"] = f"%{query_stripped}%"
-                    params["user_query_lower"] = f"%{query_lower}%"
-                    params["user_query_upper"] = f"%{query_upper}%"
-                    params["user_query_title"] = f"%{query_title}%"
-                    params["tariff_query_orig"] = f"%{query_stripped}%"
-                    params["tariff_query_lower"] = f"%{query_lower}%"
-                    params["tariff_query_upper"] = f"%{query_upper}%"
-                    params["tariff_query_title"] = f"%{query_title}%"
+                    # Поиск по имени пользователя или названию тарифа (регистронезависимо)
+                    # func.lower() работает с кириллицей в SQLite
+                    search_pattern = f"%{query_stripped.lower()}%"
+                    query = query.join(User).join(Tariff).filter(
+                        or_(
+                            func.lower(User.full_name).like(search_pattern),
+                            func.lower(Tariff.name).like(search_pattern)
+                        )
+                    )
 
             if date_query and date_query.strip():
                 try:
@@ -126,8 +101,7 @@ async def get_bookings_detailed(
                     else:
                         raise ValueError("Unsupported date format")
 
-                    where_conditions.append("b.visit_date = :date_query")
-                    params["date_query"] = query_date.isoformat()
+                    query = query.filter(Booking.visit_date == query_date)
                 except ValueError:
                     logger.error(f"Ошибка формата даты: {date_query}")
                     raise HTTPException(
@@ -137,73 +111,60 @@ async def get_bookings_detailed(
 
             if status_filter and status_filter.strip():
                 if status_filter == "paid":
-                    where_conditions.append("b.paid = 1")
+                    query = query.filter(Booking.paid == True)
                 elif status_filter == "unpaid":
-                    where_conditions.append("b.paid = 0")
+                    query = query.filter(Booking.paid == False)
                 elif status_filter == "confirmed":
-                    where_conditions.append("b.confirmed = 1")
+                    query = query.filter(Booking.confirmed == True)
                 elif status_filter == "pending":
-                    where_conditions.append("b.confirmed = 0")
+                    query = query.filter(Booking.confirmed == False)
 
             if tariff_filter and tariff_filter.strip() and tariff_filter != "all":
                 try:
                     tariff_id = int(tariff_filter)
-                    where_conditions.append("b.tariff_id = :tariff_id")
-                    params["tariff_id"] = tariff_id
+                    query = query.filter(Booking.tariff_id == tariff_id)
                 except ValueError:
                     logger.warning(f"Invalid tariff_filter format: {tariff_filter}")
                     # Игнорируем некорректный фильтр
 
-            if where_conditions:
-                where_clause = " AND ".join(where_conditions)
-                base_query += " WHERE " + where_clause
-                logger.info(f"WHERE условие: {where_clause}")
-                logger.info(f"Параметры поиска: {params}")
+            # Подсчет общего количества записей
+            total_count = query.count()
 
-            count_query = f"SELECT COUNT(*) FROM ({base_query}) as counted"
-            total_count = session.execute(text(count_query), params).scalar()
+            # Применение сортировки и пагинации
+            bookings = query.order_by(Booking.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
 
-            final_query = (
-                base_query + " ORDER BY b.created_at DESC LIMIT :limit OFFSET :offset"
-            )
-            params["limit"] = per_page
-            params["offset"] = (page - 1) * per_page
-
-            result = session.execute(text(final_query), params).fetchall()
-
+            # Формирование ответа (упрощено благодаря ORM)
             enriched_bookings = []
-            for row in result:
+            for booking in bookings:
                 booking_item = {
-                    "id": int(row.id),
-                    "user_id": int(row.user_id),
-                    "tariff_id": int(row.tariff_id),
-                    "visit_date": row.visit_date,
-                    "visit_time": row.visit_time,
-                    "duration": int(row.duration) if row.duration else None,
-                    "promocode_id": int(row.promocode_id) if row.promocode_id else None,
-                    "amount": float(row.amount),
-                    "payment_id": row.payment_id,
-                    "paid": bool(row.paid),
-                    "rubitime_id": row.rubitime_id,
-                    "confirmed": bool(row.confirmed),
-                    "created_at": row.created_at,
+                    "id": booking.id,
+                    "user_id": booking.user_id,
+                    "tariff_id": booking.tariff_id,
+                    "visit_date": booking.visit_date,
+                    "visit_time": booking.visit_time,
+                    "duration": booking.duration,
+                    "promocode_id": booking.promocode_id,
+                    "amount": float(booking.amount),
+                    "payment_id": booking.payment_id,
+                    "paid": booking.paid,
+                    "rubitime_id": booking.rubitime_id,
+                    "confirmed": booking.confirmed,
+                    "created_at": booking.created_at,
                     "user": {
-                        "id": row.user_id,
-                        "telegram_id": row.telegram_id,
-                        "full_name": row.full_name or "Имя не указано",
-                        "username": row.username,
-                        "phone": row.phone,
-                        "email": row.email,
+                        "id": booking.user.id,
+                        "telegram_id": booking.user.telegram_id,
+                        "full_name": booking.user.full_name or "Имя не указано",
+                        "username": booking.user.username,
+                        "phone": booking.user.phone,
+                        "email": booking.user.email,
                     },
                     "tariff": {
-                        "id": row.tariff_id,
-                        "name": row.tariff_name or f"Тариф #{row.tariff_id}",
-                        "price": float(row.tariff_price) if row.tariff_price else 0.0,
-                        "description": row.tariff_description or "Описание недоступно",
-                        "purpose": row.tariff_purpose,
-                        "is_active": (
-                            bool(row.is_active) if row.is_active is not None else False
-                        ),
+                        "id": booking.tariff.id,
+                        "name": booking.tariff.name or f"Тариф #{booking.tariff.id}",
+                        "price": float(booking.tariff.price) if booking.tariff.price else 0.0,
+                        "description": booking.tariff.description or "Описание недоступно",
+                        "purpose": booking.tariff.purpose,
+                        "is_active": booking.tariff.is_active if booking.tariff.is_active is not None else False,
                     },
                 }
                 enriched_bookings.append(booking_item)

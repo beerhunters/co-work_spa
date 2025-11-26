@@ -616,7 +616,7 @@ class User(Base):
     )
     full_name = Column(String, index=True)
     phone = Column(String)
-    email = Column(String)
+    email = Column(String, index=True)  # Index for email search/lookup performance
     username = Column(String)
     successful_bookings = Column(Integer, default=0)
     language_code = Column(String, default="ru")

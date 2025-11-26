@@ -919,18 +919,15 @@ async def export_dashboard_csv(
 
     try:
         def _get_export_data(session):
-            # Получаем общую статистику
+            # Получаем общую статистику (исправлен cartesian join - используем scalar subqueries)
             stats_query = text("""
                 SELECT
-                    COUNT(DISTINCT CASE WHEN u.reg_date >= :period_start AND u.reg_date < :period_end THEN u.id END) as total_users,
-                    COUNT(DISTINCT CASE WHEN b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as total_bookings,
-                    COUNT(DISTINCT CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as paid_bookings,
-                    COALESCE(SUM(CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.amount END), 0) as total_revenue,
-                    COUNT(DISTINCT CASE WHEN t.created_at >= :period_start AND t.created_at < :period_end THEN t.id END) as total_tickets,
-                    COUNT(DISTINCT CASE WHEN t.status = 'OPEN' AND t.created_at >= :period_start AND t.created_at < :period_end THEN t.id END) as open_tickets
-                FROM users u
-                LEFT JOIN bookings b ON 1=1
-                LEFT JOIN tickets t ON 1=1
+                    (SELECT COUNT(*) FROM users WHERE reg_date >= :period_start AND reg_date < :period_end) as total_users,
+                    (SELECT COUNT(*) FROM bookings WHERE created_at >= :period_start AND created_at < :period_end) as total_bookings,
+                    (SELECT COUNT(*) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
+                    (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
+                    (SELECT COUNT(*) FROM tickets WHERE created_at >= :period_start AND created_at < :period_end) as total_tickets,
+                    (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN' AND created_at >= :period_start AND created_at < :period_end) as open_tickets
             """)
 
             stats_result = session.execute(stats_query, {
@@ -1086,19 +1083,16 @@ async def export_dashboard_excel(
 
     try:
         def _get_export_data(session):
-            # Получаем общую статистику
+            # Получаем общую статистику (исправлен cartesian join - используем scalar subqueries)
             stats_query = text("""
                 SELECT
-                    COUNT(DISTINCT CASE WHEN u.reg_date >= :period_start AND u.reg_date < :period_end THEN u.id END) as total_users,
-                    COUNT(DISTINCT CASE WHEN b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as total_bookings,
-                    COUNT(DISTINCT CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.id END) as paid_bookings,
-                    COALESCE(SUM(CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.amount END), 0) as total_revenue,
-                    COALESCE(AVG(CASE WHEN b.paid = 1 AND b.created_at >= :period_start AND b.created_at < :period_end THEN b.amount END), 0) as avg_booking_value,
-                    COUNT(DISTINCT CASE WHEN t.created_at >= :period_start AND t.created_at < :period_end THEN t.id END) as total_tickets,
-                    COUNT(DISTINCT CASE WHEN t.status = 'OPEN' AND t.created_at >= :period_start AND t.created_at < :period_end THEN t.id END) as open_tickets
-                FROM users u
-                LEFT JOIN bookings b ON 1=1
-                LEFT JOIN tickets t ON 1=1
+                    (SELECT COUNT(*) FROM users WHERE reg_date >= :period_start AND reg_date < :period_end) as total_users,
+                    (SELECT COUNT(*) FROM bookings WHERE created_at >= :period_start AND created_at < :period_end) as total_bookings,
+                    (SELECT COUNT(*) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
+                    (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
+                    (SELECT COALESCE(AVG(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as avg_booking_value,
+                    (SELECT COUNT(*) FROM tickets WHERE created_at >= :period_start AND created_at < :period_end) as total_tickets,
+                    (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN' AND created_at >= :period_start AND created_at < :period_end) as open_tickets
             """)
 
             stats_result = session.execute(stats_query, {
