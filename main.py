@@ -327,6 +327,8 @@ from utils.middleware import (
     RequestLoggingMiddleware,
     SecurityHeadersMiddleware,
     PerformanceMiddleware,
+    OriginValidationMiddleware,
+    IPBanMiddleware,
 )
 
 # Порядок middleware важен - добавляем в обратном порядке выполнения
@@ -336,9 +338,10 @@ app.add_middleware(RequestLoggingMiddleware, enabled=True)
 app.add_middleware(RateLimitMiddleware, enabled=True)
 
 # IP Ban middleware - проверяет забаненные IP перед обработкой запроса
-from utils.middleware import IPBanMiddleware
-
 app.add_middleware(IPBanMiddleware, enabled=True)
+
+# Origin Validation middleware - проверяет Origin/Referer для state-changing запросов
+app.add_middleware(OriginValidationMiddleware, enabled=True)
 
 # Настройка CORS (должен быть после других middleware)
 app.add_middleware(

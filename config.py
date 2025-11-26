@@ -156,17 +156,19 @@ SECRET_KEY_JWT = None  # Используйте get_secret_key_jwt() вмест�
 ALGORITHM = "HS256"
 
 # Срок действия токенов
-# ⚠️ ДЛЯ ТЕСТИРОВАНИЯ: установите ACCESS_TOKEN_EXPIRE_MINUTES=2 для быстрой проверки refresh токена
-# Для продакшена используйте ACCESS_TOKEN_EXPIRE_HOURS=24
-if os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"):
-    # Режим тестирования с минутами
-    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
-    ACCESS_TOKEN_EXPIRE_HOURS = None
-    print(f"⚠️ ТЕСТОВЫЙ РЕЖИМ: Access token истекает через {ACCESS_TOKEN_EXPIRE_MINUTES} минут")
-else:
-    # Обычный режим с часами
-    ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS", "24"))
+# SECURITY: Короткий TTL (15 минут) для повышения безопасности
+# Используется в паре с refresh token для seamless UX
+# Для тестирования можно установить ACCESS_TOKEN_EXPIRE_MINUTES=2
+if os.getenv("ACCESS_TOKEN_EXPIRE_HOURS"):
+    # Legacy режим с часами (если явно указан в .env)
+    ACCESS_TOKEN_EXPIRE_HOURS = int(os.getenv("ACCESS_TOKEN_EXPIRE_HOURS"))
     ACCESS_TOKEN_EXPIRE_MINUTES = None
+    print(f"⚠️ LEGACY MODE: Access token истекает через {ACCESS_TOKEN_EXPIRE_HOURS} часов")
+else:
+    # Безопасный режим с короткими токенами (по умолчанию 15 минут)
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
+    ACCESS_TOKEN_EXPIRE_HOURS = None
+    print(f"🔒 SECURE MODE: Access token истекает через {ACCESS_TOKEN_EXPIRE_MINUTES} минут")
 
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 

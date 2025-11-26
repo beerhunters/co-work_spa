@@ -410,18 +410,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             for header, value in self.security_headers.items():
                 response.headers[header] = value
 
-            # Content Security Policy для API
+            # Strengthened Content Security Policy (без unsafe-inline)
             if request.url.path.startswith("/api") or request.url.path.startswith(
                 "/admin"
             ):
                 response.headers["Content-Security-Policy"] = (
                     "default-src 'self'; "
                     "script-src 'self'; "
-                    "style-src 'self' 'unsafe-inline'; "
+                    "style-src 'self'; "  # Removed 'unsafe-inline' for better security
                     "img-src 'self' data: https:; "
                     "font-src 'self'; "
                     "connect-src 'self'; "
-                    "frame-ancestors 'none'"
+                    "frame-ancestors 'none'; "
+                    "base-uri 'self'; "
+                    "form-action 'self'; "
+                    "upgrade-insecure-requests"
                 )
 
         return response
@@ -483,6 +486,144 @@ class PerformanceMiddleware(BaseHTTPMiddleware):
                 },
             )
             raise
+
+
+class OriginValidationMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware для валидации Origin и Referer headers на state-changing запросах.
+
+    Защищает от cross-origin атак даже при использовании JWT в Authorization headers.
+    Проверяет что запросы изменяющие состояние (POST/PUT/DELETE/PATCH)
+    приходят только из доверенных источников.
+    """
+
+    def __init__(self, app: ASGIApp, enabled: bool = True):
+        super().__init__(app)
+        self.enabled = enabled
+
+        # Получаем список разрешенных origins из config
+        self.allowed_origins = set()
+        if hasattr(config, 'CORS_ORIGINS'):
+            # CORS_ORIGINS может быть строкой с разделителями или списком
+            cors_origins = config.CORS_ORIGINS
+            if isinstance(cors_origins, str):
+                self.allowed_origins = {origin.strip() for origin in cors_origins.split(',') if origin.strip()}
+            elif isinstance(cors_origins, list):
+                self.allowed_origins = set(cors_origins)
+
+        # Добавляем локальные origins для разработки
+        self.allowed_origins.update([
+            'http://localhost:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:5173',
+        ])
+
+        logger.info(f"OriginValidationMiddleware initialized with allowed origins: {self.allowed_origins}")
+
+    def _extract_origin_from_referer(self, referer: str) -> str:
+        """Извлекает origin из Referer header"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(referer)
+            return f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            return ""
+
+    def _should_skip_validation(self, path: str, method: str) -> bool:
+        """Проверка, нужно ли пропустить валидацию для данного пути"""
+        # Пропускаем проверку для безопасных методов (GET, HEAD, OPTIONS)
+        if method in ["GET", "HEAD", "OPTIONS"]:
+            return True
+
+        # Пропускаем для health checks и документации
+        skip_patterns = [
+            "/health",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/static",
+            "/assets",
+        ]
+
+        return any(path.startswith(pattern) for pattern in skip_patterns)
+
+    def _is_internal_request(self, request: Request) -> bool:
+        """Проверяет, является ли запрос внутренним (от Docker контейнера или бота)"""
+        client_ip = request.client.host if request.client else ""
+        user_agent = request.headers.get("user-agent", "").lower()
+
+        # Docker внутренние IP
+        internal_ips = ["172.", "127.0.0.1", "localhost"]
+        is_internal_ip = any(client_ip.startswith(ip) for ip in internal_ips)
+
+        # Python requests из бота или внутренних сервисов
+        is_internal_ua = any(ua in user_agent for ua in ["python", "aiohttp", "httpx"])
+
+        return is_internal_ip and is_internal_ua
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        if not self.enabled:
+            return await call_next(request)
+
+        # Пропускаем валидацию для безопасных методов и специальных путей
+        if self._should_skip_validation(request.url.path, request.method):
+            return await call_next(request)
+
+        # Пропускаем валидацию для внутренних запросов (от бота)
+        if self._is_internal_request(request):
+            return await call_next(request)
+
+        # Получаем Origin и Referer headers
+        origin = request.headers.get("origin", "")
+        referer = request.headers.get("referer", "")
+
+        # Если есть Origin, используем его
+        if origin:
+            request_origin = origin
+        # Иначе пытаемся извлечь из Referer
+        elif referer:
+            request_origin = self._extract_origin_from_referer(referer)
+        else:
+            # Нет ни Origin, ни Referer - блокируем
+            logger.warning(
+                f"Blocked request without Origin/Referer: {request.method} {request.url.path}",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "client_ip": request.client.host if request.client else "unknown",
+                    "user_agent": request.headers.get("user-agent", "")[:100],
+                }
+            )
+            return Response(
+                content="Missing Origin or Referer header",
+                status_code=403,
+                headers={"X-Origin-Validation": "failed"}
+            )
+
+        # Проверяем что origin в списке разрешенных
+        if request_origin not in self.allowed_origins:
+            logger.warning(
+                f"Blocked request from untrusted origin: {request_origin}",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "origin": request_origin,
+                    "referer": referer,
+                    "client_ip": request.client.host if request.client else "unknown",
+                    "allowed_origins": list(self.allowed_origins),
+                }
+            )
+            return Response(
+                content="Untrusted origin",
+                status_code=403,
+                headers={"X-Origin-Validation": "failed"}
+            )
+
+        # Origin валиден, продолжаем обработку
+        response = await call_next(request)
+        response.headers["X-Origin-Validation"] = "passed"
+        return response
 
 
 class IPBanMiddleware(BaseHTTPMiddleware):

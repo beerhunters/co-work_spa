@@ -24,17 +24,92 @@ const getApiBaseUrl = () => {
 const DEFAULT_API_BASE_URL = getApiBaseUrl();
 
 
-// Работа с токенами в localStorage
-export const getAuthToken = () => localStorage.getItem('authToken');
-export const setAuthToken = (token) => localStorage.setItem('authToken', token);
+// SECURITY: Используем sessionStorage вместо localStorage для повышения безопасности
+// sessionStorage очищается при закрытии вкладки/окна, снижая риск кражи токенов
+export const getAuthToken = () => sessionStorage.getItem('authToken');
+export const setAuthToken = (token) => {
+  sessionStorage.setItem('authToken', token);
+  // Запускаем проактивное обновление токена при установке нового токена
+  scheduleTokenRefresh(token);
+};
 export const removeAuthToken = () => {
+  sessionStorage.removeItem('authToken');
+  sessionStorage.removeItem('refreshToken');
+  // Также очищаем из localStorage для backward compatibility
   localStorage.removeItem('authToken');
   localStorage.removeItem('refreshToken');
+  clearTokenRefreshTimer();
 };
 
-export const getRefreshToken = () => localStorage.getItem('refreshToken');
-export const setRefreshToken = (token) => localStorage.setItem('refreshToken', token);
-export const removeRefreshToken = () => localStorage.removeItem('refreshToken');
+export const getRefreshToken = () => sessionStorage.getItem('refreshToken');
+export const setRefreshToken = (token) => sessionStorage.setItem('refreshToken', token);
+export const removeRefreshToken = () => {
+  sessionStorage.removeItem('refreshToken');
+  localStorage.removeItem('refreshToken'); // Backward compatibility
+};
+
+// Декодирование JWT токена для получения payload
+const decodeJWT = (token) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    console.error('Failed to decode JWT:', e);
+    return null;
+  }
+};
+
+// Таймер для проактивного обновления токена
+let tokenRefreshTimer = null;
+
+// Очистка таймера обновления токена
+const clearTokenRefreshTimer = () => {
+  if (tokenRefreshTimer) {
+    clearTimeout(tokenRefreshTimer);
+    tokenRefreshTimer = null;
+  }
+};
+
+// Планирование обновления токена до истечения срока
+const scheduleTokenRefresh = (token) => {
+  clearTokenRefreshTimer();
+
+  const payload = decodeJWT(token);
+  if (!payload || !payload.exp) {
+    console.warn('Cannot schedule token refresh: invalid token payload');
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const expiresIn = payload.exp - now;
+
+  // Обновляем токен за 2 минуты до истечения (или за 80% времени жизни для очень коротких токенов)
+  const refreshBeforeExpiry = Math.min(120, Math.floor(expiresIn * 0.2));
+  const refreshIn = expiresIn - refreshBeforeExpiry;
+
+  if (refreshIn > 0) {
+    console.log(`🕒 Token refresh scheduled in ${refreshIn} seconds (expires in ${expiresIn} seconds)`);
+    tokenRefreshTimer = setTimeout(async () => {
+      try {
+        console.log('⏰ Proactive token refresh triggered');
+        await refreshAccessToken();
+        console.log('✅ Proactive token refresh successful');
+      } catch (error) {
+        console.error('❌ Proactive token refresh failed:', error);
+        // Не разлогиниваем пользователя - ждем пока интерцептор обработает 401
+      }
+    }, refreshIn * 1000);
+  } else {
+    console.warn('Token already expired or expires very soon');
+  }
+};
 
 // Ссылка на axios instance, к которому привязаны интерцепторы
 let boundClient = null;
@@ -49,6 +124,12 @@ export const initAuth = (axiosInstance) => {
   }
 
   boundClient = axiosInstance;
+
+  // Планируем обновление токена если он уже существует
+  const existingToken = getAuthToken();
+  if (existingToken) {
+    scheduleTokenRefresh(existingToken);
+  }
 
   // REQUEST: подставляем токен в Authorization
   boundClient.interceptors.request.use(
