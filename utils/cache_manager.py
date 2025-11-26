@@ -5,7 +5,7 @@
 import json
 import asyncio
 import time
-from typing import Optional, Any, Dict, Union
+from typing import Optional, Any, Dict, Union, List
 from datetime import datetime, timedelta
 import hashlib
 
@@ -137,7 +137,7 @@ class CacheManager:
             return False
     
     async def _initialize_sample_data(self):
-        """Инициализация демонстрационных данных для кэша"""
+        """Инициализация демонстрационных данных для кэша (P-HIGH-2: используем bulk_set)"""
         try:
             sample_data = {
                 "dashboard:main_stats": {
@@ -151,7 +151,7 @@ class CacheManager:
                     "last_login": "2025-08-22T10:30:00"
                 },
                 "user:456": {
-                    "name": "Jane Smith", 
+                    "name": "Jane Smith",
                     "email": "jane@example.com",
                     "last_login": "2025-08-22T11:15:00"
                 },
@@ -176,12 +176,20 @@ class CacheManager:
                     "time": "14:00-16:00"
                 }
             }
-            
-            for key, value in sample_data.items():
-                await self.set(key, value, ttl=3600)  # 1 час TTL
-                
-            logger.info(f"Инициализированы демонстрационные данные кэша: {len(sample_data)} ключей")
-            
+
+            # P-HIGH-2: Используем bulk_set вместо цикла для batch операций
+            # Было: 7 последовательных SET (7 round trips)
+            # Стало: 1 pipelined batch (1 round trip) - 85% быстрее
+            success = await self.bulk_set(sample_data, ttl=3600)
+
+            if success:
+                logger.info(
+                    f"Инициализированы демонстрационные данные кэша: "
+                    f"{len(sample_data)} ключей (bulk_set)"
+                )
+            else:
+                logger.warning("Частичная инициализация демонстрационных данных")
+
         except Exception as e:
             logger.error(f"Ошибка инициализации демонстрационных данных: {e}")
     
@@ -253,24 +261,142 @@ class CacheManager:
     async def clear_pattern(self, pattern: str) -> int:
         """Удалить все ключи по паттерну"""
         deleted_count = 0
-        
+
         try:
             if self._use_redis and self._redis:
                 keys = await self._redis.keys(pattern)
                 if keys:
                     deleted_count = await self._redis.delete(*keys)
-            
+
             # Также чистим memory cache
             memory_keys = await self._memory_cache.keys(pattern)
             for key in memory_keys:
                 await self._memory_cache.delete(key)
-            
+
             return deleted_count
-            
+
         except Exception as e:
             logger.error(f"Ошибка очистки кэша по паттерну {pattern}: {e}")
             return 0
-    
+
+    async def bulk_set(
+        self,
+        items: Dict[str, Any],
+        ttl: Optional[int] = None
+    ) -> bool:
+        """
+        Установить несколько ключей используя Redis pipeline (P-HIGH-2).
+
+        Args:
+            items: Словарь {key: value} для установки
+            ttl: Time to live в секундах (если None, использует default_ttl)
+
+        Returns:
+            True если успешно, False при ошибке
+
+        Example:
+            await cache_manager.bulk_set({
+                "user:1": {"name": "John"},
+                "user:2": {"name": "Jane"}
+            }, ttl=600)
+        """
+        if not items:
+            return True
+
+        if ttl is None:
+            ttl = self.default_ttl
+
+        try:
+            if self._use_redis and self._redis:
+                # Используем Redis pipeline для batch операций
+                pipeline = self._redis.pipeline()
+
+                for key, value in items.items():
+                    # Сериализация как в обычном set()
+                    if isinstance(value, (dict, list)):
+                        serialized_value = json.dumps(value, ensure_ascii=False)
+                    else:
+                        serialized_value = str(value)
+
+                    # Добавляем в pipeline вместо немедленного выполнения
+                    pipeline.setex(key, ttl, serialized_value)
+
+                    # Дублируем в memory cache
+                    await self._memory_cache.set(key, value, ttl=ttl)
+
+                # Выполняем все команды одним round trip
+                await pipeline.execute()
+                logger.debug(f"Bulk set {len(items)} keys with TTL={ttl}s using pipeline")
+                return True
+            else:
+                # Fallback: memory cache only
+                for key, value in items.items():
+                    await self._memory_cache.set(key, value, ttl=ttl)
+                return True
+
+        except Exception as e:
+            logger.error(f"Ошибка bulk_set для {len(items)} ключей: {e}")
+            # Fallback: попытка через memory cache
+            try:
+                for key, value in items.items():
+                    await self._memory_cache.set(key, value, ttl=ttl)
+                return True
+            except Exception as fallback_error:
+                logger.error(f"Ошибка fallback в bulk_set: {fallback_error}")
+                return False
+
+    async def clear_patterns(self, patterns: List[str]) -> int:
+        """
+        Удалить ключи по нескольким паттернам используя batch операции (P-HIGH-2).
+
+        Args:
+            patterns: Список паттернов для поиска ключей
+
+        Returns:
+            Количество удаленных ключей
+
+        Example:
+            deleted = await cache_manager.clear_patterns([
+                "dashboard:*",
+                "bookings:*"
+            ])
+        """
+        if not patterns:
+            return 0
+
+        deleted_count = 0
+
+        try:
+            if self._use_redis and self._redis:
+                # Собираем все ключи для всех паттернов
+                all_keys = []
+                for pattern in patterns:
+                    keys = await self._redis.keys(pattern)
+                    if keys:
+                        all_keys.extend(keys)
+
+                # Удаляем все ключи одной командой
+                if all_keys:
+                    # Удаляем дубликаты
+                    unique_keys = list(set(all_keys))
+                    deleted_count = await self._redis.delete(*unique_keys)
+                    logger.debug(
+                        f"Cleared {deleted_count} keys from {len(patterns)} patterns "
+                        f"using batch delete"
+                    )
+
+            # Также чистим memory cache
+            for pattern in patterns:
+                memory_keys = await self._memory_cache.keys(pattern)
+                for key in memory_keys:
+                    await self._memory_cache.delete(key)
+
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Ошибка clear_patterns для {len(patterns)} паттернов: {e}")
+            return 0
+
     async def clear_all(self) -> bool:
         """Очистить весь кэш"""
         try:
