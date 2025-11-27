@@ -106,7 +106,7 @@ async def get_bookings_detailed(
                     logger.error(f"Ошибка формата даты: {date_query}")
                     raise HTTPException(
                         status_code=400,
-                        detail="Invalid date format. Use YYYY-MM-DD or DD.MM.YYYY",
+                        detail=f"Неверный формат даты '{date_query}'. Используйте формат YYYY-MM-DD или DD.MM.YYYY",
                     )
 
             if status_filter and status_filter.strip():
@@ -189,7 +189,7 @@ async def get_bookings_detailed(
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка при получении бронирований: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить список бронирований. Попробуйте перезагрузить страницу")
 
 
 @router.get("/stats")
@@ -214,7 +214,7 @@ async def get_booking_stats(
         )
     except Exception as e:
         logger.error(f"Ошибка при получении статистики бронирований: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить статистику бронирований. Проверьте подключение к базе данных")
 
 
 @router.get("", response_model=List[BookingBase])
@@ -237,7 +237,7 @@ async def get_bookings(
             query_date = datetime.strptime(date_query, "%Y-%m-%d").date()
             query = query.filter(Booking.visit_date == query_date)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format")
+            raise HTTPException(status_code=400, detail=f"Неверный формат даты '{date_query}'. Используйте формат YYYY-MM-DD")
 
     bookings = query.offset((page - 1) * per_page).limit(per_page).all()
     return bookings
@@ -264,14 +264,14 @@ async def create_booking_admin(
         )
         if not user:
             logger.error(f"Пользователь с telegram_id {booking_data.user_id} не найден")
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь с Telegram ID {booking_data.user_id} не найден в системе")
 
         tariff = (
             session.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
         )
         if not tariff:
             logger.error(f"Тариф с ID {booking_data.tariff_id} не найден")
-            raise HTTPException(status_code=404, detail="Tariff not found")
+            raise HTTPException(status_code=404, detail=f"Тариф с ID {booking_data.tariff_id} не найден в системе")
 
         amount = booking_data.amount
         promocode = None
@@ -287,22 +287,22 @@ async def create_booking_admin(
 
             if not promocode:
                 logger.error(f"Промокод с ID {booking_data.promocode_id} не найден")
-                raise HTTPException(status_code=404, detail="Promocode not found")
+                raise HTTPException(status_code=404, detail=f"Промокод с ID {booking_data.promocode_id} не найден в системе")
 
             if not promocode.is_active:
                 logger.warning(f"Промокод {promocode.name} неактивен")
-                raise HTTPException(status_code=400, detail="Promocode is not active")
+                raise HTTPException(status_code=400, detail=f"Промокод неактивен и не может быть использован")
 
             if promocode.expiration_date and promocode.expiration_date < datetime.now(
                 MOSCOW_TZ
             ):
                 logger.warning(f"Промокод {promocode.name} истек")
-                raise HTTPException(status_code=410, detail="Promocode expired")
+                raise HTTPException(status_code=410, detail=f"Срок действия промокода истек")
 
             if promocode.usage_quantity <= 0:
                 logger.warning(f"Промокод {promocode.name} исчерпан")
                 raise HTTPException(
-                    status_code=410, detail="Promocode usage limit exceeded"
+                    status_code=410, detail=f"Промокод исчерпан, все использования закончились"
                 )
 
             original_amount = amount
@@ -385,7 +385,7 @@ async def create_booking_admin(
         raise
     except Exception as e:
         logger.error(f"Ошибка создания бронирования из ТГ бота: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create booking")
+        raise HTTPException(status_code=500, detail="Не удалось создать бронирование. Проверьте корректность данных и попробуйте позже")
 
 
 @router.post("", response_model=BookingBase)
@@ -404,14 +404,14 @@ async def create_booking(booking_data: BookingCreate):
         )
         if not user:
             logger.error(f"Пользователь с telegram_id {booking_data.user_id} не найден")
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь с Telegram ID {booking_data.user_id} не найден в системе")
 
         tariff = (
             session.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
         )
         if not tariff:
             logger.error(f"Тариф с ID {booking_data.tariff_id} не найден")
-            raise HTTPException(status_code=404, detail="Tariff not found")
+            raise HTTPException(status_code=404, detail=f"Тариф с ID {booking_data.tariff_id} не найден в системе")
 
         amount = booking_data.amount
         promocode = None
@@ -427,22 +427,22 @@ async def create_booking(booking_data: BookingCreate):
 
             if not promocode:
                 logger.error(f"Промокод с ID {booking_data.promocode_id} не найден")
-                raise HTTPException(status_code=404, detail="Promocode not found")
+                raise HTTPException(status_code=404, detail=f"Промокод с ID {booking_data.promocode_id} не найден в системе")
 
             if not promocode.is_active:
                 logger.warning(f"Промокод {promocode.name} неактивен")
-                raise HTTPException(status_code=400, detail="Promocode is not active")
+                raise HTTPException(status_code=400, detail=f"Промокод неактивен и не может быть использован")
 
             if promocode.expiration_date and promocode.expiration_date < datetime.now(
                 MOSCOW_TZ
             ):
                 logger.warning(f"Промокод {promocode.name} истек")
-                raise HTTPException(status_code=410, detail="Promocode expired")
+                raise HTTPException(status_code=410, detail=f"Срок действия промокода истек")
 
             if promocode.usage_quantity <= 0:
                 logger.warning(f"Промокод {promocode.name} исчерпан")
                 raise HTTPException(
-                    status_code=410, detail="Promocode usage limit exceeded"
+                    status_code=410, detail=f"Промокод исчерпан, все использования закончились"
                 )
 
             original_amount = amount
@@ -523,7 +523,7 @@ async def create_booking(booking_data: BookingCreate):
         raise
     except Exception as e:
         logger.error(f"Ошибка создания бронирования: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create booking")
+        raise HTTPException(status_code=500, detail="Не удалось создать бронирование. Проверьте корректность данных и попробуйте позже")
 
 
 @router.get("/{booking_id}/validate")
@@ -536,12 +536,12 @@ async def validate_booking_id(
     try:
         booking_id_int = int(booking_id)
         if booking_id_int <= 0:
-            raise HTTPException(status_code=400, detail="Booking ID must be positive")
+            raise HTTPException(status_code=400, detail=f"ID бронирования должен быть положительным числом")
 
         booking = db.query(Booking).filter(Booking.id == booking_id_int).first()
 
         if not booking:
-            raise HTTPException(status_code=404, detail="Booking not found")
+            raise HTTPException(status_code=404, detail=f"Бронирование не найдено в системе")
 
         return {
             "id": booking.id,
@@ -553,12 +553,12 @@ async def validate_booking_id(
         }
 
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid booking ID format")
+        raise HTTPException(status_code=400, detail=f"Неверный формат ID бронирования. Ожидается числовое значение")
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Ошибка валидации booking ID {booking_id}: {e}")
-        raise HTTPException(status_code=500, detail="Validation error")
+        raise HTTPException(status_code=500, detail=f"Ошибка валидации ID бронирования. Попробуйте позже")
 
 
 @router.get("/{booking_id}/detailed")
@@ -572,10 +572,10 @@ async def get_booking_detailed(
         try:
             booking_id_int = int(booking_id)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid booking ID format")
+            raise HTTPException(status_code=400, detail=f"Неверный формат ID бронирования: '{booking_id}'. Ожидается числовое значение")
 
         if booking_id_int <= 0:
-            raise HTTPException(status_code=400, detail="Booking ID must be positive")
+            raise HTTPException(status_code=400, detail=f"ID бронирования должен быть положительным числом, получено: {booking_id_int}")
 
         # Используем eager loading для избежания N+1 query проблемы
         booking = (
@@ -590,7 +590,7 @@ async def get_booking_detailed(
         )
 
         if not booking:
-            raise HTTPException(status_code=404, detail="Booking not found")
+            raise HTTPException(status_code=404, detail=f"Бронирование не найдено в системе")
 
         user = booking.user
         tariff = booking.tariff
@@ -698,7 +698,7 @@ async def get_booking_detailed(
         raise
     except Exception as e:
         logger.error(f"Ошибка при получении детального бронирования {booking_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Не удалось загрузить информацию о бронировании #{booking_id}. Проверьте подключение к базе данных")
 
 
 @router.get("/{booking_id}", response_model=BookingBase)
@@ -710,7 +710,7 @@ async def get_booking(
     """Получение бронирования по ID."""
     booking = db.query(Booking).filter(Booking.id == booking_id).first()
     if not booking:
-        raise HTTPException(status_code=404, detail="Booking not found")
+        raise HTTPException(status_code=404, detail=f"Бронирование #{booking_id} не найдено в системе")
     return booking
 
 
@@ -727,15 +727,15 @@ async def update_booking(
     try:
         booking = db.query(Booking).filter(Booking.id == booking_id).first()
         if not booking:
-            raise HTTPException(status_code=404, detail="Booking not found")
+            raise HTTPException(status_code=404, detail=f"Бронирование #{booking_id} не найдено в системе")
 
         user = db.query(User).filter(User.id == booking.user_id).first()
         tariff = db.query(Tariff).filter(Tariff.id == booking.tariff_id).first()
 
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь с ID {booking.user_id} не найден")
         if not tariff:
-            raise HTTPException(status_code=404, detail="Tariff not found")
+            raise HTTPException(status_code=404, detail=f"Тариф с ID {booking.tariff_id} не найден")
 
         old_confirmed = booking.confirmed
         old_paid = booking.paid
@@ -935,7 +935,7 @@ async def update_booking(
     except Exception as e:
         logger.error(f"Ошибка обновления бронирования {booking_id}: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=f"Не удалось обновить бронирование #{booking_id}. Попробуйте позже")
 
 
 @router.delete("/{booking_id}")
@@ -950,7 +950,7 @@ async def delete_booking(
     try:
         booking = db.query(Booking).filter(Booking.id == booking_id).first()
         if not booking:
-            raise HTTPException(status_code=404, detail="Booking not found")
+            raise HTTPException(status_code=404, detail=f"Бронирование #{booking_id} не найдено в системе")
 
         # Получаем информацию о пользователе и тарифе для логирования
         user = db.query(User).filter(User.id == booking.user_id).first()
@@ -1043,4 +1043,4 @@ async def delete_booking(
     except Exception as e:
         logger.error(f"Ошибка удаления бронирования {booking_id}: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete booking")
+        raise HTTPException(status_code=500, detail=f"Не удалось удалить бронирование #{booking_id}. Попробуйте позже")

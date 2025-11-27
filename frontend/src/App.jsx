@@ -5,6 +5,8 @@ import { ChakraProvider, useToast, useDisclosure, Spinner, Center } from '@chakr
 import Login from './components/Login';
 import Layout from './components/Layout';
 import NotificationPermissionModal from './components/NotificationPermission';
+import GlobalLoadingBar from './components/GlobalLoadingBar';
+import { GlobalLoadingProvider, useGlobalLoading } from './hooks/useGlobalLoading';
 
 // Lazy load: Modals (P-MED-4 - load only when opened)
 // Performance: ~50KB saved from initial bundle
@@ -62,6 +64,7 @@ const LoadingFallback = () => (
 
 function AppContent() {
   const { autoStartTour } = useOnboarding();
+  const { isLoading: isGlobalLoading } = useGlobalLoading();
 
   // Защита от ошибок рендеринга
   if (typeof useState === 'undefined') {
@@ -1206,6 +1209,7 @@ function AppContent() {
   // Основное приложение
   return (
     <ChakraProvider>
+      <GlobalLoadingBar isLoading={isGlobalLoading} />
       <Layout
         section={section}
         setSection={setSection}
@@ -1301,9 +1305,11 @@ function AppContent() {
 
 function App() {
   return (
-    <OnboardingProvider>
-      <AppContent />
-    </OnboardingProvider>
+    <GlobalLoadingProvider>
+      <OnboardingProvider>
+        <AppContent />
+      </OnboardingProvider>
+    </GlobalLoadingProvider>
   );
 }
 

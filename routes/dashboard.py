@@ -52,7 +52,7 @@ async def get_dashboard_stats(
             period_end_dt = datetime.fromisoformat(period_end.replace('Z', '+00:00'))
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
-            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO формат (YYYY-MM-DD)")
     else:
         # По умолчанию - текущий месяц
         now = datetime.now()
@@ -407,7 +407,7 @@ async def get_chart_data(
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка в get_chart_data: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения данных графика")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить данные для графика. Проверьте подключение к базе данных")
 
 
 @router.get("/available-periods")
@@ -511,7 +511,7 @@ async def get_available_periods(_: str = Depends(verify_token)):
     except Exception as e:
         logger.error(f"Критическая ошибка в get_available_periods: {e}")
         raise HTTPException(
-            status_code=500, detail="Ошибка получения доступных периодов"
+            status_code=500, detail="Не удалось загрузить доступные периоды для анализа. Попробуйте позже"
         )
 
 
@@ -531,7 +531,7 @@ async def get_bookings_calendar(
         try:
             tariff_id_list = [int(tid.strip()) for tid in tariff_ids.split(',') if tid.strip()]
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid tariff_ids format")
+            raise HTTPException(status_code=400, detail="Неверный формат списка тарифов. Ожидается массив числовых ID")
 
     cache_key = cache_manager.get_cache_key("dashboard", "bookings_calendar", year, month, tariff_ids or "", user_search or "")
 
@@ -639,7 +639,7 @@ async def get_bookings_calendar(
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка в get_bookings_calendar: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения данных календаря")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить данные календаря бронирований. Попробуйте позже")
 
 
 @router.get("/tariff-distribution")
@@ -660,7 +660,7 @@ async def get_tariff_distribution(
             period_end_dt = datetime.fromisoformat(period_end.replace('Z', '+00:00'))
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
-            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO формат (YYYY-MM-DD)")
     else:
         # По умолчанию - текущий месяц
         now = datetime.now()
@@ -783,7 +783,7 @@ async def compare_periods(
 
     # Валидация периодов
     if not (1 <= period1_month <= 12) or not (1 <= period2_month <= 12):
-        raise HTTPException(status_code=400, detail="Месяц должен быть от 1 до 12")
+        raise HTTPException(status_code=400, detail="Неверное значение месяца. Должно быть число от 1 до 12")
 
     cache_key = cache_manager.get_cache_key(
         "dashboard", "compare_periods",
@@ -887,7 +887,7 @@ async def compare_periods(
         )
     except Exception as e:
         logger.error(f"Ошибка в compare_periods: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка получения данных сравнения периодов")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить данные для сравнения периодов. Проверьте корректность дат")
 
 
 @router.get("/export-csv")
@@ -909,7 +909,7 @@ async def export_dashboard_csv(
             period_end_dt = datetime.fromisoformat(period_end.replace('Z', '+00:00'))
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
-            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO формат (YYYY-MM-DD)")
     else:
         # По умолчанию - текущий месяц
         now = datetime.now()
@@ -1048,7 +1048,7 @@ async def export_dashboard_csv(
 
     except Exception as e:
         logger.error(f"Ошибка экспорта в CSV: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка экспорта данных в CSV")
+        raise HTTPException(status_code=500, detail="Не удалось экспортировать данные в CSV формат. Попробуйте позже")
 
 
 @router.get("/export-excel")
@@ -1073,7 +1073,7 @@ async def export_dashboard_excel(
             period_end_dt = datetime.fromisoformat(period_end.replace('Z', '+00:00'))
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
-            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO формат (YYYY-MM-DD)")
     else:
         # По умолчанию - текущий месяц
         now = datetime.now()
@@ -1288,7 +1288,7 @@ async def export_dashboard_excel(
 
     except Exception as e:
         logger.error(f"Ошибка экспорта в Excel: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка экспорта данных в Excel")
+        raise HTTPException(status_code=500, detail="Не удалось экспортировать данные в Excel формат. Попробуйте позже")
 
 
 @router.get("/top-clients")
@@ -1311,7 +1311,7 @@ async def get_top_clients(
             period_end_dt = datetime.fromisoformat(period_end.replace('Z', '+00:00'))
         except ValueError as e:
             logger.error(f"Invalid date format: {e}")
-            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ISO формат (YYYY-MM-DD)")
     else:
         # По умолчанию - текущий месяц
         now = datetime.now()
@@ -1412,7 +1412,7 @@ async def get_top_clients(
         )
     except Exception as e:
         logger.error(f"Ошибка в get_top_clients: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка получения данных топ-клиентов")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить список топ-клиентов. Проверьте подключение к базе данных")
 
 
 @router.get("/promocode-stats")
@@ -1539,4 +1539,4 @@ async def get_promocode_stats(
 
     except Exception as e:
         logger.error(f"Ошибка в get_promocode_stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка получения статистики промокодов")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить статистику использования промокодов. Попробуйте позже")

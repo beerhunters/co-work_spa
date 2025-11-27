@@ -80,7 +80,7 @@ async def get_tickets_detailed(
         raise
     except Exception as e:
         logger.error(f"Критическая ошибка при получении тикетов: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.get("/{ticket_id}")
@@ -93,7 +93,7 @@ async def get_ticket_by_id(
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         user = db.query(User).filter(User.id == ticket.user_id).first()
 
@@ -132,7 +132,7 @@ async def get_ticket_by_id(
         raise
     except Exception as e:
         logger.error(f"Ошибка при получении тикета {ticket_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.get("/stats")
@@ -163,7 +163,7 @@ async def get_tickets_stats(_: str = Depends(verify_token)):
         return DatabaseManager.safe_execute(_get_stats)
     except Exception as e:
         logger.error(f"Ошибка при получении статистики тикетов: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.post("")
@@ -171,7 +171,7 @@ async def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)
     """Создание нового тикета. Используется ботом."""
     user = db.query(User).filter(User.telegram_id == ticket_data.user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=f"Пользователь не найден в системе")
 
     status_enum = TicketStatus.OPEN
     if ticket_data.status:
@@ -205,7 +205,7 @@ async def get_user_tickets_by_telegram_id(
     try:
         user = db.query(User).filter(User.telegram_id == telegram_id).first()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь не найден в системе")
 
         query = (
             db.query(Ticket)
@@ -244,7 +244,7 @@ async def get_user_tickets_by_telegram_id(
         raise
     except Exception as e:
         logger.error(f"Ошибка при получении тикетов пользователя {telegram_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.put("/{ticket_id}")
@@ -258,7 +258,7 @@ async def update_ticket(
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         user = db.query(User).filter(User.id == ticket.user_id).first()
 
@@ -328,7 +328,7 @@ async def update_ticket(
         fresh_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not fresh_ticket:
             raise HTTPException(
-                status_code=404, detail="Ticket not found during update"
+                status_code=404, detail=f"Тикет не найден при попытке обновления"
             )
 
         # Применяем изменения
@@ -354,7 +354,7 @@ async def update_ticket(
     except Exception as e:
         logger.error(f"Ошибка обновления тикета {ticket_id}: {e}")
         db.rollback()
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 async def _get_telegram_photo_data(photo_id: str, bot) -> tuple[bytes, str]:
@@ -397,11 +397,11 @@ async def get_ticket_photo(
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         if not ticket.photo_id:
             raise HTTPException(
-                status_code=404, detail="Photo not found for this ticket"
+                status_code=404, detail=f"Фото не найдено для тикета #{ticket_id}"
             )
 
         try:
@@ -429,7 +429,7 @@ async def get_ticket_photo(
         raise
     except Exception as e:
         logger.error(f"Ошибка получения фото тикета {ticket_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.get("/{ticket_id}/photo-base64")
@@ -440,11 +440,11 @@ async def get_ticket_photo_base64(
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         if not ticket.photo_id:
             raise HTTPException(
-                status_code=404, detail="Photo not found for this ticket"
+                status_code=404, detail=f"Фото не найдено для тикета #{ticket_id}"
             )
 
         try:
@@ -474,7 +474,7 @@ async def get_ticket_photo_base64(
         raise
     except Exception as e:
         logger.error(f"Ошибка получения base64 фото тикета {ticket_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.get("/{ticket_id}/response-photo")
@@ -485,11 +485,11 @@ async def get_ticket_response_photo(
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         if not ticket.response_photo_id:
             raise HTTPException(
-                status_code=404, detail="Response photo not found for this ticket"
+                status_code=404, detail=f"Фото ответа не найдено для тикета #{ticket_id}"
             )
 
         try:
@@ -519,7 +519,7 @@ async def get_ticket_response_photo(
         raise
     except Exception as e:
         logger.error(f"Ошибка получения фото ответа тикета {ticket_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.get("/{ticket_id}/response-photo-base64")
@@ -530,11 +530,11 @@ async def get_ticket_response_photo_base64(
     try:
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         if not ticket.response_photo_id:
             raise HTTPException(
-                status_code=404, detail="Response photo not found for this ticket"
+                status_code=404, detail=f"Фото ответа не найдено для тикета #{ticket_id}"
             )
 
         try:
@@ -563,7 +563,7 @@ async def get_ticket_response_photo_base64(
         raise
     except Exception as e:
         logger.error(f"Ошибка получения base64 фото ответа тикета {ticket_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.post("/{ticket_id}/photo")
@@ -580,11 +580,11 @@ async def send_photo_to_user(
         # Получаем данные тикета и пользователя
         ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
         if not ticket:
-            raise HTTPException(status_code=404, detail="Ticket not found")
+            raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
         user = db.query(User).filter(User.id == ticket.user_id).first()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь не найден в системе")
 
         # Сохраняем исходные значения для сравнения
         old_status = ticket.status
@@ -621,7 +621,7 @@ async def send_photo_to_user(
                     f"Ошибка обработки загруженного фото для тикета {ticket_id}: {e}"
                 )
                 raise HTTPException(
-                    status_code=500, detail="Failed to process uploaded photo"
+                    status_code=500, detail="Не удалось обработать загруженное фото. Проверьте формат файла"
                 )
 
         # Подготавливаем данные для обновления
@@ -747,7 +747,7 @@ async def send_photo_to_user(
             fresh_ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
             if not fresh_ticket:
                 raise HTTPException(
-                    status_code=404, detail="Ticket not found during update"
+                    status_code=404, detail=f"Тикет не найден при попытке обновления"
                 )
 
             # Применяем все изменения к свежему объекту
@@ -820,7 +820,7 @@ async def send_photo_to_user(
             f"Критическая ошибка в send_photo_to_user для тикета {ticket_id}: {e}"
         )
         db.rollback()
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера. Попробуйте позже или обратитесь к администратору")
 
 
 @router.delete("/{ticket_id}")
@@ -832,7 +832,7 @@ async def delete_ticket(
     """Удаление тикета."""
     ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
     if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        raise HTTPException(status_code=404, detail=f"Тикет #{ticket_id} не найден в системе")
 
     db.delete(ticket)
     db.commit()

@@ -39,6 +39,7 @@ import {
 import { FiEye, FiPlus, FiSave, FiX } from 'react-icons/fi';
 import { sizes, styles, getStatusColor, colors, spacing, typography } from '../styles/styles';
 import { tariffApi } from '../utils/api';
+import { ListSkeleton } from '../components/LoadingSkeletons';
 
 const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
   const [formData, setFormData] = useState({
@@ -295,7 +296,7 @@ const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
   );
 };
 
-const Tariffs = ({ tariffs, openDetailModal, onUpdate }) => {
+const Tariffs = ({ tariffs, openDetailModal, onUpdate, isLoading = false }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const getPurposeLabel = (purpose) => {
@@ -327,7 +328,9 @@ const Tariffs = ({ tariffs, openDetailModal, onUpdate }) => {
           </CardHeader>
           <CardBody>
             <VStack align="stretch" spacing={2}>
-              {tariffs.length === 0 ? (
+              {isLoading ? (
+                <ListSkeleton items={5} />
+              ) : tariffs.length === 0 ? (
                 <Box textAlign="center" py={8}>
                   <Text color="gray.500" mb={4}>Тарифов пока нет</Text>
                   <Button

@@ -152,4 +152,4 @@ async def basic_health_check():
         }
     except Exception as e:
         logger.error(f"Health check error: {e}")
-        raise HTTPException(status_code=503, detail="Service unhealthy")
+        raise HTTPException(status_code=503, detail="Сервис недоступен. Проверьте состояние системы")

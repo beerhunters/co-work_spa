@@ -33,8 +33,9 @@ import {
 } from '@chakra-ui/react';
 import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare, FiDownload } from 'react-icons/fi';
 import { userApi } from '../utils/api';
+import { TableSkeleton } from '../components/LoadingSkeletons';
 
-const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
+const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = false }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(20);
@@ -429,7 +430,17 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin }) => {
         )}
 
         {/* Таблица пользователей */}
-        {currentUsers.length > 0 ? (
+        {isLoading ? (
+          <Box
+            bg={tableBg}
+            borderWidth="1px"
+            borderColor={borderColor}
+            borderRadius="lg"
+            overflow="hidden"
+          >
+            <TableSkeleton rows={10} columns={canDeleteUsers ? 7 : 6} />
+          </Box>
+        ) : currentUsers.length > 0 ? (
           <Box
             bg={tableBg}
             borderWidth="1px"
