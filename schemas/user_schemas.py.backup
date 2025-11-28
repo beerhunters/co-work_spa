@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import Optional, Any
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from typing import Optional
+from pydantic import BaseModel, Field, EmailStr
 
 
 class UserBase(BaseModel):
@@ -28,14 +28,6 @@ class UserBase(BaseModel):
     bot_blocked: bool = False
     bot_blocked_at: Optional[datetime] = None
 
-    @field_validator('email', mode='before')
-    @classmethod
-    def sanitize_email(cls, v: Any) -> Any:
-        """Remove spaces from email addresses before validation."""
-        if isinstance(v, str):
-            return v.replace(' ', '').strip()
-        return v
-
     class Config:
         from_attributes = True
 
@@ -56,14 +48,6 @@ class UserUpdate(BaseModel):
     admin_comment: Optional[str] = Field(None, max_length=500)
     bot_blocked: Optional[bool] = None
     bot_blocked_at: Optional[datetime] = None
-
-    @field_validator('email', mode='before')
-    @classmethod
-    def sanitize_email(cls, v: Any) -> Any:
-        """Remove spaces from email addresses before validation."""
-        if isinstance(v, str):
-            return v.replace(' ', '').strip()
-        return v
 
 
 class UserCreate(BaseModel):

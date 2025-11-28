@@ -1,0 +1,1 @@
+{"@timestamp": "2025-11-22T09:10:07.737013+03:00", "level": "ERROR", "logger": "dependencies", "message": "Error in get_db: 404: User not found", "service": "coworking-api", "hostname": "246d6c419e89", "file": "logger.py", "line": 235, "function": "error", "path": "/app/utils/logger.py"}
