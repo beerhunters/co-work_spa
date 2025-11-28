@@ -204,13 +204,14 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
         if not is_new and user:
             try:
                 await api_client.update_user_by_telegram_id(
-                    user_id,
-                    {"bot_blocked": False, "bot_blocked_at": None}
+                    user_id, {"bot_blocked": False, "bot_blocked_at": None}
                 )
                 logger.info(f"Сброшен флаг bot_blocked для пользователя {user_id}")
             except Exception as e:
                 # Логируем ошибку, но не прерываем процесс приветствия
-                logger.warning(f"Не удалось обновить статус пользователя {user_id}: {e}")
+                logger.warning(
+                    f"Не удалось обновить статус пользователя {user_id}: {e}"
+                )
 
         if is_complete:
             # Пользователь полностью зарегистрирован - приветствуем и показываем главное меню
@@ -231,7 +232,11 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
                     referrer_username = (
                         f"@{referrer.get('username')}"
                         if referrer.get("username")
-                        else get_text(language_code, "registration.referrer_user_id", user_id=referrer.get('telegram_id'))
+                        else get_text(
+                            language_code,
+                            "registration.referrer_user_id",
+                            user_id=referrer.get("telegram_id"),
+                        )
                     )
                     welcome_text = (
                         get_text(
@@ -262,7 +267,7 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
             "errors.registration_failed",
             lang=language_code,
             error=e,
-            show_support=True
+            show_support=True,
         )
 
 
@@ -316,11 +321,15 @@ async def process_full_name(message: Message, state: FSMContext) -> None:
         full_name = message.text.strip()
 
         if len(full_name) < 2:
-            await message.answer("❌ Имя слишком короткое. Пожалуйста, укажите полное имя (минимум 2 символа).")
+            await message.answer(
+                "❌ Имя слишком короткое. Пожалуйста, укажите полное имя (минимум 2 символа)."
+            )
             return
 
         if len(full_name) > 100:
-            await message.answer("❌ Имя слишком длинное. Пожалуйста, укажите имя не длиннее 100 символов.")
+            await message.answer(
+                "❌ Имя слишком длинное. Пожалуйста, укажите имя не длиннее 100 символов."
+            )
             return
 
         await state.update_data(full_name=full_name)
@@ -337,7 +346,7 @@ async def process_full_name(message: Message, state: FSMContext) -> None:
             lang=user_language,
             error=e,
             show_support=True,
-            state=state
+            state=state,
         )
 
 
@@ -355,7 +364,9 @@ async def process_phone(message: Message, state: FSMContext) -> None:
 
         # Проверяем формат
         if not re.match(r"^(\+7|8|7)\d{10}$", phone_digits):
-            await message.answer("❌ Неверный формат номера телефона. Пожалуйста, введите российский номер в формате +79991234567 или 89991234567")
+            await message.answer(
+                "❌ Неверный формат номера телефона. Пожалуйста, введите российский номер в формате +79991234567 или 89991234567"
+            )
             return
 
         # Приводим к единому формату +7
@@ -378,7 +389,7 @@ async def process_phone(message: Message, state: FSMContext) -> None:
             lang=user_language,
             error=e,
             show_support=True,
-            state=state
+            state=state,
         )
 
 
@@ -392,7 +403,9 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
     try:
         EmailStr._validate(email)
     except (ValidationError, ValueError):
-        await message.answer("❌ Неверный формат email. Пожалуйста, введите корректный адрес электронной почты (например, example@mail.ru)")
+        await message.answer(
+            "❌ Неверный формат email. Пожалуйста, введите корректный адрес электронной почты (например, example@mail.ru)"
+        )
         return
 
     try:
@@ -447,7 +460,9 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             if not updated_user.get("telegram_id"):
                 updated_user["telegram_id"] = message.from_user.id
             if not updated_user.get("username"):
-                updated_user["username"] = message.from_user.username or get_text(user_language, "common.username_not_set")
+                updated_user["username"] = message.from_user.username or get_text(
+                    user_language, "common.username_not_set"
+                )
 
             # Создаем уведомление для админки через API
             notification_data = {
@@ -473,8 +488,12 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
                 )
                 if referrer:
                     referrer_info = {
-                        "username": referrer.get("username", get_text("ru", "common.username_not_set")),
-                        "telegram_id": referrer.get("telegram_id", get_text("ru", "common.username_not_set")),
+                        "username": referrer.get(
+                            "username", get_text("ru", "common.username_not_set")
+                        ),
+                        "telegram_id": referrer.get(
+                            "telegram_id", get_text("ru", "common.username_not_set")
+                        ),
                     }
 
             # Создаем ссылку на группу
@@ -534,7 +553,7 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             "errors.registration_save_failed",
             lang=user_language,
             error=e,
-            show_support=True
+            show_support=True,
         )
 
 
