@@ -460,14 +460,9 @@ async def process_email(message: Message, state: FSMContext, bot: Bot) -> None:
             if not updated_user.get("telegram_id"):
                 updated_user["telegram_id"] = message.from_user.id
             if not updated_user.get("username"):
-<<<<<<< HEAD
-                updated_user["username"] = message.from_user.username or get_text(user_language, "common.username_not_set")
-=======
                 updated_user["username"] = message.from_user.username or get_text(
                     user_language, "common.username_not_set"
                 )
->>>>>>> a09df84dbc3f900cfe190c852bfc3d563d224997
-
             # Создаем уведомление для админки через API
             notification_data = {
                 "user_id": user.get("id"),
