@@ -14,6 +14,7 @@ import {
   Textarea,
   FormControl,
   FormLabel,
+  FormErrorMessage,
   Badge,
   useToast,
   Modal as ChakraModal,
@@ -23,6 +24,9 @@ import {
   Link
 } from '@chakra-ui/react';
 import { FiEdit, FiTrash2, FiUpload, FiExternalLink, FiUserX, FiUserCheck } from 'react-icons/fi';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { userUpdateSchema } from '../../utils/validationSchemas';
 import { userApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
 
@@ -73,20 +77,37 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [isBanning, setIsBanning] = useState(false);
   const toast = useToast();
 
+  // Инициализация react-hook-form с Zod валидацией
+  const {
+    register,
+    handleSubmit: handleFormSubmit,
+    formState: { errors },
+    reset,
+    setValue: setFormValue,
+  } = useForm({
+    resolver: zodResolver(userUpdateSchema),
+    mode: 'onBlur', // Валидация при потере фокуса
+  });
+
   useEffect(() => {
     if (user) {
       setCurrentUser(user); // Обновляем локальное состояние
-      setFormData({
+      const userData = {
         full_name: user.full_name || '',
         phone: user.phone || '',
         email: user.email || '',
         language_code: user.language_code || 'ru',
         admin_comment: user.admin_comment || ''
-      });
+      };
+      setFormData(userData);
+
+      // Синхронизируем с react-hook-form
+      reset(userData);
+
       // Обновляем версию при изменении пользователя
       setAvatarVersion(Date.now());
     }
-  }, [user]);
+  }, [user, reset]);
 
   // ИСПРАВЛЕНИЕ: Проверяем локальное состояние пользователя
   const isPlaceholderAvatar = !currentUser?.avatar || currentUser.avatar === 'placeholder_avatar.png' || currentUser.avatar === null;
@@ -472,39 +493,46 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
               {/* Форма редактирования */}
               {isEditing ? (
                 <VStack spacing={3} align="stretch">
-                  <FormControl>
+                  <FormControl isInvalid={!!errors.full_name}>
                     <FormLabel>Полное имя</FormLabel>
                     <Input
-                      value={formData.full_name}
-                      onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                      {...register('full_name', {
+                        onChange: (e) => setFormData({...formData, full_name: e.target.value})
+                      })}
                       placeholder="Введите полное имя"
                     />
+                    <FormErrorMessage>{errors.full_name?.message}</FormErrorMessage>
                   </FormControl>
 
-                  <FormControl>
+                  <FormControl isInvalid={!!errors.phone}>
                     <FormLabel>Телефон</FormLabel>
                     <Input
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="Введите телефон"
+                      {...register('phone', {
+                        onChange: (e) => setFormData({ ...formData, phone: e.target.value })
+                      })}
+                      placeholder="Введите телефон (например: +79991234567)"
                     />
+                    <FormErrorMessage>{errors.phone?.message}</FormErrorMessage>
                   </FormControl>
 
-                  <FormControl>
+                  <FormControl isInvalid={!!errors.email}>
                     <FormLabel>Email</FormLabel>
                     <Input
                       type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      placeholder="Введите email"
+                      {...register('email', {
+                        onChange: (e) => setFormData({ ...formData, email: e.target.value })
+                      })}
+                      placeholder="Введите email (например: user@example.com)"
                     />
+                    <FormErrorMessage>{errors.email?.message}</FormErrorMessage>
                   </FormControl>
 
                   <FormControl>
                     <FormLabel>Язык</FormLabel>
                     <Input
-                      value={formData.language_code}
-                      onChange={(e) => setFormData({ ...formData, language_code: e.target.value })}
+                      {...register('language_code', {
+                        onChange: (e) => setFormData({ ...formData, language_code: e.target.value })
+                      })}
                       placeholder="Код языка"
                     />
                   </FormControl>
@@ -518,7 +546,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     />
                   </FormControl>
 
-                  <FormControl>
+                  <FormControl isInvalid={!!errors.admin_comment}>
                     <FormLabel>
                       Комментарий администратора
                       <Text as="span" fontSize="sm" color="gray.500" ml={2}>
@@ -526,16 +554,18 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                       </Text>
                     </FormLabel>
                     <Textarea
-                      value={formData.admin_comment || ''}
-                      onChange={(e) => {
-                        if (e.target.value.length <= 500) {
-                          setFormData({ ...formData, admin_comment: e.target.value });
+                      {...register('admin_comment', {
+                        onChange: (e) => {
+                          if (e.target.value.length <= 500) {
+                            setFormData({ ...formData, admin_comment: e.target.value });
+                          }
                         }
-                      }}
+                      })}
                       placeholder="Введите комментарий о пользователе..."
                       rows={4}
                       resize="vertical"
                     />
+                    <FormErrorMessage>{errors.admin_comment?.message}</FormErrorMessage>
                   </FormControl>
                 </VStack>
               ) : (

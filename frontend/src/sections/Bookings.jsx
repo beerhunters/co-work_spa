@@ -44,6 +44,7 @@ import {
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { bookingApi } from '../utils/api';
+import { TableSkeleton } from '../components/LoadingSkeletons';
 
 const Bookings = ({
   bookings,
@@ -488,8 +489,14 @@ const Bookings = ({
 
         {/* Таблица бронирований */}
         {isLoading ? (
-          <Box textAlign="center" py={10}>
-            <Text>Загрузка...</Text>
+          <Box
+            bg={tableBg}
+            borderWidth="1px"
+            borderColor={borderColor}
+            borderRadius="lg"
+            overflow="hidden"
+          >
+            <TableSkeleton rows={10} columns={canDeleteBookings ? 9 : 8} />
           </Box>
         ) : displayedBookings.length > 0 ? (
           <Box

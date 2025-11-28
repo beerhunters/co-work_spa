@@ -13,6 +13,7 @@ import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, Fi
 import Chart from 'chart.js/auto';
 import { colors, sizes, styles, typography, spacing } from '../styles/styles';
 import { createLogger } from '../utils/logger.js';
+import { StatCardSkeleton } from '../components/LoadingSkeletons';
 
 const logger = createLogger('Dashboard');
 
@@ -1148,32 +1149,10 @@ const Dashboard = ({
         </Flex>
 
         {/* Статистические карточки */}
-        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={spacing.md} data-tour="dashboard-stats">
-          {!stats ? (
-            // Skeleton для карточек при загрузке
-            <>
-              {[1, 2, 3, 4].map((index) => (
-                <Card
-                  key={index}
-                  borderRadius={styles.card.borderRadius}
-                  boxShadow="lg"
-                >
-                  <CardBody p={spacing.md}>
-                    <Flex justify="space-between" align="flex-start">
-                      <Box flex="1">
-                        <Skeleton height="16px" width="120px" mb={3} />
-                        <Skeleton height="36px" width="80px" mb={3} />
-                        <SkeletonText noOfLines={1} spacing="2" skeletonHeight="14px" width="140px" />
-                      </Box>
-                      <Skeleton height="40px" width="80px" ml={2} />
-                    </Flex>
-                  </CardBody>
-                </Card>
-              ))}
-            </>
-          ) : (
-            // Реальные карточки с данными
-            <>
+        {!stats ? (
+          <StatCardSkeleton count={4} />
+        ) : (
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={spacing.md} data-tour="dashboard-stats">
               <Card
                 bgGradient={colors.stats.users.gradient}
                 color="white"
@@ -1413,9 +1392,8 @@ const Dashboard = ({
                   </Flex>
                 </CardBody>
               </Card>
-            </>
-          )}
-        </SimpleGrid>
+          </SimpleGrid>
+        )}
 
         {/* Аккордеон с графиком */}
         <Card

@@ -258,7 +258,7 @@ async def analyze_query_performance(
         if not query.strip():
             raise HTTPException(
                 status_code=400,
-                detail="Запрос не может быть пустым"
+                detail="SQL запрос не может быть пустым. Введите запрос для анализа"
             )
 
         # Проверяем, что это безопасный SELECT запрос
@@ -266,7 +266,7 @@ async def analyze_query_performance(
         if not query_upper.startswith("SELECT"):
             raise HTTPException(
                 status_code=400,
-                detail="Разрешены только SELECT запросы"
+                detail="Разрешены только SELECT запросы для анализа. Изменяющие запросы запрещены"
             )
 
         # Проверяем на опасные ключевые слова
@@ -738,7 +738,7 @@ async def create_index(
         if not table or not columns:
             raise HTTPException(
                 status_code=400,
-                detail="Не указана таблица или колонки для индекса"
+                detail="Не указано название таблицы или список колонок для создания индекса"
             )
 
         def _create_index(session):

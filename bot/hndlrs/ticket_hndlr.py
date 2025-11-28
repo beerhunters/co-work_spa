@@ -132,13 +132,13 @@ async def process_description(message: Message, state: FSMContext) -> None:
 
         if len(description) < 10:
             await message.answer(
-                get_text(lang, "support.description_too_short")
+                "❌ Описание слишком короткое. Пожалуйста, опишите вашу проблему подробнее (минимум 10 символов)."
             )
             return
 
         if len(description) > 1000:
             await message.answer(
-                get_text(lang, "support.description_too_long")
+                "❌ Описание слишком длинное. Пожалуйста, сократите текст до 1000 символов."
             )
             return
 
@@ -209,7 +209,7 @@ async def process_invalid_photo(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang", "ru")
     await message.answer(
-        get_text(lang, "support.invalid_photo"),
+        "❌ Пожалуйста, отправьте фотографию. Другие типы файлов не поддерживаются.",
         reply_markup=create_photo_choice_keyboard(lang),
     )
     await state.set_state(TicketForm.ASK_PHOTO)
@@ -232,7 +232,7 @@ async def create_ticket(
 
         if not user:
             await message.answer(
-                get_text(lang, "booking.user_not_found_error"),
+                "😔 Не удалось найти вашу учетную запись. Пожалуйста, пройдите регистрацию заново через /start",
                 reply_markup=create_back_keyboard(lang),
             )
             return
@@ -250,8 +250,8 @@ async def create_ticket(
         if "error" in result:
             logger.error(f"Ошибка API при создании тикета: {result}")
             await message.answer(
-                get_text(lang, "support.creation_error"),
-                reply_markup=create_back_keyboard(),
+                "❌ К сожалению, не удалось создать обращение. Попробуйте еще раз через минуту или напишите напрямую администратору.",
+                reply_markup=create_back_keyboard(lang),
             )
             return
 
@@ -346,7 +346,7 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
         if not user:
             logger.error(f"Пользователь с telegram_id {telegram_id} не найден в БД")
             await callback_query.message.edit_text(
-                get_text(lang, "support.user_not_found_reg"),
+                "😔 Не удалось найти вашу учетную запись. Пожалуйста, пройдите регистрацию заново через /start",
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
@@ -432,7 +432,7 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
                     get_text(lang, "support.tickets_limit_note", count=len(tickets)) + "\n"
                 )
         else:
-            tickets_text = get_text(lang, "support.no_tickets")
+            tickets_text = "📝 У вас пока нет обращений в поддержку.\n\nЕсли возникнут вопросы или проблемы, создайте новое обращение - мы всегда рады помочь!"
 
         await callback_query.message.edit_text(
             tickets_text,
@@ -455,7 +455,7 @@ async def show_my_tickets(callback_query: CallbackQuery, state: FSMContext) -> N
             f"Критическая ошибка при получении списка тикетов для пользователя {callback_query.from_user.id}: {e}"
         )
         await callback_query.message.edit_text(
-            get_text(lang, "support.tickets_error"),
+            "⚠️ Произошла ошибка при загрузке ваших обращений. Попробуйте еще раз через минуту.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[

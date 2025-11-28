@@ -165,7 +165,7 @@ async def get_campaigns(
         return DatabaseManager.safe_execute(_get_campaigns)
     except Exception as e:
         logger.error(f"Ошибка получения кампаний: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка получения кампаний")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить список email кампаний. Проверьте подключение к базе данных")
 
 
 @router.get("/{campaign_id}", response_model=EmailCampaignResponse)
@@ -178,7 +178,7 @@ async def get_campaign(
     def _get_campaign(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
-            raise HTTPException(status_code=404, detail="Кампания не найдена")
+            raise HTTPException(status_code=404, detail="Email кампания не найдена в системе")
 
         return EmailCampaignResponse(
             id=campaign.id,
@@ -214,7 +214,7 @@ async def get_campaign(
         raise
     except Exception as e:
         logger.error(f"Ошибка получения кампании {campaign_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка получения кампании")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить email кампанию. Попробуйте позже")
 
 
 @router.post("", response_model=EmailCampaignResponse, status_code=201)
@@ -300,7 +300,7 @@ async def create_campaign(
         raise
     except Exception as e:
         logger.error(f"Ошибка создания кампании: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка создания кампании")
+        raise HTTPException(status_code=500, detail="Не удалось создать email кампанию. Проверьте корректность данных")
 
 
 @router.put("/{campaign_id}", response_model=EmailCampaignResponse)
@@ -314,7 +314,7 @@ async def update_campaign(
     def _update_campaign(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
-            raise HTTPException(status_code=404, detail="Кампания не найдена")
+            raise HTTPException(status_code=404, detail="Email кампания не найдена в системе")
 
         # Можно редактировать только черновики
         if campaign.status not in ["draft", "scheduled"]:
@@ -339,7 +339,7 @@ async def update_campaign(
         raise
     except Exception as e:
         logger.error(f"Ошибка обновления кампании {campaign_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка обновления кампании")
+        raise HTTPException(status_code=500, detail="Не удалось обновить email кампанию. Попробуйте позже")
 
 
 @router.delete("/{campaign_id}")
@@ -352,7 +352,7 @@ async def delete_campaign(
     def _delete_campaign(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
-            raise HTTPException(status_code=404, detail="Кампания не найдена")
+            raise HTTPException(status_code=404, detail="Email кампания не найдена в системе")
 
         # Удаляем независимо от статуса
         session.delete(campaign)
@@ -368,7 +368,7 @@ async def delete_campaign(
         raise
     except Exception as e:
         logger.error(f"Ошибка удаления кампании {campaign_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка удаления кампании")
+        raise HTTPException(status_code=500, detail="Не удалось удалить email кампанию. Попробуйте позже")
 
 
 @router.post("/clear-history")
@@ -423,7 +423,7 @@ async def clear_campaigns_history(
         raise
     except Exception as e:
         logger.error(f"Ошибка очистки истории кампаний: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Ошибка очистки истории")
+        raise HTTPException(status_code=500, detail="Не удалось очистить историю email кампаний. Попробуйте позже")
 
 
 # ===================================
@@ -445,7 +445,7 @@ async def send_campaign(
     def _prepare_send(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
-            raise HTTPException(status_code=404, detail="Кампания не найдена")
+            raise HTTPException(status_code=404, detail="Email кампания не найдена в системе")
 
         # Проверка статуса - можно отправить draft, scheduled или failed (для повторной отправки)
         if campaign.status not in ["draft", "scheduled", "failed"]:
@@ -549,7 +549,7 @@ async def send_test_email(
     def _get_campaign(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
-            raise HTTPException(status_code=404, detail="Кампания не найдена")
+            raise HTTPException(status_code=404, detail="Email кампания не найдена в системе")
         return campaign
 
     try:
@@ -700,7 +700,7 @@ async def get_campaign_analytics(
     def _get_analytics(session):
         campaign = session.query(EmailCampaign).filter(EmailCampaign.id == campaign_id).first()
         if not campaign:
-            raise HTTPException(status_code=404, detail="Кампания не найдена")
+            raise HTTPException(status_code=404, detail="Email кампания не найдена в системе")
 
         # Расчет метрик
         delivery_rate = (campaign.delivered_count / campaign.sent_count * 100) if campaign.sent_count > 0 else 0

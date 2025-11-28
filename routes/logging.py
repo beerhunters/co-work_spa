@@ -51,7 +51,7 @@ async def get_logging_config(current_admin: CachedAdmin = Depends(verify_token))
         
     except Exception as e:
         logger.error(f"Ошибка получения конфигурации логирования: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения конфигурации")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить конфигурацию логирования. Проверьте настройки системы")
 
 
 @router.put("/config", response_model=LoggingConfig)
@@ -99,7 +99,7 @@ async def update_logging_config(
         
     except Exception as e:
         logger.error(f"Ошибка обновления конфигурации логирования: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка обновления конфигурации")
+        raise HTTPException(status_code=500, detail="Не удалось обновить конфигурацию логирования. Проверьте корректность данных")
 
 
 @router.get("/files", response_model=List[LogFileInfo])
@@ -138,7 +138,7 @@ async def get_log_files(current_admin: CachedAdmin = Depends(verify_token)):
         
     except Exception as e:
         logger.error(f"Ошибка получения списка файлов логов: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения списка файлов")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить список файлов логов. Проверьте права доступа к директории")
 
 
 @router.get("/files/{filename}/download")
@@ -155,10 +155,10 @@ async def download_log_file(
         
         # Проверяем безопасность пути
         if not str(file_path).startswith(str(LOGS_DIR.resolve())):
-            raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+            raise HTTPException(status_code=400, detail="Недопустимое имя файла. Возможная попытка обхода директории")
         
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Файл не найден")
+            raise HTTPException(status_code=404, detail=f"Файл логов '{ filename}' не найден")
         
         logger.info(f"Скачивание файла логов {filename} администратором {current_admin.login}")
         
@@ -172,7 +172,7 @@ async def download_log_file(
         raise
     except Exception as e:
         logger.error(f"Ошибка скачивания файла логов {filename}: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка скачивания файла")
+        raise HTTPException(status_code=500, detail=f"Не удалось скачать файл логов. Попробуйте позже")
 
 
 @router.get("/files/{filename}/content")
@@ -191,10 +191,10 @@ async def get_log_file_content(
         file_path = LOGS_DIR / filename
         
         if not str(file_path).startswith(str(LOGS_DIR.resolve())):
-            raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+            raise HTTPException(status_code=400, detail="Недопустимое имя файла. Возможная попытка обхода директории")
         
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="Файл не найден")
+            raise HTTPException(status_code=404, detail=f"Файл логов '{ filename}' не найден")
         
         # Читаем файл
         async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
@@ -232,7 +232,7 @@ async def get_log_file_content(
         raise
     except Exception as e:
         logger.error(f"Ошибка чтения файла логов {filename}: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка чтения файла")
+        raise HTTPException(status_code=500, detail=f"Не удалось прочитать файл логов. Проверьте права доступа")
 
 
 @router.get("/live")
@@ -377,7 +377,7 @@ async def get_log_statistics(
         
     except Exception as e:
         logger.error(f"Ошибка получения статистики логов: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения статистики")
+        raise HTTPException(status_code=500, detail="Не удалось собрать статистику логов. Попробуйте позже")
 
 
 @router.post("/test-notification")
@@ -460,7 +460,7 @@ async def clear_logs(current_admin: CachedAdmin = Depends(verify_token)):
         
     except Exception as e:
         logger.error(f"Ошибка очистки логов: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка очистки логов")
+        raise HTTPException(status_code=500, detail="Не удалось очистить файлы логов. Проверьте права доступа")
 
 
 # Вспомогательные функции

@@ -117,7 +117,7 @@ async def get_banned_ips(
         return banned_ips
     except Exception as e:
         logger.error(f"Ошибка получения списка забаненных IP: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve banned IPs")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить список забаненных IP адресов. Проверьте подключение к Redis")
 
 
 @router.get("/{ip}/status", response_model=Optional[IPBanInfo])
@@ -147,7 +147,7 @@ async def get_ip_ban_status(
         return ban_info
     except Exception as e:
         logger.error(f"Ошибка проверки статуса IP {ip}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to check IP status")
+        raise HTTPException(status_code=500, detail=f"Не удалось проверить статус IP адреса {ip}. Попробуйте позже")
 
 
 @router.post("/{ip}/ban")
@@ -189,7 +189,7 @@ async def ban_ip(
         )
 
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to ban IP")
+            raise HTTPException(status_code=500, detail=f"Не удалось забанить IP адрес {ip}. Проверьте подключение к Redis")
 
         duration_seconds = BAN_DURATIONS[duration_type]
         logger.info(f"Админ {current_admin.login} забанил IP {ip} на {duration_type} ({duration_seconds}s). Причина: {reason}")
@@ -207,7 +207,7 @@ async def ban_ip(
         raise
     except Exception as e:
         logger.error(f"Ошибка бана IP {ip}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to ban IP")
+        raise HTTPException(status_code=500, detail=f"Не удалось забанить IP адрес {ip}. Проверьте подключение к Redis")
 
 
 @router.post("/{ip}/unban")
@@ -231,7 +231,7 @@ async def unban_ip(
         success = await ban_manager.unban_ip(ip=ip, admin=current_admin.login)
 
         if not success:
-            raise HTTPException(status_code=500, detail="Failed to unban IP")
+            raise HTTPException(status_code=500, detail=f"Не удалось разбанить IP адрес {ip}. Попробуйте позже")
 
         logger.info(f"Админ {current_admin.login} разбанил IP {ip}")
 
@@ -245,7 +245,7 @@ async def unban_ip(
         raise
     except Exception as e:
         logger.error(f"Ошибка разбана IP {ip}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to unban IP")
+        raise HTTPException(status_code=500, detail=f"Не удалось разбанить IP адрес {ip}. Попробуйте позже")
 
 
 @router.get("/stats", response_model=IPBanStats)
@@ -266,7 +266,7 @@ async def get_ban_stats(
         return stats
     except Exception as e:
         logger.error(f"Ошибка получения статистики банов: {e}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve ban statistics")
+        raise HTTPException(status_code=500, detail="Не удалось загрузить статистику банов. Проверьте подключение к Redis")
 
 
 @router.delete("/clear-all")
@@ -303,7 +303,7 @@ async def clear_all_bans(
         }
     except Exception as e:
         logger.error(f"Ошибка очистки всех банов: {e}")
-        raise HTTPException(status_code=500, detail="Failed to clear bans")
+        raise HTTPException(status_code=500, detail="Не удалось очистить баны. Проверьте подключение к Redis")
 
 
 @router.post("/export-nginx")
@@ -343,4 +343,4 @@ async def export_to_nginx(
         raise
     except Exception as e:
         logger.error(f"Ошибка экспорта в nginx: {e}")
-        raise HTTPException(status_code=500, detail="Failed to export to nginx")
+        raise HTTPException(status_code=500, detail="Не удалось экспортировать баны в конфигурацию nginx. Проверьте права доступа")

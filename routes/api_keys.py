@@ -122,15 +122,15 @@ async def create_api_key(
     try:
         # Валидация обязательных полей
         if not key_data.get("name"):
-            raise HTTPException(status_code=400, detail="Название API ключа обязательно")
+            raise HTTPException(status_code=400, detail="Название API ключа не может быть пустым. Введите название")
         
         if not key_data.get("scopes"):
-            raise HTTPException(status_code=400, detail="Необходимо выбрать хотя бы одну область доступа")
+            raise HTTPException(status_code=400, detail="Необходимо выбрать хотя бы одну область доступа (scope) для API ключа")
         
         # Проверяем уникальность названия
         existing_key = db.query(ApiKey).filter(ApiKey.name == key_data["name"]).first()
         if existing_key:
-            raise HTTPException(status_code=400, detail="API ключ с таким названием уже существует")
+            raise HTTPException(status_code=400, detail=f"API ключ с названием '{key_data['name']}' уже существует. Выберите другое название")
         
         # Генерируем новый ключ
         api_key = generate_api_key()
@@ -219,13 +219,13 @@ async def update_api_key(
         # Находим ключ для обновления
         api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if not api_key:
-            raise HTTPException(status_code=404, detail="API ключ не найден")
+            raise HTTPException(status_code=404, detail=f"API ключ не найден в системе")
         
         # Проверяем уникальность нового названия (если оно изменилось)
         if key_data.get("name") and key_data["name"] != api_key.name:
             existing_key = db.query(ApiKey).filter(ApiKey.name == key_data["name"], ApiKey.id != key_id).first()
             if existing_key:
-                raise HTTPException(status_code=400, detail="API ключ с таким названием уже существует")
+                raise HTTPException(status_code=400, detail=f"API ключ с названием '{key_data['name']}' уже существует. Выберите другое название")
         
         # Обновляем данные
         if key_data.get("name"):
@@ -293,7 +293,7 @@ async def delete_api_key(
         # Находим ключ для удаления
         api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if not api_key:
-            raise HTTPException(status_code=404, detail="API ключ не найден")
+            raise HTTPException(status_code=404, detail=f"API ключ не найден в системе")
         
         key_name = api_key.name
         
@@ -348,7 +348,7 @@ async def toggle_api_key_status(
         # Находим ключ для переключения статуса
         api_key = db.query(ApiKey).filter(ApiKey.id == key_id).first()
         if not api_key:
-            raise HTTPException(status_code=404, detail="API ключ не найден")
+            raise HTTPException(status_code=404, detail=f"API ключ не найден в системе")
         
         # Переключаем статус
         api_key.is_active = not api_key.is_active

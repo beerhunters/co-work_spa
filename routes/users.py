@@ -84,7 +84,10 @@ async def get_users(
         return DatabaseManager.safe_execute(_get_users)
     except Exception as e:
         logger.error(f"Ошибка в get_users: {e}")
-        raise HTTPException(status_code=500, detail="Ошибка получения пользователей")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось загрузить список пользователей. Проверьте подключение к базе данных"
+        )
 
 
 @router.get("/export-csv")
@@ -196,7 +199,7 @@ async def get_user(
     """Получение пользователя по ID."""
     user = db.query(User).get(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
     return user
 
 
@@ -205,7 +208,7 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
     """Получение пользователя по Telegram ID. Используется ботом."""
     user = db.query(User).filter_by(telegram_id=telegram_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=f"Пользователь с Telegram ID {telegram_id} не найден в системе")
 
     is_complete = all([user.full_name, user.phone, user.email])
 
@@ -239,7 +242,7 @@ async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
     def _update_user(session):
         user = session.query(User).filter(User.telegram_id == telegram_id).first()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь с Telegram ID {telegram_id} не найден")
 
         update_dict = user_data.dict(exclude_unset=True)
         for field, value in update_dict.items():
@@ -271,7 +274,8 @@ async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
     except Exception as e:
         logger.error(f"Ошибка обновления пользователя: {e}")
         raise HTTPException(
-            status_code=500, detail=f"Ошибка обновления пользователя: {str(e)}"
+            status_code=500,
+            detail=f"Не удалось обновить данные пользователя с Telegram ID {telegram_id}. Проверьте формат данных"
         )
 
 
@@ -344,7 +348,10 @@ async def check_and_add_user(
         return DatabaseManager.safe_execute(_check_and_add_user)
     except Exception as e:
         logger.error(f"Ошибка в check_and_add_user: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось зарегистрировать пользователя с Telegram ID {telegram_id}. Попробуйте позже"
+        )
 
 
 @router.put("/{user_identifier}")
@@ -370,7 +377,7 @@ async def update_user(
             user = session.query(User).filter(User.telegram_id == telegram_id).first()
 
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь {user_identifier} не найден")
 
         update_data = user_data.dict(exclude_unset=True)
 
@@ -401,7 +408,10 @@ async def update_user(
         raise
     except Exception as e:
         logger.error(f"Ошибка обновления пользователя: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось обновить пользователя {user_identifier}. Проверьте корректность данных"
+        )
 
 
 @router.post("/{user_id}/avatar")
@@ -416,7 +426,7 @@ async def upload_avatar(
     """Загрузка аватара пользователя."""
     user = db.query(User).get(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
 
     if user.avatar:
         old_avatar_path = AVATARS_DIR / user.avatar
@@ -461,7 +471,7 @@ async def delete_avatar(
     """Удаление аватара пользователя."""
     user = db.query(User).get(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
 
     deleted = False
 
@@ -579,10 +589,13 @@ async def download_telegram_avatar(
         def _get_user_data(session):
             user = session.query(User).filter(User.id == user_id).first()
             if not user:
-                raise HTTPException(status_code=404, detail="User not found")
+                raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
 
             if not user.telegram_id:
-                raise HTTPException(status_code=400, detail="User has no Telegram ID")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"У пользователя {user.full_name or user_id} не указан Telegram ID"
+                )
 
             if user.avatar:
                 old_avatar_path = AVATARS_DIR / user.avatar
@@ -603,7 +616,10 @@ async def download_telegram_avatar(
         bot = get_bot()
 
         if not bot:
-            raise HTTPException(status_code=503, detail="Bot not available")
+            raise HTTPException(
+                status_code=503,
+                detail="Telegram бот недоступен. Попробуйте позже или обратитесь к администратору"
+            )
 
         logger.info(
             f"Попытка скачать аватар для пользователя {user_data['telegram_id']} администратором {current_admin.login}"
@@ -617,7 +633,7 @@ async def download_telegram_avatar(
             logger.info(f"У пользователя {user_data['telegram_id']} нет фото профиля")
             raise HTTPException(
                 status_code=404,
-                detail="User has no profile photo or photo is not accessible",
+                detail=f"У пользователя {user_data.get('full_name', user_data['telegram_id'])} нет фото профиля в Telegram или оно недоступно",
             )
 
         # Получаем средний размер аватара (обычно 320x320), если доступно несколько размеров
@@ -655,7 +671,10 @@ async def download_telegram_avatar(
         updated_user_data = DatabaseManager.safe_execute(_update_avatar)
 
         if not updated_user_data:
-            raise HTTPException(status_code=404, detail="Failed to update user")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Не удалось обновить аватар пользователя с ID {user_id} в базе данных"
+            )
 
         timestamp = int(time.time() * 1000)
         return {
@@ -674,7 +693,8 @@ async def download_telegram_avatar(
     except Exception as e:
         logger.error(f"Неожиданная ошибка при скачивании аватара пользователя {user_id}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Внутренняя ошибка сервера при загрузке аватара"
+            status_code=500,
+            detail=f"Не удалось скачать аватар пользователя с ID {user_id} из Telegram. Проверьте доступ к Telegram API"
         )
 
 
@@ -706,7 +726,10 @@ async def bulk_download_telegram_avatars(
         bot = get_bot()
 
         if not bot:
-            raise HTTPException(status_code=503, detail="Bot not available")
+            raise HTTPException(
+                status_code=503,
+                detail="Telegram бот недоступен. Невозможно выполнить массовую загрузку аватаров"
+            )
 
         logger.info(f"Начинаем массовую загрузку аватаров для {len(users_data)} пользователей, инициатор: {current_admin.login}")
 
@@ -791,7 +814,8 @@ async def bulk_download_telegram_avatars(
     except Exception as e:
         logger.error(f"Неожиданная ошибка при массовой загрузке аватаров: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Внутренняя ошибка сервера при массовой загрузке аватаров"
+            status_code=500,
+            detail=f"Не удалось завершить массовую загрузку аватаров. Проверьте доступ к Telegram API и базе данных"
         )
 
 
@@ -809,7 +833,7 @@ async def delete_user(
 
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
 
         user_name = user.full_name or f"Пользователь #{user.telegram_id}"
         telegram_id = user.telegram_id
@@ -895,7 +919,7 @@ async def delete_user(
         logger.error(f"Ошибка удаления пользователя {user_id}: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Ошибка удаления пользователя: не удалось удалить связанные данные",
+            detail=f"Не удалось удалить пользователя с ID {user_id}. Возможно, есть связанные данные, которые не удалось удалить",
         )
 
 
@@ -961,7 +985,10 @@ async def ban_user(
         raise
     except Exception as e:
         logger.error(f"Ошибка при бане пользователя {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при бане пользователя: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось заблокировать пользователя с ID {user_id}. Попробуйте позже"
+        )
 
 
 @router.post("/{user_id}/unban")
@@ -1007,4 +1034,7 @@ async def unban_user(
         raise
     except Exception as e:
         logger.error(f"Ошибка при разбане пользователя {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при разбане пользователя: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось разблокировать пользователя с ID {user_id}. Попробуйте позже"
+        )

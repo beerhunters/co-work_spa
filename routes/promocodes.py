@@ -31,7 +31,7 @@ async def get_promocode(
     """Получение промокода по ID."""
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Promocode not found")
+        raise HTTPException(status_code=404, detail="Промокод не найден в системе")
     return promocode
 
 
@@ -40,7 +40,7 @@ async def get_promocode_by_name(name: str, db: Session = Depends(get_db)):
     """Получение промокода по названию. Используется ботом."""
     promocode = db.query(Promocode).filter_by(name=name, is_active=True).first()
     if not promocode:
-        raise HTTPException(status_code=404, detail="Promocode not found")
+        raise HTTPException(status_code=404, detail="Промокод не найден в системе")
 
     # Проверяем срок действия
     if promocode.expiration_date and promocode.expiration_date < datetime.now(
@@ -125,7 +125,7 @@ async def update_promocode(
     """Обновление промокода."""
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Promocode not found")
+        raise HTTPException(status_code=404, detail="Промокод не найден в системе")
 
     # Валидация названия если оно изменяется
     if promocode_data.name and promocode_data.name != promocode.name:
@@ -184,7 +184,7 @@ async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
     """Использование промокода (уменьшение счетчика)."""
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Promocode not found")
+        raise HTTPException(status_code=404, detail="Промокод не найден в системе")
 
     if not promocode.is_active:
         raise HTTPException(status_code=400, detail="Promocode is not active")
@@ -213,7 +213,7 @@ async def use_promocode(promocode_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         logger.error(f"Ошибка использования промокода {promocode_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to use promocode")
+        raise HTTPException(status_code=500, detail="Не удалось применить промокод. Проверьте его активность и срок действия")
 
 
 @router.delete("/{promocode_id}")
@@ -223,7 +223,7 @@ async def delete_promocode(
     """Удаление промокода."""
     promocode = db.query(Promocode).get(promocode_id)
     if not promocode:
-        raise HTTPException(status_code=404, detail="Promocode not found")
+        raise HTTPException(status_code=404, detail="Промокод не найден в системе")
 
     # Проверяем, используется ли промокод в активных бронированиях
     from models.models import Booking

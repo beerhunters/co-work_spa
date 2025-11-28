@@ -37,7 +37,7 @@ async def create_rubitime_record_from_bot(rubitime_params: dict):
         else:
             logger.warning("Не удалось создать запись в Rubitime")
             raise HTTPException(
-                status_code=400, detail="Не удалось создать запись в Rubitime"
+                status_code=400, detail="Не удалось создать запись в Rubitime CRM. Проверьте настройки интеграции"
             )
 
     except Exception as e:

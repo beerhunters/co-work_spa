@@ -454,7 +454,8 @@ async def select_tariff(callback_query: CallbackQuery, state: FSMContext) -> Non
 
         if not tariff:
             await callback_query.message.edit_text(
-                get_text(lang, "booking.tariff_not_found"), reply_markup=None
+                "❌ К сожалению, выбранный тариф сейчас недоступен. Пожалуйста, выберите другой тариф из списка.",
+                reply_markup=None
             )
             return
 
@@ -574,8 +575,7 @@ async def process_time(message: Message, state: FSMContext) -> None:
 
     except ValueError:
         await message.answer(
-            get_text(lang, "booking.time_invalid_format") + "\n\n" +
-            get_text(lang, "booking.enter_time_format")
+            "❌ Неверный формат времени. Пожалуйста, введите время в формате ЧЧ:ММ (например, 14:30)"
         )
 
 
@@ -616,7 +616,8 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
         data = await state.get_data()
         lang = data.get("lang", "ru")
         await callback_query.message.edit_text(
-            get_text(lang, "booking.general_error"), reply_markup=None
+            "❌ Не удалось сохранить выбранную длительность. Попробуйте вернуться назад и выбрать заново.",
+            reply_markup=None
         )
 
 
@@ -1508,7 +1509,8 @@ async def cancel_payment(callback_query: CallbackQuery, state: FSMContext) -> No
     except Exception as e:
         logger.error(f"Ошибка при отмене платежа: {e}")
         await callback_query.message.edit_text(
-            get_text(lang, "booking.payment_create_error"), parse_mode="HTML"
+            "⚠️ Не удалось отменить платеж. Если средства были списаны, они вернутся автоматически в течение 3-5 рабочих дней.",
+            parse_mode="HTML"
         )
 
 
@@ -1546,7 +1548,8 @@ async def back_to_tariffs(callback_query: CallbackQuery, state: FSMContext) -> N
     except Exception as e:
         logger.error(f"Ошибка при возврате к тарифам: {e}")
         await callback_query.message.edit_text(
-            get_text(lang, "booking.general_error"), reply_markup=None
+            "⚠️ Произошла ошибка при загрузке тарифов. Попробуйте вернуться в главное меню и повторить попытку.",
+            reply_markup=None
         )
 
 
