@@ -496,6 +496,32 @@ export const userApi = {
       throw new Error(error.response?.data?.detail || 'Не удалось разбанить пользователя');
     }
   },
+
+  // Массовый экспорт выбранных пользователей
+  bulkExport: async (userIds) => {
+    try {
+      logger.debug(`Массовый экспорт ${userIds.length} пользователей`);
+      const res = await apiClient.post('/users/bulk-export', userIds, {
+        responseType: 'blob'
+      });
+
+      // Создаем ссылку для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `users_bulk_export_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      logger.info('Массовый экспорт пользователей успешно выполнен');
+      return { success: true, count: userIds.length };
+    } catch (error) {
+      logger.apiError('/users/bulk-export', 'POST', error.response?.status || 'unknown', 'Ошибка массового экспорта', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось экспортировать пользователей');
+    }
+  },
 };
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {
@@ -798,6 +824,58 @@ export const bookingApi = {
       console.error('Ошибка массового обновления:', error);
       throw error;
     }
+  },
+
+  // Массовое удаление бронирований
+  bulkDelete: async (bookingIds) => {
+    try {
+      logger.debug(`Массовое удаление ${bookingIds.length} бронирований`);
+      const res = await apiClient.post('/bookings/bulk-delete', bookingIds);
+      logger.info('Массовое удаление бронирований успешно выполнено:', res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError('/bookings/bulk-delete', 'POST', error.response?.status || 'unknown', 'Ошибка массового удаления', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось удалить бронирования');
+    }
+  },
+
+  // Массовая отмена бронирований
+  bulkCancel: async (bookingIds) => {
+    try {
+      logger.debug(`Массовая отмена ${bookingIds.length} бронирований`);
+      const res = await apiClient.post('/bookings/bulk-cancel', bookingIds);
+      logger.info('Массовая отмена бронирований успешно выполнена:', res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError('/bookings/bulk-cancel', 'POST', error.response?.status || 'unknown', 'Ошибка массовой отмены', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось отменить бронирования');
+    }
+  },
+
+  // Массовый экспорт выбранных бронирований
+  bulkExport: async (bookingIds) => {
+    try {
+      logger.debug(`Массовый экспорт ${bookingIds.length} бронирований`);
+      const res = await apiClient.post('/bookings/bulk-export', bookingIds, {
+        responseType: 'blob'
+      });
+
+      // Создаем ссылку для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `bookings_bulk_export_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      logger.info('Массовый экспорт бронирований успешно выполнен');
+      return { success: true, count: bookingIds.length };
+    } catch (error) {
+      logger.apiError('/bookings/bulk-export', 'POST', error.response?.status || 'unknown', 'Ошибка массового экспорта', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось экспортировать бронирования');
+    }
   }
 };
 
@@ -1076,6 +1154,61 @@ export const ticketApi = {
   getPhoto: async (ticketId) => {
     console.warn('getPhoto deprecated, используйте getPhotoBase64');
     return await ticketApi.getPhotoBase64(ticketId);
+  },
+
+  // Массовое закрытие тикетов
+  bulkClose: async (ticketIds) => {
+    try {
+      logger.debug(`Массовое закрытие ${ticketIds.length} тикетов`);
+      const res = await apiClient.post('/tickets/bulk-close', ticketIds);
+      logger.info('Массовое закрытие тикетов успешно выполнено:', res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError('/tickets/bulk-close', 'POST', error.response?.status || 'unknown', 'Ошибка массового закрытия', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось закрыть тикеты');
+    }
+  },
+
+  // Массовое изменение статуса тикетов
+  bulkUpdateStatus: async (ticketIds, newStatus) => {
+    try {
+      logger.debug(`Массовое изменение статуса ${ticketIds.length} тикетов на ${newStatus}`);
+      const res = await apiClient.post('/tickets/bulk-update-status', {
+        ticket_ids: ticketIds,
+        new_status: newStatus
+      });
+      logger.info('Массовое изменение статуса тикетов успешно выполнено:', res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError('/tickets/bulk-update-status', 'POST', error.response?.status || 'unknown', 'Ошибка массового изменения статуса', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось изменить статус тикетов');
+    }
+  },
+
+  // Массовый экспорт выбранных тикетов
+  bulkExport: async (ticketIds) => {
+    try {
+      logger.debug(`Массовый экспорт ${ticketIds.length} тикетов`);
+      const res = await apiClient.post('/tickets/bulk-export', ticketIds, {
+        responseType: 'blob'
+      });
+
+      // Создаем ссылку для скачивания файла
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `tickets_bulk_export_${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      logger.info('Массовый экспорт тикетов успешно выполнен');
+      return { success: true, count: ticketIds.length };
+    } catch (error) {
+      logger.apiError('/tickets/bulk-export', 'POST', error.response?.status || 'unknown', 'Ошибка массового экспорта', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось экспортировать тикеты');
+    }
   }
 };
 

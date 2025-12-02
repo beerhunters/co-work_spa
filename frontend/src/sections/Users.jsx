@@ -244,6 +244,38 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
     }
   };
 
+  // Функция массового экспорта выбранных пользователей
+  const handleBulkExport = async () => {
+    const selectedArray = Array.from(selectedUsers);
+    setIsExporting(true);
+
+    try {
+      await userApi.bulkExport(selectedArray);
+
+      toast({
+        title: 'Экспорт завершен',
+        description: `Файл CSV с данными ${selectedArray.length} выбранных пользователей успешно загружен`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+        position: 'top',
+      });
+    } catch (error) {
+      console.error('Ошибка массового экспорта:', error);
+
+      toast({
+        title: 'Ошибка экспорта',
+        description: error.message || 'Не удалось экспортировать выбранных пользователей',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+        position: 'top',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   // Функция массовой загрузки аватаров
   const handleBulkDownloadAvatars = async () => {
     setIsBulkDownloading(true);
@@ -440,15 +472,28 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
               </HStack>
               
               {selectedUsers.size > 0 && (
-                <Button
-                  leftIcon={<Icon as={FiTrash2} />}
-                  onClick={onBulkDeleteOpen}
-                  colorScheme="red"
-                  size="sm"
-                  variant="outline"
-                >
-                  Удалить выбранных ({selectedUsers.size})
-                </Button>
+                <HStack spacing={2}>
+                  <Button
+                    leftIcon={<Icon as={FiDownload} />}
+                    onClick={handleBulkExport}
+                    colorScheme="green"
+                    size="sm"
+                    variant="outline"
+                    isLoading={isExporting}
+                    loadingText="Экспорт..."
+                  >
+                    Экспорт выбранных ({selectedUsers.size})
+                  </Button>
+                  <Button
+                    leftIcon={<Icon as={FiTrash2} />}
+                    onClick={onBulkDeleteOpen}
+                    colorScheme="red"
+                    size="sm"
+                    variant="outline"
+                  >
+                    Удалить выбранных ({selectedUsers.size})
+                  </Button>
+                </HStack>
               )}
             </HStack>
           </Box>

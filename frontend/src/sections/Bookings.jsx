@@ -40,12 +40,14 @@ import {
   FiEye,
   FiTrash2,
   FiCheckSquare,
-  FiSquare
+  FiSquare,
+  FiDownload
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { bookingApi } from '../utils/api';
 import { TableSkeleton } from '../components/LoadingSkeletons';
 import { PaginationControls } from '../components/PaginationControls';
+import { BulkActionsBar } from '../components/BulkActionsBar';
 
 const Bookings = ({
   bookings,
@@ -67,6 +69,8 @@ const Bookings = ({
   // Массовый выбор
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedBookings, setSelectedBookings] = useState(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
@@ -283,14 +287,13 @@ const Bookings = ({
   const handleBulkDelete = async () => {
     const selectedArray = Array.from(selectedBookings);
     setIsDeleting(true);
-    
+
     try {
-      const promises = selectedArray.map(bookingId => bookingApi.delete(bookingId));
-      await Promise.all(promises);
+      const response = await bookingApi.bulkDelete(selectedArray);
 
       toast({
         title: 'Успешно',
-        description: `Удалено бронирований: ${selectedArray.length}`,
+        description: `Удалено бронирований: ${response.deleted_count}`,
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -300,7 +303,7 @@ const Bookings = ({
       setIsSelectionMode(false);
 
       if (onRefresh) {
-        onRefresh();
+        await onRefresh();
       }
     } catch (error) {
       toast({
@@ -313,6 +316,67 @@ const Bookings = ({
     } finally {
       setIsDeleting(false);
       onBulkDeleteClose();
+    }
+  };
+
+  const handleBulkCancel = async () => {
+    const selectedArray = Array.from(selectedBookings);
+    setIsCanceling(true);
+
+    try {
+      const response = await bookingApi.bulkCancel(selectedArray);
+
+      toast({
+        title: 'Успешно',
+        description: `Отменено бронирований: ${response.updated_count}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setSelectedBookings(new Set());
+      setIsSelectionMode(false);
+
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось отменить выбранные бронирования',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsCanceling(false);
+    }
+  };
+
+  const handleBulkExport = async () => {
+    const selectedArray = Array.from(selectedBookings);
+    setIsExporting(true);
+
+    try {
+      await bookingApi.bulkExport(selectedArray);
+
+      toast({
+        title: 'Экспорт завершен',
+        description: `Экспортировано бронирований: ${selectedArray.length}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось экспортировать выбранные бронирования',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -435,44 +499,40 @@ const Bookings = ({
 
           {/* Панель массовых действий */}
           {isSelectionMode && (
-            <Box
-              bg={useColorModeValue('purple.50', 'purple.900')}
-              borderWidth="1px"
-              borderColor={useColorModeValue('purple.200', 'purple.600')}
-              borderRadius="lg"
-              p={4}
-            >
-              <HStack justify="space-between" align="center" wrap="wrap">
-                <HStack spacing={4}>
-                  <Text fontSize="sm" fontWeight="medium" color="purple.700">
-                    {selectedBookings.size > 0 
-                      ? `Выбрано: ${selectedBookings.size} из ${displayedBookings.length}`
-                      : 'Выберите бронирования для удаления'
-                    }
-                  </Text>
-                  <Checkbox
-                    isChecked={isAllSelected}
-                    isIndeterminate={isIndeterminate}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                    colorScheme="purple"
-                  >
-                    Выбрать все на странице
-                  </Checkbox>
-                </HStack>
-                
-                {selectedBookings.size > 0 && (
-                  <Button
-                    leftIcon={<Icon as={FiTrash2} />}
-                    onClick={onBulkDeleteOpen}
-                    colorScheme="red"
-                    size="sm"
-                    variant="outline"
-                  >
-                    Удалить выбранные ({selectedBookings.size})
-                  </Button>
-                )}
-              </HStack>
-            </Box>
+            <BulkActionsBar
+              selectedCount={selectedBookings.size}
+              currentPageCount={displayedBookings.length}
+              actions={[
+                {
+                  label: 'Удалить',
+                  icon: FiTrash2,
+                  onClick: onBulkDeleteOpen,
+                  colorScheme: 'red',
+                  showCount: true,
+                  isLoading: isDeleting
+                },
+                {
+                  label: 'Отменить',
+                  icon: FiX,
+                  onClick: handleBulkCancel,
+                  colorScheme: 'orange',
+                  showCount: true,
+                  isLoading: isCanceling
+                },
+                {
+                  label: 'Экспорт',
+                  icon: FiDownload,
+                  onClick: handleBulkExport,
+                  colorScheme: 'green',
+                  isLoading: isExporting
+                }
+              ]}
+              onSelectAll={handleSelectAll}
+              onDeselectAll={() => setSelectedBookings(new Set())}
+              isAllSelected={isAllSelected}
+              isIndeterminate={isIndeterminate}
+              entityName="бронирований"
+            />
           )}
         </VStack>
 

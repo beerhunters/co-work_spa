@@ -38,11 +38,15 @@ import {
   FiChevronRight,
   FiTrash2,
   FiCheckSquare,
-  FiSquare
+  FiSquare,
+  FiDownload,
+  FiCheckCircle,
+  FiEdit
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { ticketApi } from '../utils/api';
 import { PaginationControls } from '../components/PaginationControls';
+import { BulkActionsBar } from '../components/BulkActionsBar';
 
 const Tickets = ({
   tickets,
@@ -60,6 +64,9 @@ const Tickets = ({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedTickets, setSelectedTickets] = useState(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState('CLOSED');
 
   const tableBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
@@ -204,7 +211,7 @@ const Tickets = ({
   const handleDeleteSelected = async () => {
     setIsDeleting(true);
     const selectedArray = Array.from(selectedTickets);
-    
+
     try {
       const promises = selectedArray.map(ticketId => ticketApi.delete(ticketId));
       await Promise.all(promises);
@@ -237,6 +244,101 @@ const Tickets = ({
     } finally {
       setIsDeleting(false);
       onDeleteDialogClose();
+    }
+  };
+
+  const handleBulkClose = async () => {
+    const selectedArray = Array.from(selectedTickets);
+    setIsClosing(true);
+
+    try {
+      const response = await ticketApi.bulkClose(selectedArray);
+
+      toast({
+        title: 'Успешно',
+        description: `Закрыто тикетов: ${response.updated_count}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setSelectedTickets(new Set());
+      setIsSelectionMode(false);
+
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось закрыть выбранные тикеты',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsClosing(false);
+    }
+  };
+
+  const handleBulkUpdateStatus = async () => {
+    const selectedArray = Array.from(selectedTickets);
+    setIsClosing(true);
+
+    try {
+      const response = await ticketApi.bulkUpdateStatus(selectedArray, selectedStatus);
+
+      toast({
+        title: 'Успешно',
+        description: `Обновлено тикетов: ${response.updated_count}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setSelectedTickets(new Set());
+      setIsSelectionMode(false);
+
+      if (onRefresh) {
+        await onRefresh();
+      }
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось обновить статус выбранных тикетов',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsClosing(false);
+    }
+  };
+
+  const handleBulkExport = async () => {
+    const selectedArray = Array.from(selectedTickets);
+    setIsExporting(true);
+
+    try {
+      await ticketApi.bulkExport(selectedArray);
+
+      toast({
+        title: 'Экспорт завершен',
+        description: `Экспортировано тикетов: ${selectedArray.length}`,
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось экспортировать выбранные тикеты',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -332,44 +434,67 @@ const Tickets = ({
 
           {/* Панель массовых действий */}
           {isSelectionMode && (
-            <Box
-              bg={useColorModeValue('purple.50', 'purple.900')}
-              borderWidth="1px"
-              borderColor={useColorModeValue('purple.200', 'purple.600')}
-              borderRadius="lg"
-              p={4}
-            >
-              <HStack justify="space-between" align="center" wrap="wrap">
-                <HStack spacing={4}>
-                  <Text fontSize="sm" fontWeight="medium" color="purple.700">
-                    {selectedTickets.size > 0 
-                      ? `Выбрано: ${selectedTickets.size} из ${displayedTickets.length}`
-                      : 'Выберите тикеты для удаления'
-                    }
+            <VStack spacing={3} align="stretch">
+              <BulkActionsBar
+                selectedCount={selectedTickets.size}
+                currentPageCount={displayedTickets.length}
+                actions={[
+                  {
+                    label: 'Закрыть',
+                    icon: FiCheckCircle,
+                    onClick: handleBulkClose,
+                    colorScheme: 'green',
+                    showCount: true,
+                    isLoading: isClosing
+                  },
+                  {
+                    label: 'Изменить статус',
+                    icon: FiEdit,
+                    onClick: handleBulkUpdateStatus,
+                    colorScheme: 'blue',
+                    showCount: true,
+                    isLoading: isClosing
+                  },
+                  {
+                    label: 'Экспорт',
+                    icon: FiDownload,
+                    onClick: handleBulkExport,
+                    colorScheme: 'purple',
+                    isLoading: isExporting
+                  },
+                  {
+                    label: 'Удалить',
+                    icon: FiTrash2,
+                    onClick: onDeleteDialogOpen,
+                    colorScheme: 'red',
+                    showCount: true,
+                    isLoading: isDeleting
+                  }
+                ]}
+                onSelectAll={handleSelectAll}
+                onDeselectAll={() => setSelectedTickets(new Set())}
+                isAllSelected={isAllSelected}
+                isIndeterminate={isIndeterminate}
+                entityName="тикетов"
+              />
+              {selectedTickets.size > 0 && (
+                <HStack spacing={2} align="center">
+                  <Text fontSize="sm" fontWeight="medium">
+                    Новый статус для изменения:
                   </Text>
-                  <Checkbox
-                    isChecked={isAllSelected}
-                    isIndeterminate={isIndeterminate}
-                    onChange={(e) => handleSelectAll(e.target.checked)}
-                    colorScheme="purple"
-                  >
-                    Выбрать все на странице
-                  </Checkbox>
-                </HStack>
-                
-                {selectedTickets.size > 0 && (
-                  <Button
-                    leftIcon={<Icon as={FiTrash2} />}
-                    onClick={onDeleteDialogOpen}
-                    colorScheme="red"
+                  <Select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
                     size="sm"
-                    variant="outline"
+                    maxW="200px"
                   >
-                    Удалить выбранные ({selectedTickets.size})
-                  </Button>
-                )}
-              </HStack>
-            </Box>
+                    <option value="OPEN">Открыта</option>
+                    <option value="IN_PROGRESS">В работе</option>
+                    <option value="CLOSED">Закрыта</option>
+                  </Select>
+                </HStack>
+              )}
+            </VStack>
           )}
         </VStack>
 
