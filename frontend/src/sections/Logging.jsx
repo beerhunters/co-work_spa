@@ -483,6 +483,107 @@ const Logging = ({ currentAdmin }) => {
     return colors[level] || 'gray';
   };
 
+  // Компонент для отображения одной записи лога
+  const LogEntryDisplay = ({ entry, index }) => {
+    // Проверяем, является ли entry JSON объектом или текстом
+    const isJSON = typeof entry === 'object' && entry !== null;
+
+    if (isJSON) {
+      // JSON формат
+      const level = entry.level || 'INFO';
+      const timestamp = entry['@timestamp'] || entry.timestamp || '';
+      const message = entry.message || '';
+      const logger = entry.logger || '';
+      const file = entry.file || '';
+      const line = entry.line || '';
+      const func = entry.function || '';
+
+      // Извлекаем только время из timestamp (HH:MM:SS)
+      const timeOnly = timestamp ? new Date(timestamp).toLocaleTimeString('ru-RU', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }) : '';
+
+      return (
+        <Box
+          key={index}
+          p={3}
+          mb={2}
+          bg="white"
+          borderRadius="md"
+          borderLeft="4px solid"
+          borderLeftColor={`${getLevelColor(level)}.500`}
+          _hover={{ bg: 'gray.50' }}
+        >
+          <HStack align="flex-start" spacing={3} mb={1}>
+            <Badge
+              colorScheme={getLevelColor(level)}
+              fontSize="xs"
+              minWidth="70px"
+              textAlign="center"
+            >
+              {level}
+            </Badge>
+            <Text fontSize="xs" color="gray.500" minWidth="70px">
+              {timeOnly}
+            </Text>
+            <Badge colorScheme="purple" variant="subtle" fontSize="xs">
+              {logger}
+            </Badge>
+          </HStack>
+
+          <Text
+            fontSize="sm"
+            color="gray.800"
+            fontWeight="500"
+            mb={file ? 1 : 0}
+            pl={2}
+          >
+            {message}
+          </Text>
+
+          {file && (
+            <HStack spacing={2} pl={2}>
+              <Text fontSize="xs" color="gray.400">
+                📁 {file}{line ? `:${line}` : ''}{func ? ` in ${func}()` : ''}
+              </Text>
+            </HStack>
+          )}
+        </Box>
+      );
+    } else {
+      // Текстовый формат (старая логика)
+      const levelMatch = entry.match(/\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/);
+      const level = levelMatch ? levelMatch[1] : '';
+
+      return (
+        <HStack key={index} align="flex-start" spacing={2}>
+          {level && (
+            <Badge
+              colorScheme={getLevelColor(level)}
+              size="sm"
+              minWidth="60px"
+            >
+              {level}
+            </Badge>
+          )}
+          <Code
+            display="block"
+            whiteSpace="pre-wrap"
+            bg="transparent"
+            color="gray.800"
+            fontSize="sm"
+            p={0}
+            flex="1"
+          >
+            {entry}
+          </Code>
+        </HStack>
+      );
+    }
+  };
+
 
   if (loading) {
     return (
@@ -900,39 +1001,13 @@ const Logging = ({ currentAdmin }) => {
                         bg="gray.50"
                         p={4}
                         borderRadius="md"
-                        maxHeight="400px"
+                        maxHeight="600px"
                         overflowY="auto"
                       >
-                        <VStack align="stretch" spacing={1}>
-                          {logContent.map((line, index) => {
-                            const levelMatch = line.match(/\[(DEBUG|INFO|WARNING|ERROR|CRITICAL)\]/);
-                            const level = levelMatch ? levelMatch[1] : '';
-
-                            return (
-                              <HStack key={index} align="flex-start" spacing={2}>
-                                {level && (
-                                  <Badge
-                                    colorScheme={getLevelColor(level)}
-                                    size="sm"
-                                    minWidth="60px"
-                                  >
-                                    {level}
-                                  </Badge>
-                                )}
-                                <Code
-                                  display="block"
-                                  whiteSpace="pre-wrap"
-                                  bg="transparent"
-                                  color="gray.800"
-                                  fontSize="sm"
-                                  p={0}
-                                  flex="1"
-                                >
-                                  {line}
-                                </Code>
-                              </HStack>
-                            );
-                          })}
+                        <VStack align="stretch" spacing={0}>
+                          {logContent.map((entry, index) => (
+                            <LogEntryDisplay key={index} entry={entry} index={index} />
+                          ))}
                         </VStack>
                       </Box>
                     </CardBody>

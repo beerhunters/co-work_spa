@@ -281,7 +281,12 @@ async def refresh_access_token(request_data: RefreshTokenRequest, db: Session = 
             raise HTTPException(status_code=401, detail="Invalid refresh token")
 
         # Проверяем, не истек ли токен
-        if refresh_token_db.expires_at < datetime.now(MOSCOW_TZ):
+        # Приводим expires_at к timezone-aware, если это naive datetime (из SQLite)
+        expires_at_aware = refresh_token_db.expires_at
+        if expires_at_aware.tzinfo is None:
+            expires_at_aware = MOSCOW_TZ.localize(expires_at_aware)
+
+        if expires_at_aware < datetime.now(MOSCOW_TZ):
             raise HTTPException(status_code=401, detail="Refresh token expired")
 
         # Получаем администратора

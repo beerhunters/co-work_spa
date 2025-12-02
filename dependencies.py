@@ -140,7 +140,12 @@ def get_db():
         session = DatabaseManager.get_session()
         yield session
     except Exception as e:
-        logger.error(f"Error in get_db: {e}")
+        # Улучшенное логирование с типом исключения и traceback
+        import traceback
+        logger.error(
+            f"Error in get_db: {type(e).__name__}: {e}\n"
+            f"Traceback:\n{traceback.format_exc()}"
+        )
         if session:
             try:
                 session.rollback()

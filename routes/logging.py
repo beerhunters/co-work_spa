@@ -186,48 +186,90 @@ async def get_log_file_content(
     """Получить содержимое файла логов"""
     if not current_admin.has_permission(Permission.VIEW_LOGS):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
-    
+
     try:
         file_path = LOGS_DIR / filename
-        
+
         if not str(file_path).startswith(str(LOGS_DIR.resolve())):
             raise HTTPException(status_code=400, detail="Недопустимое имя файла. Возможная попытка обхода директории")
-        
+
         if not file_path.exists():
             raise HTTPException(status_code=404, detail=f"Файл логов '{ filename}' не найден")
-        
+
         # Читаем файл
         async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
             content_lines = await f.readlines()
-        
+
         # Берем последние N строк
         content_lines = content_lines[-lines:]
-        
+
+        # Определяем формат логов (JSON или текст)
+        log_format = "text"
+        if content_lines:
+            first_line = content_lines[0].strip()
+            if first_line and (first_line.startswith('{') or first_line.startswith('{')):
+                try:
+                    json.loads(first_line)
+                    log_format = "json"
+                except json.JSONDecodeError:
+                    pass
+
         # Применяем фильтры
         filtered_lines = []
         for line in content_lines:
             line = line.strip()
             if not line:
                 continue
-                
-            # Фильтр по поиску
-            if search and search.lower() not in line.lower():
-                continue
-                
-            # Фильтр по уровню
-            if level and f"[{level.upper()}]" not in line:
-                continue
-                
-            filtered_lines.append(line)
-        
-        logger.debug(f"Запрошено содержимое файла {filename}, строк: {len(filtered_lines)}")
-        
+
+            if log_format == "json":
+                # Парсим JSON лог
+                try:
+                    log_entry = json.loads(line)
+
+                    # Фильтр по уровню
+                    if level and log_entry.get("level", "").upper() != level.upper():
+                        continue
+
+                    # Фильтр по поиску (ищем в message, logger, file)
+                    if search:
+                        search_lower = search.lower()
+                        searchable_text = " ".join([
+                            str(log_entry.get("message", "")),
+                            str(log_entry.get("logger", "")),
+                            str(log_entry.get("file", "")),
+                            str(log_entry.get("path", ""))
+                        ]).lower()
+
+                        if search_lower not in searchable_text:
+                            continue
+
+                    # Возвращаем JSON объект для фронтенда
+                    filtered_lines.append(log_entry)
+
+                except json.JSONDecodeError:
+                    # Если не удалось распарсить, добавляем как текст
+                    filtered_lines.append(line)
+            else:
+                # Текстовый формат (старая логика)
+                # Фильтр по поиску
+                if search and search.lower() not in line.lower():
+                    continue
+
+                # Фильтр по уровню
+                if level and f"[{level.upper()}]" not in line:
+                    continue
+
+                filtered_lines.append(line)
+
+        logger.debug(f"Запрошено содержимое файла {filename}, строк: {len(filtered_lines)}, формат: {log_format}")
+
         return {
             "filename": filename,
             "lines_count": len(filtered_lines),
-            "content": filtered_lines
+            "content": filtered_lines,
+            "format": log_format
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
