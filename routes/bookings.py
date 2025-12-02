@@ -1,6 +1,9 @@
 from datetime import date, time as time_type, datetime
 from typing import List, Optional
+import csv
+import io
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text, or_, func
 
@@ -1044,3 +1047,184 @@ async def delete_booking(
         logger.error(f"Ошибка удаления бронирования {booking_id}: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Не удалось удалить бронирование #{booking_id}. Попробуйте позже")
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_bookings(
+    booking_ids: List[int],
+    db: Session = Depends(get_db),
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.DELETE_BOOKINGS])
+    ),
+):
+    """Массовое удаление бронирований."""
+    try:
+        if not booking_ids:
+            raise HTTPException(status_code=400, detail="Список бронирований пуст")
+
+        logger.info(f"Начало массового удаления {len(booking_ids)} бронирований")
+
+        # Получаем все бронирования для удаления
+        bookings = db.query(Booking).filter(Booking.id.in_(booking_ids)).all()
+
+        if not bookings:
+            raise HTTPException(status_code=404, detail="Бронирования не найдены")
+
+        deleted_count = 0
+        notifications_deleted = 0
+
+        for booking in bookings:
+            # Удаляем связанные уведомления
+            notifications = db.query(Notification).filter(
+                Notification.booking_id == booking.id
+            ).all()
+            for notification in notifications:
+                db.delete(notification)
+                notifications_deleted += 1
+
+            # Удаляем бронирование
+            db.delete(booking)
+            deleted_count += 1
+
+        db.commit()
+
+        # Инвалидируем кэши
+        await cache_invalidator.invalidate_booking_related_cache()
+
+        logger.info(f"Массово удалено {deleted_count} бронирований и {notifications_deleted} уведомлений")
+
+        return {
+            "message": f"Успешно удалено {deleted_count} бронирований",
+            "deleted_count": deleted_count,
+            "deleted_notifications": notifications_deleted
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка массового удаления бронирований: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Не удалось удалить бронирования")
+
+
+@router.post("/bulk-cancel")
+async def bulk_cancel_bookings(
+    booking_ids: List[int],
+    db: Session = Depends(get_db),
+    current_admin: CachedAdmin = Depends(
+        verify_token_with_permissions([Permission.EDIT_BOOKINGS])
+    ),
+):
+    """Массовая отмена бронирований (установка статуса подтверждения в False)."""
+    try:
+        if not booking_ids:
+            raise HTTPException(status_code=400, detail="Список бронирований пуст")
+
+        logger.info(f"Начало массовой отмены {len(booking_ids)} бронирований")
+
+        # Получаем все бронирования для отмены
+        bookings = db.query(Booking).filter(Booking.id.in_(booking_ids)).all()
+
+        if not bookings:
+            raise HTTPException(status_code=404, detail="Бронирования не найдены")
+
+        cancelled_count = 0
+
+        for booking in bookings:
+            # Отменяем бронирование (снимаем подтверждение)
+            if booking.confirmed:
+                booking.confirmed = False
+                cancelled_count += 1
+
+        db.commit()
+
+        # Инвалидируем кэши
+        await cache_invalidator.invalidate_booking_related_cache()
+
+        logger.info(f"Массово отменено {cancelled_count} бронирований")
+
+        return {
+            "message": f"Успешно отменено {cancelled_count} бронирований",
+            "cancelled_count": cancelled_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка массовой отмены бронирований: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Не удалось отменить бронирования")
+
+
+@router.post("/bulk-export")
+async def bulk_export_bookings(
+    booking_ids: List[int],
+    db: Session = Depends(get_db),
+    _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_BOOKINGS])),
+):
+    """Массовый экспорт выбранных бронирований в CSV файл."""
+    try:
+        if not booking_ids:
+            raise HTTPException(status_code=400, detail="Список бронирований пуст")
+
+        logger.info(f"Начало массового экспорта {len(booking_ids)} бронирований")
+
+        # Получаем бронирования с joinedload для оптимизации
+        bookings = db.query(Booking).options(
+            joinedload(Booking.user),
+            joinedload(Booking.tariff)
+        ).filter(Booking.id.in_(booking_ids)).all()
+
+        if not bookings:
+            raise HTTPException(status_code=404, detail="Бронирования не найдены")
+
+        # Создаем CSV в памяти
+        output = io.StringIO()
+        output.write('\ufeff')  # UTF-8 BOM
+
+        fieldnames = [
+            'ID', 'Пользователь', 'Telegram ID', 'Тариф', 'Дата визита',
+            'Время начала', 'Время окончания', 'Сумма', 'Оплачено',
+            'Подтверждено', 'Промокод', 'Дата создания', 'Комментарий'
+        ]
+
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for booking in bookings:
+            writer.writerow({
+                'ID': booking.id,
+                'Пользователь': booking.user.full_name if booking.user else f'User ID {booking.user_id}',
+                'Telegram ID': booking.user.telegram_id if booking.user else '',
+                'Тариф': booking.tariff.name if booking.tariff else f'Tariff ID {booking.tariff_id}',
+                'Дата визита': booking.visit_date.strftime('%d.%m.%Y') if booking.visit_date else '',
+                'Время начала': booking.time_start.strftime('%H:%M') if booking.time_start else '',
+                'Время окончания': booking.time_end.strftime('%H:%M') if booking.time_end else '',
+                'Сумма': f'{booking.amount:.2f}',
+                'Оплачено': 'Да' if booking.paid else 'Нет',
+                'Подтверждено': 'Да' if booking.confirmed else 'Нет',
+                'Промокод': booking.promocode_used or '',
+                'Дата создания': booking.created_at.strftime('%d.%m.%Y %H:%M') if booking.created_at else '',
+                'Комментарий': booking.comment or ''
+            })
+
+        output.seek(0)
+
+        filename = f"bookings_bulk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+        logger.info(f"Массово экспортировано {len(bookings)} бронирований в файл {filename}")
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Type": "text/csv; charset=utf-8"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка массового экспорта бронирований: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось экспортировать бронирования")

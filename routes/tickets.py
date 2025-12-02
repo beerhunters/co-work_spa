@@ -3,8 +3,10 @@ from pathlib import Path
 from typing import List, Optional
 import base64
 import asyncio
+import csv
+import io
 from pathlib import Path
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from config import TICKET_PHOTOS_DIR
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Query
 from sqlalchemy.orm import Session
@@ -839,3 +841,169 @@ async def delete_ticket(
 
     logger.info(f"Удален тикет #{ticket_id}")
     return {"message": "Ticket deleted successfully"}
+
+
+@router.post("/bulk-close")
+async def bulk_close_tickets(
+    ticket_ids: List[int],
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Массовое закрытие тикетов (установка статуса CLOSED)."""
+    try:
+        if not ticket_ids:
+            raise HTTPException(status_code=400, detail="Список тикетов пуст")
+
+        logger.info(f"Начало массового закрытия {len(ticket_ids)} тикетов")
+
+        # Получаем все тикеты для закрытия
+        tickets = db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).all()
+
+        if not tickets:
+            raise HTTPException(status_code=404, detail="Тикеты не найдены")
+
+        closed_count = 0
+
+        for ticket in tickets:
+            # Закрываем тикет если он еще не закрыт
+            if ticket.status != TicketStatus.CLOSED:
+                ticket.status = TicketStatus.CLOSED
+                closed_count += 1
+
+        db.commit()
+
+        logger.info(f"Массово закрыто {closed_count} тикетов")
+
+        return {
+            "message": f"Успешно закрыто {closed_count} тикетов",
+            "closed_count": closed_count
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка массового закрытия тикетов: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Не удалось закрыть тикеты")
+
+
+@router.post("/bulk-update-status")
+async def bulk_update_ticket_status(
+    ticket_ids: List[int],
+    new_status: TicketStatus,
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Массовое изменение статуса тикетов."""
+    try:
+        if not ticket_ids:
+            raise HTTPException(status_code=400, detail="Список тикетов пуст")
+
+        logger.info(f"Начало массового изменения статуса {len(ticket_ids)} тикетов на {new_status}")
+
+        # Получаем все тикеты для изменения
+        tickets = db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).all()
+
+        if not tickets:
+            raise HTTPException(status_code=404, detail="Тикеты не найдены")
+
+        updated_count = 0
+
+        for ticket in tickets:
+            # Изменяем статус
+            if ticket.status != new_status:
+                ticket.status = new_status
+                updated_count += 1
+
+        db.commit()
+
+        logger.info(f"Массово обновлено {updated_count} тикетов")
+
+        return {
+            "message": f"Успешно обновлено {updated_count} тикетов",
+            "updated_count": updated_count,
+            "new_status": new_status.value
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка массового обновления статуса тикетов: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Не удалось обновить статус тикетов")
+
+
+@router.post("/bulk-export")
+async def bulk_export_tickets(
+    ticket_ids: List[int],
+    db: Session = Depends(get_db),
+    _: str = Depends(verify_token),
+):
+    """Массовый экспорт выбранных тикетов в CSV файл."""
+    try:
+        if not ticket_ids:
+            raise HTTPException(status_code=400, detail="Список тикетов пуст")
+
+        logger.info(f"Начало массового экспорта {len(ticket_ids)} тикетов")
+
+        # Получаем тикеты с информацией о пользователях
+        tickets = db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).all()
+
+        if not tickets:
+            raise HTTPException(status_code=404, detail="Тикеты не найдены")
+
+        # Получаем информацию о пользователях
+        user_ids = [t.user_id for t in tickets if t.user_id]
+        users_dict = {}
+        if user_ids:
+            users = db.query(User).filter(User.id.in_(user_ids)).all()
+            users_dict = {u.id: u for u in users}
+
+        # Создаем CSV в памяти
+        output = io.StringIO()
+        output.write('\ufeff')  # UTF-8 BOM
+
+        fieldnames = [
+            'ID', 'Пользователь', 'Telegram ID', 'Тема',
+            'Описание', 'Статус', 'Приоритет', 'Дата создания',
+            'Дата обновления', 'Ответ администратора'
+        ]
+
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for ticket in tickets:
+            user = users_dict.get(ticket.user_id)
+            writer.writerow({
+                'ID': ticket.id,
+                'Пользователь': user.full_name if user else f'User ID {ticket.user_id}',
+                'Telegram ID': user.telegram_id if user else '',
+                'Тема': ticket.subject or '',
+                'Описание': ticket.description or '',
+                'Статус': ticket.status.value if ticket.status else 'unknown',
+                'Приоритет': ticket.priority.value if ticket.priority else 'normal',
+                'Дата создания': ticket.created_at.strftime('%d.%m.%Y %H:%M') if ticket.created_at else '',
+                'Дата обновления': ticket.updated_at.strftime('%d.%m.%Y %H:%M') if ticket.updated_at else '',
+                'Ответ администратора': ticket.admin_response or ''
+            })
+
+        output.seek(0)
+
+        filename = f"tickets_bulk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+        logger.info(f"Массово экспортировано {len(tickets)} тикетов в файл {filename}")
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Type": "text/csv; charset=utf-8"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка массового экспорта тикетов: {e}")
+        raise HTTPException(status_code=500, detail="Не удалось экспортировать тикеты")

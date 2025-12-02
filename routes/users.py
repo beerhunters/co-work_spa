@@ -190,6 +190,98 @@ async def export_users_to_csv(
         )
 
 
+@router.post("/bulk-export")
+async def bulk_export_users(
+    user_ids: List[int],
+    _: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
+):
+    """
+    Массовый экспорт выбранных пользователей в CSV файл.
+
+    Требует разрешение VIEW_USERS.
+    Принимает список ID пользователей и возвращает CSV файл с данными этих пользователей.
+    """
+    try:
+        logger.info(f"Начало массового экспорта {len(user_ids)} пользователей")
+
+        if not user_ids:
+            raise HTTPException(status_code=400, detail="Список пользователей пуст")
+
+        # Получаем выбранных пользователей из БД
+        def _get_users(session):
+            return session.query(User).filter(User.id.in_(user_ids)).all()
+
+        users = DatabaseManager.safe_execute(_get_users)
+
+        if not users:
+            logger.warning("Не найдено пользователей для экспорта")
+            raise HTTPException(status_code=404, detail="Пользователи не найдены")
+
+        # Создаем CSV в памяти
+        output = io.StringIO()
+
+        # Добавляем UTF-8 BOM для корректного отображения в Excel
+        output.write('\ufeff')
+
+        # Определяем поля для экспорта
+        fieldnames = [
+            'ID', 'Telegram ID', 'ФИО', 'Username', 'Телефон', 'Email',
+            'Дата регистрации', 'Дата первого входа', 'Баланс',
+            'Успешных броней', 'Приглашенных', 'Пригласивший ID',
+            'Согласие с условиями', 'Забанен', 'Причина бана', 'Комментарий админа'
+        ]
+
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+
+        # Записываем данные пользователей
+        for user in users:
+            writer.writerow({
+                'ID': user.id,
+                'Telegram ID': user.telegram_id,
+                'ФИО': user.full_name or '',
+                'Username': user.username or '',
+                'Телефон': user.phone or '',
+                'Email': user.email or '',
+                'Дата регистрации': user.reg_date.isoformat() if user.reg_date else '',
+                'Дата первого входа': user.first_join_time.isoformat() if user.first_join_time else '',
+                'Баланс': user.balance or 0,
+                'Успешных броней': user.successful_bookings or 0,
+                'Приглашенных': user.invited_count or 0,
+                'Пригласивший ID': user.invited_by_user_id or '',
+                'Согласие с условиями': 'Да' if user.agreed_to_terms else 'Нет',
+                'Забанен': 'Да' if user.is_banned else 'Нет',
+                'Причина бана': user.ban_reason or '',
+                'Комментарий админа': user.admin_comment or ''
+            })
+
+        output.seek(0)
+
+        # Генерируем имя файла с текущей датой
+        filename = f"users_bulk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+
+        logger.info(f"Массово экспортировано {len(users)} пользователей в файл {filename}")
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Type": "text/csv; charset=utf-8"
+            }
+        )
+
+    except HTTPException as e:
+        logger.warning(f"HTTP ошибка при массовом экспорте CSV: {e.status_code} - {e.detail}")
+        raise
+    except Exception as e:
+        logger.error(f"Неожиданная ошибка при массовом экспорте пользователей: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Внутренняя ошибка сервера при массовом экспорте CSV"
+        )
+
+
 @router.get("/{user_id}", response_model=UserBase)
 async def get_user(
     user_id: int,
