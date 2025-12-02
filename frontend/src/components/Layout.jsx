@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Flex } from '@chakra-ui/react';
 import Sidebar from './Sidebar';
 import Navbar from './Navbar';
+import { Breadcrumbs } from './Breadcrumbs';
 import { styles, colors, sizes } from '../styles/styles';
 
 const Layout = ({
@@ -63,6 +64,9 @@ const Layout = ({
             onToggleNotificationSound={onToggleNotificationSound}
           />
         </Box>
+
+        {/* Breadcrumbs */}
+        <Breadcrumbs section={section} setSection={setSection} />
 
         {/* Прокручиваемый контент */}
         <Box>

@@ -34,6 +34,31 @@ import {
 import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare, FiDownload } from 'react-icons/fi';
 import { userApi } from '../utils/api';
 import { TableSkeleton } from '../components/LoadingSkeletons';
+import { PaginationControls } from '../components/PaginationControls';
+
+// Компонент для подсветки найденных совпадений в тексте
+const HighlightedText = ({ text, highlight }) => {
+  if (!text) return <>{text}</>;
+  if (!highlight.trim()) return <>{text}</>;
+
+  const textStr = String(text);
+  const regex = new RegExp(`(${highlight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const parts = textStr.split(regex);
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <Text as="mark" key={i} bg="yellow.200" color="gray.800" px={0.5} borderRadius="sm">
+            {part}
+          </Text>
+        ) : (
+          part
+        )
+      )}
+    </>
+  );
+};
 
 const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = false }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -316,7 +341,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
                   <FiSearch color="gray.300" />
                 </InputLeftElement>
                 <Input
-                  placeholder="Поиск по ФИО, телефону, email, ID..."
+                  placeholder="Поиск по ФИО, телефону, username, email, Telegram ID..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -504,10 +529,10 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
                       >
                       <VStack align="start" spacing={1}>
                         <Text fontWeight="semibold">
-                          {user.full_name || 'Не указано'}
+                          <HighlightedText text={user.full_name || 'Не указано'} highlight={searchQuery} />
                         </Text>
                         <Badge colorScheme="blue" fontSize="xs">
-                          ID: {user.telegram_id}
+                          ID: <HighlightedText text={String(user.telegram_id)} highlight={searchQuery} />
                         </Badge>
                       </VStack>
                     </Td>
@@ -524,7 +549,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
                       }}
                     >
                       <Text color="gray.500">
-                        @{user.username || 'Не указано'}
+                        @<HighlightedText text={user.username || 'Не указано'} highlight={searchQuery} />
                       </Text>
                     </Td>
 
@@ -540,7 +565,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
                       }}
                     >
                       <Text>
-                        {user.phone || 'Не указан'}
+                        <HighlightedText text={user.phone || 'Не указан'} highlight={searchQuery} />
                       </Text>
                     </Td>
 
@@ -647,59 +672,14 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
         )}
 
         {/* Пагинация */}
-        {totalPages > 1 && (
-          <Flex justify="center" align="center" wrap="wrap" gap={2}>
-            <Button
-              leftIcon={<FiChevronLeft />}
-              onClick={() => handlePageChange(currentPage - 1)}
-              isDisabled={currentPage === 1}
-              size="sm"
-            >
-              Назад
-            </Button>
-
-            <HStack spacing={1}>
-              {/* Показываем страницы */}
-              {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                let pageNum;
-                if (totalPages <= 7) {
-                  pageNum = i + 1;
-                } else if (currentPage <= 4) {
-                  pageNum = i + 1;
-                } else if (currentPage >= totalPages - 3) {
-                  pageNum = totalPages - 6 + i;
-                } else {
-                  pageNum = currentPage - 3 + i;
-                }
-
-                return (
-                  <Button
-                    key={pageNum}
-                    size="sm"
-                    variant={currentPage === pageNum ? "solid" : "outline"}
-                    colorScheme={currentPage === pageNum ? "purple" : "gray"}
-                    onClick={() => handlePageChange(pageNum)}
-                  >
-                    {pageNum}
-                  </Button>
-                );
-              })}
-            </HStack>
-
-            <Button
-              rightIcon={<FiChevronRight />}
-              onClick={() => handlePageChange(currentPage + 1)}
-              isDisabled={currentPage === totalPages}
-              size="sm"
-            >
-              Вперёд
-            </Button>
-
-            <Text fontSize="sm" color="gray.500" ml={4}>
-              Стр. {currentPage} из {totalPages}
-            </Text>
-          </Flex>
-        )}
+        <PaginationControls
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={filteredUsers.length}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          onItemsPerPageChange={setItemsPerPage}
+        />
       </VStack>
 
       {/* Диалог подтверждения удаления */}

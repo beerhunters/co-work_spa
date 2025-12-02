@@ -11,6 +11,8 @@ import {
 } from '@chakra-ui/react';
 import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload, FiZap } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 import { colors, sizes, styles, typography, spacing } from '../styles/styles';
 import { createLogger } from '../utils/logger.js';
 import { StatCardSkeleton } from '../components/LoadingSkeletons';
@@ -437,6 +439,150 @@ const Dashboard = ({
       });
     }
   }, [selectedPeriod, toast]);
+
+  // Экспорт данных в PDF
+  const handleExportPDF = useCallback(async () => {
+    try {
+      toast({
+        title: 'Генерация PDF',
+        description: 'Подождите, идет создание PDF документа...',
+        status: 'info',
+        duration: 2000,
+        isClosable: true,
+      });
+
+      // Создаем PDF документ
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      let yOffset = 20;
+
+      // Заголовок отчета
+      pdf.setFontSize(20);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Dashboard Report', pageWidth / 2, yOffset, { align: 'center' });
+      yOffset += 10;
+
+      // Период
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'normal');
+      const periodText = selectedPeriod && selectedPeriod.year && selectedPeriod.month
+        ? `Period: ${selectedPeriod.month}/${selectedPeriod.year}`
+        : `Date: ${new Date().toLocaleDateString('ru-RU')}`;
+      pdf.text(periodText, pageWidth / 2, yOffset, { align: 'center' });
+      yOffset += 15;
+
+      // KPI статистика
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Key Performance Indicators', 20, yOffset);
+      yOffset += 8;
+
+      pdf.setFontSize(11);
+      pdf.setFont('helvetica', 'normal');
+
+      const kpiData = [
+        { label: 'Total Users', value: stats?.total_users || 0 },
+        { label: 'Total Bookings', value: stats?.total_bookings || 0 },
+        { label: 'Open Tickets', value: stats?.open_tickets || 0 },
+        { label: 'Total Revenue', value: chartData?.total_revenue ? `${chartData.total_revenue.toFixed(2)} ₽` : '0 ₽' },
+      ];
+
+      kpiData.forEach((item, index) => {
+        pdf.text(`${item.label}: ${item.value}`, 20, yOffset);
+        yOffset += 6;
+      });
+
+      yOffset += 10;
+
+      // График (если есть canvas)
+      if (chartRef?.current) {
+        try {
+          const chartCanvas = await html2canvas(chartRef.current, {
+            backgroundColor: '#ffffff',
+            scale: 2,
+          });
+
+          const chartImgData = chartCanvas.toDataURL('image/png');
+          const chartWidth = pageWidth - 40;
+          const chartHeight = (chartCanvas.height * chartWidth) / chartCanvas.width;
+
+          // Проверяем, поместится ли график на текущей странице
+          if (yOffset + chartHeight > pageHeight - 20) {
+            pdf.addPage();
+            yOffset = 20;
+          }
+
+          pdf.setFontSize(14);
+          pdf.setFont('helvetica', 'bold');
+          pdf.text('Revenue Chart', 20, yOffset);
+          yOffset += 10;
+
+          pdf.addImage(chartImgData, 'PNG', 20, yOffset, chartWidth, chartHeight);
+          yOffset += chartHeight + 10;
+        } catch (chartError) {
+          logger.warn('Не удалось добавить график в PDF:', chartError);
+        }
+      }
+
+      // Таблица со статистикой по тарифам (если есть данные)
+      if (chartData?.tariff_stats && chartData.tariff_stats.length > 0) {
+        // Проверяем, нужна ли новая страница
+        if (yOffset + 50 > pageHeight - 20) {
+          pdf.addPage();
+          yOffset = 20;
+        }
+
+        pdf.setFontSize(14);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Tariff Statistics', 20, yOffset);
+        yOffset += 10;
+
+        // Заголовки таблицы
+        pdf.setFontSize(10);
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Tariff Name', 20, yOffset);
+        pdf.text('Bookings', 100, yOffset);
+        pdf.text('Revenue', 150, yOffset);
+        yOffset += 6;
+
+        // Данные таблицы
+        pdf.setFont('helvetica', 'normal');
+        chartData.tariff_stats.forEach((tariff) => {
+          if (yOffset > pageHeight - 20) {
+            pdf.addPage();
+            yOffset = 20;
+          }
+
+          pdf.text(tariff.name || 'Unknown', 20, yOffset);
+          pdf.text(String(tariff.bookings || 0), 100, yOffset);
+          pdf.text(`${(tariff.revenue || 0).toFixed(2)} ₽`, 150, yOffset);
+          yOffset += 6;
+        });
+      }
+
+      // Футер
+      const fileName = `dashboard_${selectedPeriod?.year || new Date().getFullYear()}_${selectedPeriod?.month || new Date().getMonth() + 1}.pdf`;
+      pdf.save(fileName);
+
+      toast({
+        title: 'Успешно',
+        description: 'PDF отчет успешно создан и загружен',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      logger.error('Ошибка экспорта PDF:', error);
+      toast({
+        title: 'Ошибка',
+        description: 'Не удалось создать PDF отчет',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  }, [selectedPeriod, stats, chartData, chartRef, toast]);
 
   // Загрузка периодов при монтировании компонента
   useEffect(() => {
@@ -1538,6 +1684,12 @@ const Dashboard = ({
                         onClick={handleExportExcel}
                       >
                         Экспорт в Excel
+                      </MenuItem>
+                      <MenuItem
+                        icon={<Icon as={FiDownload} />}
+                        onClick={handleExportPDF}
+                      >
+                        Экспорт в PDF
                       </MenuItem>
                     </MenuList>
                   </Menu>
