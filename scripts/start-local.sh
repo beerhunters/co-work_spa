@@ -60,13 +60,96 @@ echo "  PROJECT_DIR: $PROJECT_DIR"
 echo "  WEB_PORT: $WEB_PORT"
 echo ""
 
+# Парсинг аргументов командной строки
+SKIP_BUILD=false
+for arg in "$@"; do
+  case $arg in
+    --skip-build)
+      SKIP_BUILD=true
+      shift
+      ;;
+    --help|-h)
+      echo "Использование: $0 [--skip-build] [--help]"
+      echo ""
+      echo "Опции:"
+      echo "  --skip-build    Пропустить сборку образов (использовать существующие)"
+      echo "  --help, -h      Показать эту справку"
+      exit 0
+      ;;
+  esac
+done
+
+# Умная проверка необходимости пересборки
+NEED_BASE_BUILD=false
+NEED_SERVICES_BUILD=false
+
+if [ "$SKIP_BUILD" = false ]; then
+  echo "🔍 Проверка необходимости пересборки..."
+
+  # Проверяем изменения в requirements.txt
+  if [ -f "requirements.txt" ]; then
+    # Проверяем, существует ли образ python-deps
+    if [ -z "$(docker images -q co-work_spa-python-deps 2>/dev/null)" ]; then
+      echo "  ⚠️  Образ python-deps не найден - требуется сборка базы"
+      NEED_BASE_BUILD=true
+    else
+      # Проверяем, изменился ли requirements.txt с момента последней сборки
+      LAST_BUILD_TIME=$(docker inspect -f '{{ .Created }}' co-work_spa-python-deps 2>/dev/null || echo "0")
+      REQUIREMENTS_TIME=$(stat -f "%m" requirements.txt 2>/dev/null || stat -c "%Y" requirements.txt 2>/dev/null)
+
+      if [ "$REQUIREMENTS_TIME" -gt "$(date -j -f "%Y-%m-%dT%H:%M:%S" "$LAST_BUILD_TIME" +%s 2>/dev/null || echo 0)" ]; then
+        echo "  📦 Обнаружены изменения в requirements.txt"
+        NEED_BASE_BUILD=true
+      fi
+    fi
+  fi
+
+  # Проверяем изменения в frontend/package.json
+  if [ -f "frontend/package.json" ]; then
+    if [ -z "$(docker images -q co-work_spa-frontend 2>/dev/null)" ]; then
+      echo "  ⚠️  Образ frontend не найден - требуется сборка"
+      NEED_SERVICES_BUILD=true
+    fi
+  fi
+
+  # Проверяем существование образов сервисов
+  for service in web bot frontend; do
+    if [ -z "$(docker images -q co-work_spa-$service 2>/dev/null)" ]; then
+      echo "  ⚠️  Образ $service не найден - требуется сборка"
+      NEED_SERVICES_BUILD=true
+      break
+    fi
+  done
+
+  # Выполняем сборку если необходимо
+  if [ "$NEED_BASE_BUILD" = true ]; then
+    echo ""
+    echo "🔨 Сборка базовых образов (base + python-deps)..."
+    docker-compose --profile base-build build base python-deps
+    NEED_SERVICES_BUILD=true  # Если обновили базу, нужно пересобрать сервисы
+  fi
+
+  if [ "$NEED_SERVICES_BUILD" = true ]; then
+    echo ""
+    echo "🔨 Сборка образов сервисов (web, bot, frontend)..."
+    docker-compose build web bot frontend
+  else
+    echo "  ✅ Образы актуальны, пересборка не требуется"
+  fi
+
+  echo ""
+else
+  echo "⏭️  Пропуск сборки (флаг --skip-build)"
+  echo ""
+fi
+
 # Создаем необходимые директории
 echo "📁 Создание директорий для данных..."
 mkdir -p data avatars ticket_photos newsletter_photos logs config
 
 # Запускаем Docker Compose
 echo "🚀 Запуск сервисов..."
-docker-compose up -d --build
+docker-compose up -d
 
 # Ждем запуска сервисов
 echo "⏱️ Ожидание запуска сервисов..."
@@ -86,10 +169,11 @@ echo "  📚 API Docs:        http://localhost:8000/docs"
 echo "  🔍 Redis:           localhost:6379"
 echo ""
 echo "📋 Полезные команды:"
-echo "  docker-compose logs -f          # Просмотр логов"
-echo "  docker-compose logs -f web      # Логи API"
-echo "  docker-compose logs -f bot      # Логи бота"  
-echo "  docker-compose logs -f frontend # Логи фронтенда"
-echo "  docker-compose down             # Остановка"
+echo "  ./scripts/start-local.sh --skip-build   # Быстрый запуск без пересборки"
+echo "  docker-compose logs -f                   # Просмотр логов"
+echo "  docker-compose logs -f web               # Логи API"
+echo "  docker-compose logs -f bot               # Логи бота"
+echo "  docker-compose logs -f frontend          # Логи фронтенда"
+echo "  docker-compose down                      # Остановка"
 echo ""
 echo "🎯 Для продакшена используйте: ./scripts/start-prod.sh"

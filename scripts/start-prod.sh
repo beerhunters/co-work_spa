@@ -32,6 +32,24 @@ else
     exit 1
 fi
 
+# Парсинг аргументов командной строки (в самом начале)
+for arg in "$@"; do
+  case $arg in
+    --skip-build)
+      SKIP_BUILD_FLAG=true
+      shift
+      ;;
+    --help|-h)
+      echo "Использование: $0 [--skip-build] [--help]"
+      echo ""
+      echo "Опции:"
+      echo "  --skip-build    Пропустить сборку образов (использовать существующие)"
+      echo "  --help, -h      Показать эту справку"
+      exit 0
+      ;;
+  esac
+done
+
 # Проверяем наличие .env файла
 if [ ! -f ".env" ]; then
     echo "❌ Файл .env не найден!"
@@ -121,9 +139,63 @@ else
     export CORS_ORIGINS="https://$DOMAIN_NAME"
 fi
 
+# Умная проверка необходимости пересборки
+NEED_BASE_BUILD=false
+NEED_SERVICES_BUILD=false
+
+if [ "${SKIP_BUILD_FLAG:-false}" != true ]; then
+  echo "🔍 Проверка необходимости пересборки..."
+
+  # Проверяем изменения в requirements.txt
+  if [ -f "requirements.txt" ]; then
+    if [ -z "$(docker images -q co-work_spa-python-deps 2>/dev/null)" ]; then
+      echo "  ⚠️  Образ python-deps не найден - требуется сборка базы"
+      NEED_BASE_BUILD=true
+    else
+      LAST_BUILD_TIME=$(docker inspect -f '{{ .Created }}' co-work_spa-python-deps 2>/dev/null || echo "0")
+      REQUIREMENTS_TIME=$(stat -f "%m" requirements.txt 2>/dev/null || stat -c "%Y" requirements.txt 2>/dev/null)
+
+      if [ "$REQUIREMENTS_TIME" -gt "$(date -j -f "%Y-%m-%dT%H:%M:%S" "$LAST_BUILD_TIME" +%s 2>/dev/null || echo 0)" ]; then
+        echo "  📦 Обнаружены изменения в requirements.txt"
+        NEED_BASE_BUILD=true
+      fi
+    fi
+  fi
+
+  # Проверяем существование образов сервисов
+  for service in web bot frontend; do
+    if [ -z "$(docker images -q co-work_spa-$service 2>/dev/null)" ]; then
+      echo "  ⚠️  Образ $service не найден - требуется сборка"
+      NEED_SERVICES_BUILD=true
+      break
+    fi
+  done
+
+  # Выполняем сборку если необходимо
+  if [ "$NEED_BASE_BUILD" = true ]; then
+    echo ""
+    echo "🔨 Сборка базовых образов (base + python-deps)..."
+    $COMPOSE_CMD --profile base-build build base python-deps
+    NEED_SERVICES_BUILD=true
+  fi
+
+  if [ "$NEED_SERVICES_BUILD" = true ]; then
+    echo ""
+    echo "🔨 Сборка production образов (web, bot, frontend)..."
+    BUILD_TARGET=production $COMPOSE_CMD build web bot frontend
+  else
+    echo "  ✅ Образы актуальны, пересборка не требуется"
+  fi
+
+  echo ""
+else
+  echo "⏭️  Пропуск сборки (флаг --skip-build)"
+  echo ""
+fi
+
 # Запускаем Docker Compose с профилем production (включает certbot)
 echo "🚀 Запуск продакшн сервисов..."
-$COMPOSE_CMD --profile production up -d --build
+$COMPOSE_CMD --profile production up -d
 
 # Ждем запуска сервисов
 echo "⏱️ Ожидание запуска сервисов..."
@@ -197,12 +269,13 @@ else
 fi
 echo ""
 echo "📋 Полезные команды:"
-echo "  $COMPOSE_CMD logs -f                    # Просмотр логов"
-echo "  $COMPOSE_CMD --profile production ps    # Статус сервисов"
-echo "  $COMPOSE_CMD --profile production down  # Остановка"
-echo "  ./setup-ssl.sh                            # Настройка SSL"
+echo "  ./scripts/start-prod.sh --skip-build        # Быстрый запуск без пересборки"
+echo "  $COMPOSE_CMD logs -f                         # Просмотр логов"
+echo "  $COMPOSE_CMD --profile production ps         # Статус сервисов"
+echo "  $COMPOSE_CMD --profile production down       # Остановка"
+echo "  ./scripts/setup-ssl.sh                       # Настройка SSL"
 echo ""
-echo "🏠 Для локальной разработки используйте: ./start-local.sh"
+echo "🏠 Для локальной разработки используйте: ./scripts/start-local.sh"
 
 # Показываем информацию о SSL сертификате
 if [ -d "$SSL_CERTS_PATH/live/$DOMAIN_NAME" ] && [ "$SSL_CERTS_PATH" != "/dev/null" ]; then
