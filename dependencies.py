@@ -140,12 +140,30 @@ def get_db():
         session = DatabaseManager.get_session()
         yield session
     except Exception as e:
-        # Улучшенное логирование с типом исключения и traceback
+        # Различаем типы исключений для правильного логирования
         import traceback
-        logger.error(
-            f"Error in get_db: {type(e).__name__}: {e}\n"
-            f"Traceback:\n{traceback.format_exc()}"
-        )
+
+        if isinstance(e, HTTPException):
+            # HTTPException - это нормальный контроль потока в FastAPI
+            if e.status_code < 500:
+                # Клиентские ошибки (4xx) - логируем как INFO для аудита
+                logger.info(
+                    f"Client error in get_db: {e.status_code} - {e.detail}"
+                )
+            else:
+                # Серверные ошибки (5xx) - логируем как ERROR
+                logger.error(
+                    f"Server error in get_db: {e.status_code} - {e.detail}\n"
+                    f"Traceback:\n{traceback.format_exc()}"
+                )
+        else:
+            # Реальные ошибки приложения/БД - логируем как ERROR
+            logger.error(
+                f"Error in get_db: {type(e).__name__}: {e}\n"
+                f"Traceback:\n{traceback.format_exc()}"
+            )
+
+        # Rollback и re-raise для всех типов исключений
         if session:
             try:
                 session.rollback()
