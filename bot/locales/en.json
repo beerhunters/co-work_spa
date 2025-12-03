@@ -185,6 +185,7 @@
       "telegram_id": "ID:",
       "date_time": "Date and time:",
       "status_paid": "Status: Paid, awaiting confirmation",
+      "status_payment_on_site": "Status: Payment on site, awaiting confirmation",
       "details": "Booking details:"
     }
   },

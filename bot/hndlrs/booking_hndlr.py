@@ -261,6 +261,10 @@ def format_booking_notification(user, tariff, booking_data, lang="ru") -> str:
     # Сумма
     amount = booking_data.get("amount", 0)
 
+    # Определение статуса оплаты
+    is_paid = booking_data.get("paid", False)
+    status_key = "status_paid" if is_paid else "status_payment_on_site"
+
     message = f"""{get_text(lang, 'booking.admin_new_booking.title')} {tariff_emoji}
 
 👤 <b>{get_text(lang, 'booking.admin_new_booking.client')}</b> {user_name}
@@ -272,7 +276,7 @@ def format_booking_notification(user, tariff, booking_data, lang="ru") -> str:
 📅 <b>{get_text(lang, 'booking.admin_new_booking.date_time')}</b> {datetime_str}{duration_info}{discount_info}
 
 💰 <b>{get_text(lang, 'booking.amount_label')}</b> {amount:.0f} ₽
-✅ <b>{get_text(lang, 'booking.admin_new_booking.status_paid')}</b>"""
+✅ <b>{get_text(lang, f'booking.admin_new_booking.{status_key}')}</b>"""
 
     return message
 
