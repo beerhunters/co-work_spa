@@ -37,6 +37,7 @@ import {
 } from '@chakra-ui/react';
 import { FiEdit, FiSave, FiX, FiTrash2 } from 'react-icons/fi';
 import { getStatusColor } from '../../styles/styles';
+import { formatLocalDate } from '../../utils/dateUtils';
 import { promocodeApi } from '../../utils/api';
 
 const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
@@ -62,7 +63,7 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
         discount: promocode.discount || 0,
         usage_quantity: promocode.usage_quantity || 0,
         expiration_date: promocode.expiration_date
-          ? new Date(promocode.expiration_date).toISOString().split('T')[0]
+          ? formatLocalDate(new Date(promocode.expiration_date))
           : '',
         is_active: promocode.is_active ?? true
       });
@@ -169,7 +170,7 @@ const PromocodeDetailModal = ({ isOpen, onClose, promocode, onUpdate }) => {
       discount: promocode.discount || 0,
       usage_quantity: promocode.usage_quantity || 0,
       expiration_date: promocode.expiration_date
-        ? new Date(promocode.expiration_date).toISOString().split('T')[0]
+        ? formatLocalDate(new Date(promocode.expiration_date))
         : '',
       is_active: promocode.is_active ?? true
     });

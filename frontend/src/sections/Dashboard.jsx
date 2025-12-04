@@ -15,6 +15,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { colors, sizes, styles, typography, spacing } from '../styles/styles';
 import { createLogger } from '../utils/logger.js';
+import { formatLocalDate } from '../utils/dateUtils.js';
 import { StatCardSkeleton } from '../components/LoadingSkeletons';
 
 const logger = createLogger('Dashboard');
@@ -1160,7 +1161,7 @@ const Dashboard = ({
 
   // Helper function to get bookings for a specific date
   const getBookingsForDate = useCallback((date) => {
-    const dateString = date.toISOString().split('T')[0];
+    const dateString = formatLocalDate(date);
     return bookingsByDate.get(dateString) || [];
   }, [bookingsByDate]);
 
