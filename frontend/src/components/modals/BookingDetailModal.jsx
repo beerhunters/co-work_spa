@@ -24,7 +24,17 @@ import {
   Alert,
   AlertIcon,
   AlertTitle,
-  AlertDescription
+  AlertDescription,
+  Input,
+  FormControl,
+  FormLabel,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  Divider,
+  IconButton
 } from '@chakra-ui/react';
 import {
   FiUser,
@@ -42,18 +52,30 @@ import {
   FiCopy,
   FiRefreshCw,
   FiAlertTriangle,
-  FiInfo
+  FiInfo,
+  FiEdit2,
+  FiSave,
+  FiSend
 } from 'react-icons/fi';
 import { getStatusColor } from '../../styles/styles';
 import { bookingApi } from '../../utils/api';
 
-const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
+const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }) => {
   const [detailedBooking, setDetailedBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false });
+  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false, save: false, sendLink: false, cancel: false });
   const toast = useToast();
+
+  // Состояния для редактирования
+  const [isEditing, setIsEditing] = useState(false);
+  const [editData, setEditData] = useState({
+    visit_date: null,
+    visit_time: null,
+    duration: null
+  });
+  const [recalculatedAmount, setRecalculatedAmount] = useState(null);
 
   const bgColor = useColorModeValue('white', 'gray.800');
 
@@ -255,6 +277,176 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
     }
   };
 
+  // Отменить бронирование
+  const handleCancelBooking = async () => {
+    setActionLoading(prev => ({ ...prev, cancel: true }));
+
+    try {
+      await bookingApi.updateBooking(booking.id, { confirmed: false });
+
+      toast({
+        title: 'Бронирование отменено',
+        description: 'Пользователь получит уведомление об отмене',
+        status: 'warning',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Обновляем локальные данные
+      if (detailedBooking) {
+        setDetailedBooking(prev => ({ ...prev, confirmed: false }));
+      }
+
+      // Вызываем callback для обновления родительского компонента
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка отмены бронирования:', error);
+      toast({
+        title: 'Ошибка отмены',
+        description: error.message || 'Не удалось отменить бронирование',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, cancel: false }));
+    }
+  };
+
+  // Начать редактирование
+  const handleStartEdit = () => {
+    if (!detailedBooking) return;
+
+    setEditData({
+      visit_date: detailedBooking.visit_date || '',
+      visit_time: detailedBooking.visit_time || '',
+      duration: detailedBooking.duration || ''
+    });
+    setRecalculatedAmount(detailedBooking.amount);
+    setIsEditing(true);
+  };
+
+  // Отменить редактирование
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditData({ visit_date: null, visit_time: null, duration: null });
+    setRecalculatedAmount(null);
+  };
+
+  // Пересчет суммы при изменении полей
+  const handleRecalculate = async () => {
+    try {
+      const result = await bookingApi.recalculateAmount(booking.id, {
+        visit_date: editData.visit_date,
+        visit_time: editData.visit_time,
+        duration: editData.duration ? parseInt(editData.duration) : null
+      });
+
+      setRecalculatedAmount(result.amount);
+
+      toast({
+        title: 'Сумма пересчитана',
+        description: `Новая сумма: ${result.amount} ₽ ${result.discount > 0 ? `(скидка ${result.discount}%)` : ''}`,
+        status: 'info',
+        duration: 3000,
+        isClosable: true,
+      });
+    } catch (error) {
+      console.error('Ошибка пересчета суммы:', error);
+      toast({
+        title: 'Ошибка пересчета',
+        description: error.message || 'Не удалось пересчитать сумму',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Сохранить изменения
+  const handleSaveEdit = async () => {
+    setActionLoading(prev => ({ ...prev, save: true }));
+
+    try {
+      await bookingApi.updateBookingFull(booking.id, {
+        visit_date: editData.visit_date,
+        visit_time: editData.visit_time,
+        duration: editData.duration ? parseInt(editData.duration) : null,
+        amount: recalculatedAmount
+      });
+
+      toast({
+        title: 'Бронирование обновлено',
+        description: 'Пользователь получит уведомление об изменениях',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      setIsEditing(false);
+
+      // Перезагрузить данные
+      await fetchBookingDetails();
+
+      // Вызываем callback для обновления родительского компонента
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка сохранения:', error);
+      toast({
+        title: 'Ошибка сохранения',
+        description: error.message || 'Не удалось сохранить изменения',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, save: false }));
+    }
+  };
+
+  // Отправить платежную ссылку
+  const handleSendPaymentLink = async () => {
+    setActionLoading(prev => ({ ...prev, sendLink: true }));
+
+    try {
+      const result = await bookingApi.sendPaymentLink(booking.id);
+
+      toast({
+        title: 'Ссылка отправлена',
+        description: result.message || 'Платежная ссылка отправлена пользователю в Telegram',
+        status: 'success',
+        duration: 5000,
+        isClosable: true,
+      });
+
+      // Перезагрузить данные (payment_id должен появиться)
+      await fetchBookingDetails();
+
+      // Вызываем callback для обновления родительского компонента
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка отправки ссылки:', error);
+      toast({
+        title: 'Ошибка отправки',
+        description: error.message || 'Не удалось отправить платежную ссылку',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, sendLink: false }));
+    }
+  };
+
   if (!booking) return null;
 
   const data = detailedBooking || booking;
@@ -277,13 +469,6 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                 {data.confirmed ? 'Подтверждено' : 'Ожидает'}
               </Badge>
             </HStack>
-            {error && (
-              <Tooltip label="Перезагрузить данные">
-                <Button size="sm" variant="ghost" onClick={handleRetry}>
-                  <FiRefreshCw />
-                </Button>
-              </Tooltip>
-            )}
           </HStack>
         </ModalHeader>
         <ModalCloseButton />
@@ -412,6 +597,100 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                       <Skeleton height="20px" />
                       <Skeleton height="20px" />
                       <Skeleton height="20px" />
+                    </VStack>
+                  ) : isEditing ? (
+                    <VStack align="stretch" spacing={4}>
+                      <HStack justify="space-between">
+                        <HStack>
+                          <Icon as={FiTag} color="cyan.500" />
+                          <Text fontWeight="medium">Название тарифа:</Text>
+                        </HStack>
+                        <Text fontSize="lg" fontWeight="semibold">{tariff.name || 'Неизвестно'}</Text>
+                      </HStack>
+
+                      <FormControl>
+                        <FormLabel fontSize="sm">Дата визита</FormLabel>
+                        <Input
+                          type="date"
+                          value={editData.visit_date}
+                          onChange={(e) => setEditData({ ...editData, visit_date: e.target.value })}
+                        />
+                      </FormControl>
+
+                      {tariff.purpose === 'meeting_room' && (
+                        <>
+                          <FormControl>
+                            <FormLabel fontSize="sm">Время</FormLabel>
+                            <Input
+                              type="time"
+                              value={editData.visit_time}
+                              onChange={(e) => setEditData({ ...editData, visit_time: e.target.value })}
+                            />
+                          </FormControl>
+
+                          <FormControl>
+                            <FormLabel fontSize="sm">Длительность (часов)</FormLabel>
+                            <NumberInput
+                              min={1}
+                              max={24}
+                              value={editData.duration}
+                              onChange={(val) => setEditData({ ...editData, duration: val })}
+                            >
+                              <NumberInputField />
+                              <NumberInputStepper>
+                                <NumberIncrementStepper />
+                                <NumberDecrementStepper />
+                              </NumberInputStepper>
+                            </NumberInput>
+                          </FormControl>
+                        </>
+                      )}
+
+                      <Divider />
+
+                      <HStack justify="space-between">
+                        <HStack>
+                          <Icon as={FiDollarSign} color="green.500" />
+                          <Text fontWeight="medium">Пересчитанная сумма:</Text>
+                        </HStack>
+                        <Text fontSize="lg" fontWeight="bold" color="green.500">
+                          {recalculatedAmount !== null ? `${recalculatedAmount} ₽` : `${data.amount} ₽`}
+                        </Text>
+                      </HStack>
+
+                      <HStack spacing={2} width="100%">
+                        <Button
+                          leftIcon={<FiRefreshCw />}
+                          colorScheme="blue"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleRecalculate}
+                          flex={1}
+                        >
+                          Пересчитать
+                        </Button>
+                        <Button
+                          leftIcon={<FiSave />}
+                          colorScheme="green"
+                          size="sm"
+                          onClick={handleSaveEdit}
+                          isLoading={actionLoading.save}
+                          loadingText="Сохранение..."
+                          flex={1}
+                        >
+                          Сохранить
+                        </Button>
+                        <Button
+                          leftIcon={<FiX />}
+                          colorScheme="red"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleCancelEdit}
+                          flex={1}
+                        >
+                          Отмена
+                        </Button>
+                      </HStack>
                     </VStack>
                   ) : (
                     <VStack align="stretch" spacing={3}>
@@ -626,10 +905,26 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
 
         <ModalFooter p={4}>
           <VStack spacing={2} width="100%">
-            {/* Первый ряд - кнопки действий */}
-            {(!data.confirmed || !data.paid) && (
-              <HStack spacing={2} width="100%" justify="center">
-                {!data.confirmed && (
+            {/* Первый ряд - основные действия с бронированием */}
+            {(!data.confirmed || data.confirmed || error) && (
+              <HStack spacing={2} width="100%" justify="center" flexWrap="wrap">
+                {/* Кнопка редактирования */}
+                {!isEditing && !loading && !error && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
+                  <Button
+                    leftIcon={<FiEdit2 />}
+                    colorScheme="blue"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleStartEdit}
+                    flex={1}
+                    maxW="150px"
+                  >
+                    Редактировать
+                  </Button>
+                )}
+
+                {/* Кнопка подтверждения */}
+                {!data.confirmed && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
                   <Button
                     leftIcon={<FiCheck />}
                     colorScheme="green"
@@ -644,7 +939,45 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                   </Button>
                 )}
 
-                {!data.paid && (
+                {/* Кнопка отмены бронирования */}
+                {data.confirmed && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
+                  <Button
+                    leftIcon={<FiX />}
+                    colorScheme="red"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCancelBooking}
+                    isLoading={actionLoading.cancel}
+                    loadingText="Отмена..."
+                    flex={1}
+                    maxW="150px"
+                  >
+                    Отменить бронь
+                  </Button>
+                )}
+
+                {/* Кнопка повтора при ошибке */}
+                {error && (
+                  <Button
+                    leftIcon={<FiRefreshCw />}
+                    colorScheme="red"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetry}
+                    flex={1}
+                    maxW="150px"
+                  >
+                    Повторить ({retryCount})
+                  </Button>
+                )}
+              </HStack>
+            )}
+
+            {/* Второй ряд - платежные операции */}
+            {!data.paid && (
+              <HStack spacing={2} width="100%" justify="center" flexWrap="wrap">
+                {/* Кнопка отметки об оплате */}
+                {(currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
                   <Button
                     leftIcon={<FiDollarSign />}
                     colorScheme="teal"
@@ -654,9 +987,25 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate }) => {
                     isLoading={actionLoading.markPaid}
                     loadingText="Обновление..."
                     flex={1}
-                    maxW="150px"
+                    maxW="200px"
                   >
                     Оплачено
+                  </Button>
+                )}
+
+                {/* Кнопка отправки платежной ссылки */}
+                {data.confirmed && tariff.purpose === 'meeting_room' && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
+                  <Button
+                    leftIcon={<FiSend />}
+                    colorScheme="blue"
+                    size="sm"
+                    onClick={handleSendPaymentLink}
+                    isLoading={actionLoading.sendLink}
+                    loadingText="Отправка..."
+                    flex={1}
+                    maxW="240px"
+                  >
+                    Отправить ссылку на оплату
                   </Button>
                 )}
               </HStack>

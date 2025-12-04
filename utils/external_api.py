@@ -1,5 +1,7 @@
 import aiohttp
+import requests
 from typing import Optional, Dict, Any
+from datetime import date, time as time_type
 from yookassa import Payment, Refund, Configuration
 
 from config import (
@@ -204,4 +206,63 @@ async def send_telegram_photo(
         return True
     except Exception as e:
         logger.error(f"Ошибка отправки фото в чат {chat_id}: {e}")
+        return False
+
+
+def update_rubitime_booking(
+    rubitime_id: int,
+    service_id: int,
+    visit_date: date,
+    visit_time: time_type = None,
+    duration: int = None
+) -> bool:
+    """
+    Обновляет запись бронирования в Rubitime CRM (синхронная версия).
+
+    Args:
+        rubitime_id: ID записи в Rubitime
+        service_id: ID услуги в Rubitime
+        visit_date: Новая дата визита
+        visit_time: Новое время визита (опционально)
+        duration: Новая длительность в часах (опционально)
+
+    Returns:
+        True если успешно обновлено, False в противном случае
+    """
+    if not RUBITIME_API_KEY or not RUBITIME_BASE_URL:
+        logger.warning("Rubitime не настроен, пропускаем обновление")
+        return False
+
+    try:
+        # Формат даты и времени для Rubitime
+        datetime_str = visit_date.strftime('%Y-%m-%d')
+        if visit_time:
+            datetime_str += f' {visit_time.strftime("%H:%M:%S")}'
+
+        # Данные для обновления
+        update_data = {
+            "service_id": service_id,
+            "date": datetime_str,
+        }
+
+        if duration:
+            update_data["duration"] = duration * 60  # В минутах
+
+        # API запрос к Rubitime
+        response = requests.put(
+            f"{RUBITIME_BASE_URL}/records/{rubitime_id}",
+            headers={
+                "Authorization": f"Bearer {RUBITIME_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=update_data,
+            timeout=10
+        )
+
+        response.raise_for_status()
+        logger.info(f"Rubitime booking {rubitime_id} updated successfully")
+        return True
+
+    except Exception as e:
+        logger.error(f"Ошибка обновления Rubitime booking {rubitime_id}: {e}")
         return False

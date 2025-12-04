@@ -876,6 +876,60 @@ export const bookingApi = {
       logger.apiError('/bookings/bulk-export', 'POST', error.response?.status || 'unknown', 'Ошибка массового экспорта', error.response?.data);
       throw new Error(error.response?.data?.detail || 'Не удалось экспортировать бронирования');
     }
+  },
+
+  // Пересчет суммы бронирования с учетом новых параметров
+  recalculateAmount: async (bookingId, data) => {
+    try {
+      const id = String(bookingId);
+      logger.debug(`Пересчет суммы бронирования ${id}`, data);
+      const res = await apiClient.post(`/bookings/${id}/recalculate`, data);
+      logger.info(`Сумма пересчитана для бронирования ${id}:`, res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/bookings/${bookingId}/recalculate`, 'POST', error.response?.status || 'unknown', 'Ошибка пересчета суммы', error.response?.data);
+      throw new Error(error.response?.data?.detail || 'Не удалось пересчитать сумму');
+    }
+  },
+
+  // Полное обновление бронирования (дата, время, длительность, сумма)
+  updateBookingFull: async (bookingId, updateData) => {
+    try {
+      const id = String(bookingId);
+      logger.debug(`Полное обновление бронирования ${id}`, updateData);
+      const res = await apiClient.put(`/bookings/${id}/full`, updateData);
+      logger.info(`Бронирование ${id} успешно обновлено:`, res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/bookings/${bookingId}/full`, 'PUT', error.response?.status || 'unknown', 'Ошибка полного обновления', error.response?.data);
+
+      if (error.response?.status === 404) {
+        throw new Error('Бронирование не найдено');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось обновить бронирование');
+    }
+  },
+
+  // Отправка платежной ссылки пользователю
+  sendPaymentLink: async (bookingId) => {
+    try {
+      const id = String(bookingId);
+      logger.debug(`Отправка платежной ссылки для бронирования ${id}`);
+      const res = await apiClient.post(`/bookings/${id}/send-payment-link`);
+      logger.info(`Платежная ссылка отправлена для бронирования ${id}:`, res.data);
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/bookings/${bookingId}/send-payment-link`, 'POST', error.response?.status || 'unknown', 'Ошибка отправки платежной ссылки', error.response?.data);
+
+      if (error.response?.status === 404) {
+        throw new Error('Бронирование не найдено');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response?.data?.detail || 'Неверные условия для отправки ссылки');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось отправить платежную ссылку');
+    }
   }
 };
 
