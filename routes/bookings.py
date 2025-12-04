@@ -38,7 +38,7 @@ from utils.helpers import format_phone_for_rubitime
 from utils.cache_manager import cache_manager
 from utils.sql_optimization import SQLOptimizer
 from utils.cache_invalidation import cache_invalidator
-from bot.hndlrs.booking_hndlr import send_booking_update_notification
+from utils.notifications import send_booking_update_notification
 # from utils.bot_instance import get_bot_instance
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
