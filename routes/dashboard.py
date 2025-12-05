@@ -601,7 +601,14 @@ async def get_bookings_calendar(
                     booking = {
                         "id": row.id,
                         "visit_date": row.visit_date.isoformat() if hasattr(row.visit_date, 'isoformat') else str(row.visit_date),
-                        "visit_time": str(row.visit_time) if row.visit_time else None,
+                        # "visit_time": str(row.visit_time) if row.visit_time else None,
+                        "visit_time": (
+                            row.visit_time.strftime("%H:%M")
+                            if hasattr(row.visit_time, "strftime") and row.visit_time is not None
+                            else row.visit_time[:5]  # берём первые 5 символов: "HH:MM"
+                            if isinstance(row.visit_time, str) and len(row.visit_time) >= 5
+                            else None
+                        ),
                         "confirmed": bool(row.confirmed),
                         "paid": bool(row.paid),
                         "amount": float(row.amount) if row.amount else 0,

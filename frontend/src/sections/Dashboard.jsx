@@ -2022,7 +2022,8 @@ const Dashboard = ({
                               {bookings.slice(0, 3).map((booking) => (
                                 <Tooltip
                                   key={booking.id}
-                                  label={`${booking.visit_time || ''} | ${booking.user_name || 'Без имени'} | ${booking.tariff_name || ''}`}
+                                  label={`${booking.visit_time || ''} | ${booking.user_name || 'Без имени'}`}
+                                  // label={`${booking.visit_time || ''} | ${booking.user_name || 'Без имени'} | ${booking.tariff_name || ''}`}
                                   placement="top"
                                   bg="gray.800"
                                   color="white"
