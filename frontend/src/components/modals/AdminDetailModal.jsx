@@ -398,15 +398,38 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
       }, {});
     }
 
-    // Если категорий нет, создаем простую группировку
+    // Если категорий нет, создаем расширенную группировку
     const simplePermissions = permissions.map(p => typeof p === 'string' ? p : p.value || p);
-    return {
+
+    const categorized = {
       'Пользователи': simplePermissions.filter(p => p.includes('users')),
+      'Бронирования': simplePermissions.filter(p => p.includes('bookings')),
+      'Тарифы': simplePermissions.filter(p => p.includes('tariffs')),
+      'Промокоды': simplePermissions.filter(p => p.includes('promocodes')),
+      'Тикеты': simplePermissions.filter(p => p.includes('tickets')),
       'Telegram рассылки': simplePermissions.filter(p => p.includes('telegram_newsletters')),
       'Email рассылки': simplePermissions.filter(p => p.includes('email_campaigns') || p.includes('email_templates')),
       'Уведомления': simplePermissions.filter(p => p.includes('notifications')),
-      'Система': simplePermissions.filter(p => p.includes('analytics') || p.includes('export') || p.includes('system'))
+      'Администраторы': simplePermissions.filter(p => p.includes('admins')),
+      'Дашборд': simplePermissions.filter(p => p.includes('dashboard')),
+      'Логирование': simplePermissions.filter(p => p.includes('logs') || p.includes('logging')),
+      'Бэкапы': simplePermissions.filter(p => p.includes('backups')),
     };
+
+    // Находим разрешения, которые не попали ни в одну категорию
+    const categorizedPermissions = new Set(
+      Object.values(categorized).flat()
+    );
+    const uncategorized = simplePermissions.filter(p => !categorizedPermissions.has(p));
+
+    if (uncategorized.length > 0) {
+      categorized['Система'] = uncategorized;
+    }
+
+    // Удаляем пустые категории
+    return Object.fromEntries(
+      Object.entries(categorized).filter(([_, perms]) => perms.length > 0)
+    );
   }, [availablePermissions]);
 
   return (

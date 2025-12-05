@@ -18,6 +18,7 @@ class PermissionEnum(str, Enum):
 
     # Бронирования
     VIEW_BOOKINGS = "view_bookings"
+    CREATE_BOOKINGS = "create_bookings"
     EDIT_BOOKINGS = "edit_bookings"
     DELETE_BOOKINGS = "delete_bookings"
     CONFIRM_BOOKINGS = "confirm_bookings"
@@ -154,6 +155,7 @@ class AvailablePermissions(BaseModel):
             "ban_users": "Бан пользователей",
             # Бронирования
             "view_bookings": "Просмотр бронирований",
+            "create_bookings": "Создание бронирований",
             "edit_bookings": "Редактирование бронирований",
             "delete_bookings": "Удаление бронирований",
             "confirm_bookings": "Подтверждение бронирований",
@@ -204,6 +206,7 @@ class AvailablePermissions(BaseModel):
             "delete_users": "Пользователи",
             "ban_users": "Пользователи",
             "view_bookings": "Бронирования",
+            "create_bookings": "Бронирования",
             "edit_bookings": "Бронирования",
             "delete_bookings": "Бронирования",
             "confirm_bookings": "Бронирования",
