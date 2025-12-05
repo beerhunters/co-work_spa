@@ -1,0 +1,667 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalCloseButton,
+  VStack,
+  HStack,
+  Text,
+  ModalFooter,
+  Button,
+  Input,
+  FormControl,
+  FormLabel,
+  FormHelperText,
+  Select,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper,
+  Checkbox,
+  useToast,
+  Alert,
+  AlertIcon,
+  AlertDescription,
+  Divider,
+  Box,
+  InputGroup,
+  InputLeftElement,
+  Icon
+} from '@chakra-ui/react';
+import { FiSave, FiX, FiDollarSign, FiSearch, FiUser } from 'react-icons/fi';
+import { bookingApi } from '../../utils/api';
+import { formatLocalDate } from '../../utils/dateUtils';
+
+const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
+  const [formData, setFormData] = useState({
+    user_id: '',
+    tariff_id: '',
+    visit_date: '',
+    visit_time: '',
+    duration: 1,
+    promocode_id: null,
+    amount: 0,
+    paid: false,
+    confirmed: false
+  });
+
+  const [selectedTariff, setSelectedTariff] = useState(null);
+  const [calculatedAmount, setCalculatedAmount] = useState(0);
+  const [isCalculating, setIsCalculating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  // State для поиска пользователя
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+
+  const toast = useToast();
+
+  // Сброс формы
+  const resetForm = () => {
+    setFormData({
+      user_id: '',
+      tariff_id: '',
+      visit_date: '',
+      visit_time: '',
+      duration: 1,
+      promocode_id: null,
+      amount: 0,
+      paid: false,
+      confirmed: false
+    });
+    setSelectedTariff(null);
+    setCalculatedAmount(0);
+    setErrors({});
+    setUserSearchQuery('');
+    setIsUserDropdownOpen(false);
+    setSelectedUser(null);
+  };
+
+  // Сброс при открытии/закрытии модального окна
+  useEffect(() => {
+    if (isOpen) {
+      resetForm();
+    }
+  }, [isOpen]);
+
+  // Обработчик изменения поля
+  const handleFieldChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+
+    // Очистка ошибки для этого поля
+    if (errors[field]) {
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[field];
+        return newErrors;
+      });
+    }
+  };
+
+  // Обработчик выбора тарифа
+  const handleTariffChange = (tariffId) => {
+    const tariff = tariffs.find(t => t.id === parseInt(tariffId));
+    setSelectedTariff(tariff);
+    handleFieldChange('tariff_id', tariffId);
+
+    // Сбросить время и длительность если не meeting_room
+    if (tariff && tariff.purpose !== 'meeting_room') {
+      setFormData(prev => ({
+        ...prev,
+        tariff_id: tariffId,
+        visit_time: '',
+        duration: 1
+      }));
+    }
+  };
+
+  // Обработчик изменения длительности
+  const handleDurationChange = (value) => {
+    const duration = parseInt(value) || 1;
+    handleFieldChange('duration', duration);
+  };
+
+  // Обработчик выбора пользователя из списка
+  const handleSelectUser = (user) => {
+    setSelectedUser(user);
+    handleFieldChange('user_id', user.telegram_id);
+    setUserSearchQuery(`${user.full_name || user.username}${user.phone ? ` (${user.phone})` : ''}`);
+    setIsUserDropdownOpen(false);
+  };
+
+  // Обработчик изменения поискового запроса
+  const handleUserSearchChange = (e) => {
+    const value = e.target.value;
+    setUserSearchQuery(value);
+    setIsUserDropdownOpen(value.trim().length > 0);
+
+    // Если очистили поле - сбросить выбор
+    if (!value.trim()) {
+      setSelectedUser(null);
+      handleFieldChange('user_id', '');
+    }
+  };
+
+  // Фильтрация пользователей по поисковому запросу
+  const filteredUsers = useMemo(() => {
+    if (!users || users.length === 0) return [];
+
+    if (!userSearchQuery.trim()) {
+      return users;
+    }
+
+    const query = userSearchQuery.toLowerCase().trim();
+
+    return users.filter(user => {
+      const fullName = (user.full_name || '').toLowerCase();
+      const username = (user.username || '').toLowerCase();
+      const phone = (user.phone || '').toLowerCase();
+      const email = (user.email || '').toLowerCase();
+
+      return (
+        fullName.includes(query) ||
+        username.includes(query) ||
+        phone.includes(query) ||
+        email.includes(query)
+      );
+    });
+  }, [users, userSearchQuery]);
+
+  // Расчет суммы
+  const calculateAmount = () => {
+    if (!selectedTariff) return;
+
+    setIsCalculating(true);
+
+    try {
+      let baseAmount = selectedTariff.price;
+
+      // Для meeting_room учитываем duration
+      if (selectedTariff.purpose === 'meeting_room' && formData.duration) {
+        baseAmount = selectedTariff.price * formData.duration;
+      }
+
+      // Скидка 10% для meeting_room от 3 часов
+      let discount = 0;
+      if (selectedTariff.purpose === 'meeting_room' && formData.duration >= 3) {
+        discount = 10;
+      }
+
+      // Применяем скидку
+      const finalAmount = baseAmount * (1 - discount / 100);
+
+      setCalculatedAmount(finalAmount);
+      setFormData(prev => ({ ...prev, amount: finalAmount }));
+    } catch (error) {
+      console.error('Error calculating amount:', error);
+    } finally {
+      setIsCalculating(false);
+    }
+  };
+
+  // Вызывать расчет при изменении tariff_id или duration
+  useEffect(() => {
+    if (formData.tariff_id) {
+      calculateAmount();
+    }
+  }, [formData.tariff_id, formData.duration]);
+
+  // Закрытие dropdown при клике вне области
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      const target = event.target;
+      // Проверяем что клик не по элементам dropdown
+      if (!target.closest('[data-user-dropdown]')) {
+        setIsUserDropdownOpen(false);
+      }
+    };
+
+    if (isUserDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isUserDropdownOpen]);
+
+  // Валидация формы
+  const validate = () => {
+    const newErrors = {};
+
+    if (!formData.user_id) {
+      newErrors.user_id = 'Выберите пользователя';
+    }
+
+    if (!formData.tariff_id) {
+      newErrors.tariff_id = 'Выберите тариф';
+    }
+
+    if (!formData.visit_date) {
+      newErrors.visit_date = 'Укажите дату посещения';
+    }
+
+    // Для meeting_room требуется время и длительность
+    if (selectedTariff?.purpose === 'meeting_room') {
+      if (!formData.visit_time) {
+        newErrors.visit_time = 'Укажите время для переговорной';
+      }
+      if (!formData.duration || formData.duration < 1) {
+        newErrors.duration = 'Укажите длительность (минимум 1 час)';
+      }
+    }
+
+    if (formData.amount <= 0) {
+      newErrors.amount = 'Сумма должна быть больше 0';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // Пересчет суммы по требованию
+  const handleRecalculate = () => {
+    calculateAmount();
+    toast({
+      title: 'Сумма пересчитана',
+      status: 'success',
+      duration: 2000,
+      isClosable: true,
+    });
+  };
+
+  // Сохранение бронирования
+  const handleSave = async () => {
+    if (!validate()) {
+      toast({
+        title: 'Ошибка валидации',
+        description: 'Проверьте заполнение всех полей',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Подготовка данных для API
+      const bookingData = {
+        user_id: parseInt(formData.user_id),
+        tariff_id: parseInt(formData.tariff_id),
+        visit_date: formData.visit_date,
+        visit_time: formData.visit_time || null,
+        duration: formData.duration || null,
+        amount: parseFloat(formData.amount),
+        paid: formData.paid,
+        confirmed: formData.confirmed,
+        promocode_id: formData.promocode_id || null
+      };
+
+      console.log('Создание бронирования с данными:', bookingData);
+
+      // Создание через API
+      const result = await bookingApi.create(bookingData);
+
+      toast({
+        title: 'Успешно',
+        description: 'Бронирование создано',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Вызов callback успеха и закрытие модального окна
+      if (onSuccess) {
+        onSuccess(result);
+      }
+      onClose();
+      resetForm();
+    } catch (error) {
+      console.error('Ошибка при создании бронирования:', error);
+
+      let errorMessage = 'Не удалось создать бронирование';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        title: 'Ошибка',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Отмена
+  const handleCancel = () => {
+    resetForm();
+    onClose();
+  };
+
+  // Получить минимальную дату (сегодня)
+  const getMinDate = () => {
+    return formatLocalDate(new Date());
+  };
+
+  // Расчет процента скидки
+  const getDiscountPercent = () => {
+    if (selectedTariff?.purpose === 'meeting_room' && formData.duration >= 3) {
+      return 10;
+    }
+    return 0;
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleCancel} size="xl">
+      <ModalOverlay />
+      <ModalContent>
+        <ModalHeader>Создать бронирование</ModalHeader>
+        <ModalCloseButton />
+
+        <ModalBody>
+          <VStack spacing={4} align="stretch">
+            <Alert status="info">
+              <AlertIcon />
+              <AlertDescription>
+                Создание нового бронирования от имени администратора
+              </AlertDescription>
+            </Alert>
+
+            {/* Выбор пользователя */}
+            <FormControl isRequired isInvalid={errors.user_id}>
+              <FormLabel>Пользователь</FormLabel>
+
+              <Box position="relative" data-user-dropdown>
+                <InputGroup>
+                  <InputLeftElement pointerEvents="none">
+                    <Icon as={selectedUser ? FiUser : FiSearch} color="gray.400" />
+                  </InputLeftElement>
+                  <Input
+                    placeholder="Начните вводить ФИО, телефон или email"
+                    value={userSearchQuery}
+                    onChange={handleUserSearchChange}
+                    onFocus={() => {
+                      if (userSearchQuery.trim().length > 0 || !selectedUser) {
+                        setIsUserDropdownOpen(true);
+                      }
+                    }}
+                    bg={selectedUser ? 'green.50' : 'white'}
+                  />
+                </InputGroup>
+
+                {/* Выпадающий список отфильтрованных пользователей */}
+                {isUserDropdownOpen && filteredUsers.length > 0 && (
+                  <Box
+                    position="absolute"
+                    top="100%"
+                    left={0}
+                    right={0}
+                    mt={1}
+                    maxH="300px"
+                    overflowY="auto"
+                    bg="white"
+                    borderWidth="1px"
+                    borderColor="gray.200"
+                    borderRadius="md"
+                    boxShadow="lg"
+                    zIndex={1000}
+                  >
+                    {filteredUsers.slice(0, 50).map(user => (
+                      <Box
+                        key={user.id}
+                        px={4}
+                        py={3}
+                        cursor="pointer"
+                        _hover={{ bg: 'blue.50' }}
+                        onClick={() => handleSelectUser(user)}
+                        borderBottomWidth="1px"
+                        borderBottomColor="gray.100"
+                      >
+                        <Text fontWeight="medium">
+                          {user.full_name || user.username}
+                        </Text>
+                        {user.phone && (
+                          <Text fontSize="sm" color="gray.600">
+                            {user.phone}
+                          </Text>
+                        )}
+                        {user.email && !user.phone && (
+                          <Text fontSize="sm" color="gray.600">
+                            {user.email}
+                          </Text>
+                        )}
+                      </Box>
+                    ))}
+
+                    {filteredUsers.length > 50 && (
+                      <Box px={4} py={2} bg="gray.50" fontSize="sm" color="gray.600">
+                        Показано 50 из {filteredUsers.length}. Уточните запрос для поиска.
+                      </Box>
+                    )}
+                  </Box>
+                )}
+
+                {/* Сообщение если ничего не найдено */}
+                {isUserDropdownOpen && userSearchQuery.trim() && filteredUsers.length === 0 && (
+                  <Box
+                    position="absolute"
+                    top="100%"
+                    left={0}
+                    right={0}
+                    mt={1}
+                    p={4}
+                    bg="white"
+                    borderWidth="1px"
+                    borderColor="gray.200"
+                    borderRadius="md"
+                    boxShadow="lg"
+                    zIndex={1000}
+                  >
+                    <Text fontSize="sm" color="gray.500">
+                      Пользователь не найден. Попробуйте другой запрос.
+                    </Text>
+                  </Box>
+                )}
+              </Box>
+
+              {/* Helper text */}
+              <FormHelperText>
+                {errors.user_id ? (
+                  <Text color="red.500">{errors.user_id}</Text>
+                ) : (
+                  selectedUser ? (
+                    <Text color="green.500">✓ Выбран: {selectedUser.full_name || selectedUser.username}</Text>
+                  ) : (
+                    <Text color="gray.500">Введите имя, фамилию, телефон или email для поиска</Text>
+                  )
+                )}
+              </FormHelperText>
+            </FormControl>
+
+            {/* Выбор тарифа */}
+            <FormControl isRequired isInvalid={errors.tariff_id}>
+              <FormLabel>Тариф</FormLabel>
+              <Select
+                placeholder="Выберите тариф"
+                value={formData.tariff_id}
+                onChange={(e) => handleTariffChange(e.target.value)}
+              >
+                {tariffs && tariffs.filter(t => t.is_active).map(tariff => (
+                  <option key={tariff.id} value={tariff.id}>
+                    {tariff.name} - {tariff.price} ₽
+                  </option>
+                ))}
+              </Select>
+              {errors.tariff_id && (
+                <FormHelperText color="red.500">{errors.tariff_id}</FormHelperText>
+              )}
+            </FormControl>
+
+            {/* Дата посещения */}
+            <FormControl isRequired isInvalid={errors.visit_date}>
+              <FormLabel>Дата посещения</FormLabel>
+              <Input
+                type="date"
+                value={formData.visit_date}
+                onChange={(e) => handleFieldChange('visit_date', e.target.value)}
+                min={getMinDate()}
+              />
+              {errors.visit_date && (
+                <FormHelperText color="red.500">{errors.visit_date}</FormHelperText>
+              )}
+            </FormControl>
+
+            {/* Время посещения - только для meeting_room */}
+            {selectedTariff?.purpose === 'meeting_room' && (
+              <FormControl isRequired isInvalid={errors.visit_time}>
+                <FormLabel>Время посещения</FormLabel>
+                <Input
+                  type="time"
+                  value={formData.visit_time}
+                  onChange={(e) => handleFieldChange('visit_time', e.target.value)}
+                />
+                {errors.visit_time && (
+                  <FormHelperText color="red.500">{errors.visit_time}</FormHelperText>
+                )}
+              </FormControl>
+            )}
+
+            {/* Длительность - только для meeting_room */}
+            {selectedTariff?.purpose === 'meeting_room' && (
+              <FormControl isRequired isInvalid={errors.duration}>
+                <FormLabel>Длительность (часов)</FormLabel>
+                <NumberInput
+                  min={1}
+                  max={24}
+                  value={formData.duration}
+                  onChange={(valueString) => handleDurationChange(parseInt(valueString) || 1)}
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+                {formData.duration >= 3 && (
+                  <FormHelperText color="green.500">
+                    ✓ Применяется скидка 10% (от 3 часов)
+                  </FormHelperText>
+                )}
+                {errors.duration && (
+                  <FormHelperText color="red.500">{errors.duration}</FormHelperText>
+                )}
+              </FormControl>
+            )}
+
+            {/* Сумма к оплате */}
+            <FormControl>
+              <FormLabel>Сумма к оплате</FormLabel>
+              <HStack>
+                <Input
+                  value={`${calculatedAmount.toFixed(2)} ₽`}
+                  isReadOnly
+                  bg="gray.50"
+                  fontWeight="bold"
+                />
+                <Button
+                  size="sm"
+                  onClick={handleRecalculate}
+                  isLoading={isCalculating}
+                  leftIcon={<FiDollarSign />}
+                >
+                  Пересчитать
+                </Button>
+              </HStack>
+
+              {/* Breakdown суммы */}
+              {selectedTariff && (
+                <Box mt={2} p={2} bg="gray.50" borderRadius="md" fontSize="sm">
+                  <VStack align="stretch" spacing={1}>
+                    <HStack justify="space-between">
+                      <Text>Базовая цена:</Text>
+                      <Text>
+                        {selectedTariff.price} ₽
+                        {selectedTariff.purpose === 'meeting_room' && formData.duration > 1
+                          ? ` × ${formData.duration} ч = ${(selectedTariff.price * formData.duration).toFixed(2)} ₽`
+                          : ''
+                        }
+                      </Text>
+                    </HStack>
+                    {getDiscountPercent() > 0 && (
+                      <HStack justify="space-between" color="green.500">
+                        <Text>Скидка ({getDiscountPercent()}%):</Text>
+                        <Text>
+                          -{((selectedTariff.price * formData.duration * getDiscountPercent()) / 100).toFixed(2)} ₽
+                        </Text>
+                      </HStack>
+                    )}
+                    <Divider />
+                    <HStack justify="space-between" fontWeight="bold">
+                      <Text>Итого:</Text>
+                      <Text>{calculatedAmount.toFixed(2)} ₽</Text>
+                    </HStack>
+                  </VStack>
+                </Box>
+              )}
+            </FormControl>
+
+            {/* Статусы */}
+            <FormControl>
+              <FormLabel>Статус бронирования</FormLabel>
+              <VStack align="stretch" spacing={2}>
+                <Checkbox
+                  isChecked={formData.confirmed}
+                  onChange={(e) => handleFieldChange('confirmed', e.target.checked)}
+                >
+                  Подтверждено
+                </Checkbox>
+                <Checkbox
+                  isChecked={formData.paid}
+                  onChange={(e) => handleFieldChange('paid', e.target.checked)}
+                >
+                  Оплачено
+                </Checkbox>
+              </VStack>
+            </FormControl>
+          </VStack>
+        </ModalBody>
+
+        <ModalFooter>
+          <HStack spacing={3}>
+            <Button
+              leftIcon={<FiX />}
+              variant="outline"
+              onClick={handleCancel}
+              isDisabled={isSaving}
+            >
+              Отмена
+            </Button>
+            <Button
+              leftIcon={<FiSave />}
+              colorScheme="green"
+              onClick={handleSave}
+              isLoading={isSaving}
+              loadingText="Сохранение..."
+            >
+              Создать бронирование
+            </Button>
+          </HStack>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  );
+};
+
+export default CreateBookingModal;

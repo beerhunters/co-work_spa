@@ -668,7 +668,7 @@ export const bookingApi = {
         confirmed: Boolean(bookingData.confirmed)
       };
 
-      const res = await apiClient.post('/bookings', validatedData);
+      const res = await apiClient.post('/bookings/admin', validatedData);
       return res.data;
     } catch (error) {
       console.error('Ошибка создания бронирования:', error);
@@ -758,7 +758,25 @@ export const bookingApi = {
     try {
       const id = String(bookingId);
       const res = await apiClient.delete(`/bookings/${id}`);
-      return res.data;
+      const data = res.data;
+
+      // Проверяем статус удаления из Rubitime
+      if (data.rubitime_status === 'not_found') {
+        // Возвращаем данные с флагом для показа warning toast
+        return {
+          ...data,
+          showRubitimeWarning: true,
+          rubitimeWarningMessage: `Запись не найдена в Rubitime CRM (ID: ${data.rubitime_id}), но бронирование удалено из системы`
+        };
+      } else if (data.rubitime_status === 'error' || data.rubitime_status === 'exception') {
+        return {
+          ...data,
+          showRubitimeWarning: true,
+          rubitimeWarningMessage: `Ошибка удаления из Rubitime CRM (ID: ${data.rubitime_id}), но бронирование удалено из системы`
+        };
+      }
+
+      return data;
     } catch (error) {
       console.error(`Ошибка удаления бронирования ${bookingId}:`, error);
 

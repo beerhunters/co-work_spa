@@ -34,9 +34,7 @@ export const BulkActionsBar = ({
   const borderColor = useColorModeValue('purple.200', 'purple.600');
   const textColor = useColorModeValue('purple.700', 'purple.200');
 
-  if (selectedCount === 0 && !isIndeterminate) {
-    return null;
-  }
+  const hasSelection = selectedCount > 0 || isIndeterminate;
 
   return (
     <Box
@@ -78,26 +76,29 @@ export const BulkActionsBar = ({
         </HStack>
 
         {/* Правая часть: кнопки действий */}
-        {selectedCount > 0 && (
-          <HStack spacing={2} wrap="wrap">
-            {actions.map((action, index) => (
-              <Button
-                key={index}
-                leftIcon={action.icon ? <Icon as={action.icon} /> : null}
-                onClick={action.onClick}
-                colorScheme={action.colorScheme || 'gray'}
-                size="sm"
-                variant={action.variant || 'outline'}
-                isLoading={action.isLoading}
-                loadingText={action.loadingText}
-                isDisabled={action.isDisabled}
-              >
-                {action.label}
-                {action.showCount && selectedCount > 0 && ` (${selectedCount})`}
-              </Button>
-            ))}
-          </HStack>
-        )}
+        <HStack spacing={2} wrap="wrap">
+          {!hasSelection && (
+            <Text fontSize="sm" color="gray.500">
+              Выберите записи для выполнения действий
+            </Text>
+          )}
+          {actions.map((action, index) => (
+            <Button
+              key={index}
+              leftIcon={action.icon ? <Icon as={action.icon} /> : null}
+              onClick={action.onClick}
+              colorScheme={action.colorScheme || 'gray'}
+              size="sm"
+              variant={action.variant || 'outline'}
+              isLoading={action.isLoading}
+              loadingText={action.loadingText}
+              isDisabled={!hasSelection || action.isDisabled}
+            >
+              {action.label}
+              {action.showCount && hasSelection && ` (${selectedCount})`}
+            </Button>
+          ))}
+        </HStack>
       </HStack>
     </Box>
   );

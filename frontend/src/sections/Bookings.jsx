@@ -41,13 +41,15 @@ import {
   FiTrash2,
   FiCheckSquare,
   FiSquare,
-  FiDownload
+  FiDownload,
+  FiPlus
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { bookingApi } from '../utils/api';
 import { TableSkeleton } from '../components/LoadingSkeletons';
 import { PaginationControls } from '../components/PaginationControls';
 import { BulkActionsBar } from '../components/BulkActionsBar';
+import CreateBookingModal from '../components/modals/CreateBookingModal';
 
 const Bookings = ({
   bookings,
@@ -57,7 +59,8 @@ const Bookings = ({
   onFiltersChange,
   isLoading = false,
   currentAdmin, // Добавляем текущего администратора
-  tariffs = [] // Добавляем список тарифов для фильтра
+  tariffs = [], // Добавляем список тарифов для фильтра
+  users = [] // Добавляем список пользователей для создания бронирований
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -71,6 +74,9 @@ const Bookings = ({
   const [selectedBookings, setSelectedBookings] = useState(new Set());
   const [isExporting, setIsExporting] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
+
+  // Создание бронирования
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isBulkDeleteOpen, onOpen: onBulkDeleteOpen, onClose: onBulkDeleteClose } = useDisclosure();
@@ -216,15 +222,27 @@ const Bookings = ({
 
     setIsDeleting(true);
     try {
-      await bookingApi.delete(deleteTarget.id);
+      const result = await bookingApi.delete(deleteTarget.id);
 
+      // Основное уведомление об успехе
       toast({
-        title: 'Бронирование удалено',
-        description: `Бронирование #${deleteTarget.id} успешно удалено`,
+        title: 'Успешно',
+        description: 'Бронирование удалено',
         status: 'success',
         duration: 3000,
         isClosable: true,
       });
+
+      // Дополнительное предупреждение если была проблема с Rubitime
+      if (result.showRubitimeWarning) {
+        toast({
+          title: 'Предупреждение Rubitime',
+          description: result.rubitimeWarningMessage,
+          status: 'warning',
+          duration: 7000,
+          isClosable: true,
+        });
+      }
 
       // Обновляем данные
       if (onRefresh) {
@@ -263,6 +281,20 @@ const Bookings = ({
   const handleToggleSelectionMode = () => {
     setIsSelectionMode(!isSelectionMode);
     setSelectedBookings(new Set());
+  };
+
+  // Обработчик успешного создания бронирования
+  const handleCreateSuccess = (newBooking) => {
+    // Обновить список бронирований
+    onRefresh();
+
+    // Закрыть модальное окно создания
+    setIsCreateModalOpen(false);
+
+    // Опционально: открыть детали созданного бронирования
+    if (openDetailModal && newBooking) {
+      openDetailModal(newBooking);
+    }
   };
 
   const handleSelectBooking = (bookingId, isSelected) => {
@@ -427,6 +459,15 @@ const Bookings = ({
                   {isSelectionMode ? 'Отменить' : 'Выбрать'}
                 </Button>
               )}
+              <Button
+                size="sm"
+                leftIcon={<Icon as={FiPlus} />}
+                onClick={() => setIsCreateModalOpen(true)}
+                colorScheme="green"
+                variant="solid"
+              >
+                Создать бронирование
+              </Button>
               <Button
                 size="sm"
                 onClick={onRefresh}
@@ -825,6 +866,15 @@ const Bookings = ({
           </AlertDialogContent>
         </AlertDialogOverlay>
       </AlertDialog>
+
+      {/* Модальное окно создания бронирования */}
+      <CreateBookingModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={handleCreateSuccess}
+        tariffs={tariffs}
+        users={users}
+      />
     </Box>
   );
 };

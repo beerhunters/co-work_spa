@@ -385,6 +385,203 @@ async def create_booking_admin(
 
     try:
         result = DatabaseManager.safe_execute(_create_booking)
+
+        # Создание записи в Rubitime при подтверждении
+        if booking_data.confirmed:
+            try:
+                from utils.helpers import format_phone_for_rubitime
+                from utils.external_api import rubitime
+                from datetime import datetime
+
+                logger.info(f"[ADMIN BOOKING] Бронирование подтверждено, проверка создания записи в Rubitime для брони #{result['id']}")
+
+                # Получаем данные user и tariff для проверки service_id
+                def _get_rubitime_data(session):
+                    user = session.query(User).filter(User.telegram_id == booking_data.user_id).first()
+                    tariff = session.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+                    promocode = None
+                    if booking_data.promocode_id:
+                        promocode = session.query(Promocode).filter(Promocode.id == booking_data.promocode_id).first()
+                    return user, tariff, promocode
+
+                user, tariff, promocode = DatabaseManager.safe_execute(_get_rubitime_data)
+
+                logger.info(f"[ADMIN BOOKING] User: {user.id if user else None}, Tariff: {tariff.id if tariff else None}, service_id: {tariff.service_id if tariff else None}")
+
+                if not tariff:
+                    logger.warning(f"[ADMIN BOOKING] Тариф не найден, пропускаем создание в Rubitime")
+                elif not tariff.service_id:
+                    logger.warning(f"[ADMIN BOOKING] У тарифа {tariff.id} нет service_id, пропускаем создание в Rubitime")
+                elif tariff and tariff.service_id:
+                    logger.info(
+                        f"Создание записи Rubitime для подтвержденной брони #{result['id']} (создание админом)"
+                    )
+
+                    formatted_phone = format_phone_for_rubitime(user.phone or "")
+
+                    if formatted_phone != "Не указано":
+                        # Форматирование даты и времени для Rubitime
+                        if result.get("visit_time") and result.get("duration"):
+                            # Парсим visit_time если это строка
+                            if isinstance(result["visit_time"], str):
+                                from datetime import time
+                                hour, minute = map(int, result["visit_time"].split(":"))
+                                visit_time_obj = time(hour, minute)
+                            else:
+                                visit_time_obj = result["visit_time"]
+
+                            rubitime_date = datetime.combine(
+                                result["visit_date"], visit_time_obj
+                            ).strftime("%Y-%m-%d %H:%M:%S")
+                            rubitime_duration = result["duration"] * 60
+                        else:
+                            rubitime_date = (
+                                result["visit_date"].strftime("%Y-%m-%d") + " 09:00:00"
+                            )
+                            rubitime_duration = None
+
+                        # Формирование комментария
+                        comment_parts = [
+                            f"Подтвержденная бронь через админ панель - {tariff.name}"
+                        ]
+
+                        if promocode:
+                            comment_parts.append(
+                                f"Промокод: {promocode.name} (-{promocode.discount}%)"
+                            )
+
+                        if result.get("duration") and result["duration"] > 1:
+                            comment_parts.append(
+                                f"Длительность: {result['duration']} час(ов)"
+                            )
+
+                        final_comment = " | ".join(comment_parts)
+
+                        # Параметры для создания записи в Rubitime
+                        rubitime_params = {
+                            "service_id": tariff.service_id,
+                            "date": rubitime_date,
+                            "phone": formatted_phone,
+                            "name": user.full_name or "Клиент",
+                            "comment": final_comment,
+                            "source": "Admin Panel",
+                        }
+
+                        if rubitime_duration is not None:
+                            rubitime_params["duration"] = rubitime_duration
+
+                        if user.email and user.email.strip():
+                            rubitime_params["email"] = user.email.strip()
+
+                        logger.info(f"Параметры для Rubitime: {rubitime_params}")
+
+                        rubitime_id = await rubitime("create_record", rubitime_params)
+
+                        if rubitime_id:
+                            # Обновляем rubitime_id в базе данных
+                            def _update_rubitime_id(session):
+                                booking = session.query(Booking).filter(Booking.id == result["id"]).first()
+                                if booking:
+                                    booking.rubitime_id = str(rubitime_id)
+                                    session.commit()
+
+                            DatabaseManager.safe_execute(_update_rubitime_id)
+
+                            # Обновляем result dict для возврата
+                            result["rubitime_id"] = str(rubitime_id)
+
+                            logger.info(
+                                f"Создана запись Rubitime #{rubitime_id} для брони #{result['id']}"
+                            )
+                        else:
+                            logger.warning(
+                                f"Не удалось создать запись в Rubitime для брони #{result['id']}"
+                            )
+                    else:
+                        logger.warning(
+                            f"Не удалось создать запись в Rubitime: некорректный телефон для брони #{result['id']}"
+                        )
+
+            except Exception as e:
+                logger.error(
+                    f"Ошибка создания записи в Rubitime при создании брони #{result.get('id', 'unknown')}: {e}"
+                )
+
+        # Отправка уведомления пользователю если бронирование подтверждено
+        if booking_data.confirmed:
+            try:
+                from utils.bot_instance import get_bot
+
+                logger.info(f"[ADMIN BOOKING] Попытка отправки уведомления для подтвержденной брони #{result['id']}")
+
+                bot = get_bot()
+                logger.info(f"[ADMIN BOOKING] Bot instance: {bot is not None}")
+
+                if bot:
+                    # Получаем данные для уведомления
+                    def _get_user_and_tariff(session):
+                        user = session.query(User).filter(User.telegram_id == booking_data.user_id).first()
+                        tariff = session.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+                        return user, tariff
+
+                    user, tariff = DatabaseManager.safe_execute(_get_user_and_tariff)
+
+                    logger.info(f"[ADMIN BOOKING] User for notification: {user.id if user else None}, telegram_id: {user.telegram_id if user else None}")
+                    logger.info(f"[ADMIN BOOKING] Tariff for notification: {tariff.id if tariff else None}")
+
+                    if user and user.telegram_id and tariff:
+                        logger.info(
+                            f"Отправка уведомления о создании подтвержденной брони пользователю {user.telegram_id}"
+                        )
+
+                        # Форматирование времени и длительности
+                        visit_time_str = ""
+                        if result.get("visit_time"):
+                            try:
+                                # result["visit_time"] может быть строкой или time объектом
+                                if isinstance(result["visit_time"], str):
+                                    from datetime import time
+                                    hour, minute = map(int, result["visit_time"].split(":"))
+                                    time_obj = time(hour, minute)
+                                    visit_time_str = f" в {time_obj.strftime('%H:%M')}"
+                                else:
+                                    visit_time_str = f" в {result['visit_time'].strftime('%H:%M')}"
+                            except:
+                                pass
+
+                        duration_str = ""
+                        if result.get("duration"):
+                            duration_str = f" ({result['duration']}ч)"
+
+                        # Форматирование даты
+                        visit_date_str = result["visit_date"]
+                        if hasattr(result["visit_date"], "strftime"):
+                            visit_date_str = result["visit_date"].strftime('%d.%m.%Y')
+
+                        # Формирование сообщения
+                        message = f"""Ваша бронь подтверждена!
+
+Тариф: {tariff.name}
+Дата: {visit_date_str}{visit_time_str}{duration_str}
+Сумма: {result['amount']:.2f} ₽
+
+Ждем вас в назначенное время!"""
+
+                        # Отправка уведомления
+                        await bot.send_message(user.telegram_id, message)
+
+                        logger.info(
+                            f"✅ [ADMIN BOOKING] Уведомление о подтвержденной брони успешно отправлено пользователю {user.telegram_id}"
+                        )
+                    else:
+                        logger.warning(f"[ADMIN BOOKING] Не удалось отправить уведомление: user={user is not None}, telegram_id={user.telegram_id if user else None}, tariff={tariff is not None}")
+                else:
+                    logger.warning(f"[ADMIN BOOKING] Bot instance не получен, уведомление не отправлено")
+
+            except Exception as e:
+                # Ошибка отправки уведомления не должна блокировать создание брони
+                logger.error(f"❌ [ADMIN BOOKING] Ошибка отправки уведомления о созд брони: {e}", exc_info=True)
+
         # Инвалидируем связанные кэши после успешного создания
         await cache_invalidator.invalidate_booking_related_cache()
         return result
@@ -767,6 +964,10 @@ async def update_booking(
         ):
 
             try:
+                from utils.helpers import format_phone_for_rubitime
+                from utils.external_api import rubitime
+                from datetime import datetime
+
                 logger.info(
                     f"Создание записи Rubitime для подтвержденной брони #{booking.id}"
                 )
@@ -936,6 +1137,43 @@ async def update_booking(
                     f"Не удалось отправить уведомление пользователю {user.telegram_id}: {e}"
                 )
 
+        # Удаление записи из Rubitime при отмене бронирования
+        if (
+            "confirmed" in update_data
+            and not update_data["confirmed"]
+            and old_confirmed
+            and booking.rubitime_id
+        ):
+            try:
+                from utils.external_api import rubitime
+
+                logger.info(
+                    f"Отмена подтверждения брони #{booking.id}, удаление из Rubitime #{booking.rubitime_id}"
+                )
+
+                result = await rubitime("delete_record", {"record_id": booking.rubitime_id})
+
+                if result == "404":
+                    logger.warning(
+                        f"Запись Rubitime #{booking.rubitime_id} не найдена при отмене (404)"
+                    )
+                elif result:
+                    logger.info(
+                        f"Запись Rubitime #{booking.rubitime_id} удалена при отмене брони"
+                    )
+                    # Очищаем rubitime_id в базе данных
+                    booking.rubitime_id = None
+                    db.commit()
+                else:
+                    logger.warning(
+                        f"Не удалось удалить запись Rubitime #{booking.rubitime_id} при отмене"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"Ошибка удаления Rubitime #{booking.rubitime_id} при отмене: {e}"
+                )
+
         logger.info(
             f"Бронирование #{booking_id} обновлено администратором {current_admin.login}"
         )
@@ -989,6 +1227,7 @@ async def delete_booking(
 
         booking_info = {
             "id": booking.id,
+            "user_id": booking.user_id,
             "user_name": user.full_name if user else f"User ID {booking.user_id}",
             "user_telegram_id": user.telegram_id if user else None,
             "tariff_name": tariff.name if tariff else f"Tariff ID {booking.tariff_id}",
@@ -998,23 +1237,43 @@ async def delete_booking(
             "visit_date": (
                 booking.visit_date.isoformat() if booking.visit_date else None
             ),
+            "rubitime_id": booking.rubitime_id,
         }
 
         # Попытка удаления записи из Rubitime если есть rubitime_id
+        rubitime_delete_status = None
         if booking.rubitime_id:
             try:
+                from utils.external_api import rubitime
+
                 logger.info(
                     f"Попытка удаления записи Rubitime #{booking.rubitime_id} для брони #{booking.id}"
                 )
-                # Здесь можно добавить вызов API Rubitime для удаления записи
-                # result = await rubitime("delete_record", {"record_id": booking.rubitime_id})
-                logger.info(
-                    f"Запись Rubitime #{booking.rubitime_id} должна быть удалена вручную"
-                )
+
+                result = await rubitime("delete_record", {"record_id": booking.rubitime_id})
+
+                if result == "404":
+                    # Запись не найдена в Rubitime - это предупреждение, но не ошибка
+                    logger.warning(
+                        f"Запись Rubitime #{booking.rubitime_id} не найдена (404), продолжаем удаление из БД"
+                    )
+                    rubitime_delete_status = "not_found"
+                elif result:
+                    logger.info(
+                        f"Запись Rubitime #{booking.rubitime_id} успешно удалена"
+                    )
+                    rubitime_delete_status = "success"
+                else:
+                    logger.warning(
+                        f"Не удалось удалить запись Rubitime #{booking.rubitime_id}, но продолжаем удаление из БД"
+                    )
+                    rubitime_delete_status = "error"
+
             except Exception as e:
-                logger.warning(
-                    f"Не удалось удалить запись Rubitime #{booking.rubitime_id}: {e}"
+                logger.error(
+                    f"Ошибка удаления записи Rubitime #{booking.rubitime_id}: {e}"
                 )
+                rubitime_delete_status = "exception"
 
         # Удаляем связанные уведомления
         notifications_deleted = (
@@ -1033,41 +1292,28 @@ async def delete_booking(
             f"Сумма: {booking_info['amount']} ₽. Удалено уведомлений: {notifications_deleted}"
         )
 
-        # Отправляем уведомление пользователю об удалении брони
-        if user and user.telegram_id:
-            bot = get_bot()
-            if bot:
-                try:
-                    message = f"""Ваше бронирование было отменено
-
-Тариф: {booking_info['tariff_name']}
-Дата: {booking_info['visit_date']}
-Сумма: {booking_info['amount']:.2f} ₽
-
-По вопросам обращайтесь к администратору."""
-
-                    await bot.send_message(user.telegram_id, message)
-                    logger.info(
-                        f"Отправлено уведомление об удалении брони пользователю {user.telegram_id}"
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Не удалось отправить уведомление об удалении брони: {e}"
-                    )
+        # При удалении бронирования уведомление НЕ отправляется
+        # (по требованию задачи - при удалении не уведомлять пользователя)
+        logger.info(f"Бронирование #{booking_id} удалено без уведомления пользователя")
 
         # Инвалидируем связанные кэши после успешного удаления
         await cache_invalidator.invalidate_booking_related_cache()
 
-        return {
-            "message": "Booking deleted successfully",
-            "deleted_booking": booking_info,
-            "deleted_notifications": notifications_deleted,
-            "rubitime_notice": (
-                f"Rubitime record #{booking.rubitime_id} should be deleted manually"
-                if booking.rubitime_id
-                else None
-            ),
+        response = {
+            "message": "Бронирование удалено",
+            "booking_id": booking_info["id"],
+            "user_id": booking_info["user_id"],
+            "tariff_name": booking_info["tariff_name"],
+            "visit_date": booking_info["visit_date"],
+            "amount": booking_info["amount"],
         }
+
+        # Добавляем информацию о статусе удаления из Rubitime
+        if booking_info.get("rubitime_id"):
+            response["rubitime_status"] = rubitime_delete_status
+            response["rubitime_id"] = booking_info["rubitime_id"]
+
+        return response
 
     except HTTPException:
         raise

@@ -120,6 +120,49 @@ async def rubitime(method: str, extra_params: dict) -> Optional[str]:
                         )
                         return None
 
+        elif method == "delete_record":
+            # Удаление записи из Rubitime
+            record_id = extra_params.get("record_id")
+            if not record_id:
+                logger.error("Rubitime delete_record: отсутствует record_id")
+                return None
+
+            url = f"{RUBITIME_BASE_URL}remove-record"
+
+            params = {
+                "id": int(record_id),
+                "rk": RUBITIME_API_KEY
+            }
+
+            logger.info(f"Удаление записи Rubitime ID {record_id}: {url}")
+            logger.info(f"Параметры: {params}")
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=params) as response:
+                    response_text = await response.text()
+                    logger.info(f"Ответ Rubitime delete ({response.status}): {response_text}")
+
+                    if response.status == 200:
+                        try:
+                            data = await response.json()
+                            if data.get("status") == "success" or data.get("status") == "ok":
+                                logger.info(f"Успешно удалена запись Rubitime ID: {record_id}")
+                                return str(record_id)
+                            else:
+                                error_msg = data.get("message", "Неизвестная ошибка")
+                                logger.warning(f"Ошибка удаления Rubitime: {error_msg}")
+                                return None
+                        except Exception as e:
+                            logger.error(f"Ошибка парсинга ответа Rubitime delete: {e}")
+                            return None
+                    elif response.status == 404:
+                        # Запись не найдена - это не критичная ошибка
+                        logger.warning(f"Запись Rubitime ID {record_id} не найдена (404)")
+                        return "404"  # Специальный маркер для обработки
+                    else:
+                        logger.warning(f"Rubitime delete вернул статус {response.status}: {response_text}")
+                        return None
+
     except Exception as e:
         logger.error(f"Ошибка запроса к Rubitime: {e}")
         return None

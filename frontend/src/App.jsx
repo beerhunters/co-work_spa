@@ -1100,6 +1100,7 @@ function AppContent() {
             isLoading={isBookingsLoading}
             currentAdmin={currentAdmin}
             tariffs={tariffs}
+            users={users}
           />
         );
       case 'tariffs':
