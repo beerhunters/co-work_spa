@@ -11,6 +11,7 @@ class TariffBase(BaseModel):
     purpose: Optional[str] = None
     service_id: int = Field(default=0)  # Устанавливаем значение по умолчанию
     is_active: bool = True
+    color: str = "#3182CE"
 
     @validator("service_id", pre=True)
     def validate_service_id(cls, v):
@@ -28,6 +29,7 @@ class TariffCreate(BaseModel):
     purpose: Optional[str] = None
     service_id: Optional[int] = Field(default=0)
     is_active: bool = True
+    color: str = "#3182CE"
 
     @validator("service_id", pre=True)
     def validate_service_id(cls, v):
@@ -42,6 +44,7 @@ class TariffUpdate(BaseModel):
     purpose: Optional[str] = None
     service_id: Optional[int] = None
     is_active: Optional[bool] = None
+    color: Optional[str] = None
 
     @validator("service_id", pre=True)
     def validate_service_id(cls, v):

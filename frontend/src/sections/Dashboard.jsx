@@ -1891,16 +1891,21 @@ const Dashboard = ({
                           <Tag
                             size="md"
                             variant={selectedTariffIds.includes(tariff.id) ? 'solid' : 'outline'}
-                            colorScheme="blue"
+                            bg={selectedTariffIds.includes(tariff.id) ? tariff.color : "transparent"}
+                            color={selectedTariffIds.includes(tariff.id) ? "white" : tariff.color}
+                            borderColor={tariff.color}
+                            borderWidth="2px"
                             cursor="pointer"
                             onClick={() => handleTariffToggle(tariff.id)}
                             _hover={{
+                              bg: tariff.color,
+                              color: "white",
                               transform: 'translateY(-2px)',
-                              boxShadow: 'sm'
+                              boxShadow: 'md'
                             }}
                             transition="all 0.2s"
                           >
-                            <TagLabel>{tariff.name}</TagLabel>
+                            <TagLabel fontWeight="medium">{tariff.name}</TagLabel>
                             {selectedTariffIds.includes(tariff.id) && (
                               <TagCloseButton onClick={(e) => {
                                 e.stopPropagation();
@@ -2017,14 +2022,20 @@ const Dashboard = ({
                               {bookings.slice(0, 3).map((booking) => (
                                 <Tooltip
                                   key={booking.id}
-                                  label={`Бронирование #${booking.id} - ${booking.user_name || 'Без имени'}`}
+                                  label={`${booking.visit_time || ''} | ${booking.user_name || 'Без имени'} | ${booking.tariff_name || ''}`}
                                   placement="top"
+                                  bg="gray.800"
+                                  color="white"
+                                  fontSize="sm"
+                                  px={3}
+                                  py={2}
+                                  borderRadius="md"
                                 >
                                   <Box
                                     fontSize="xs"
                                     p={1}
-                                    bg={booking.confirmed ? "green.100" : "yellow.100"}
-                                    color={booking.confirmed ? "green.800" : "yellow.800"}
+                                    bg={booking.tariff_color || "#3182CE"}
+                                    color="white"
                                     borderRadius="sm"
                                     cursor="pointer"
                                     onClick={(e) => {
@@ -2032,11 +2043,14 @@ const Dashboard = ({
                                       handleBookingClick(booking);
                                     }}
                                     _hover={{
-                                      bg: booking.confirmed ? "green.200" : "yellow.200"
+                                      opacity: 0.8,
+                                      transform: "scale(1.02)"
                                     }}
                                     noOfLines={1}
+                                    fontWeight="medium"
+                                    border={booking.confirmed ? "none" : "2px dashed rgba(255,255,255,0.6)"}
                                   >
-                                    #{booking.id}
+                                    {booking.visit_time && booking.visit_time.substring(0, 5)} {booking.user_name}
                                   </Box>
                                 </Tooltip>
                               ))}
@@ -2064,20 +2078,41 @@ const Dashboard = ({
                 </Grid>
 
                     {/* Легенда */}
-                    <Flex mt={4} gap={4} justify="center" fontSize="sm" color="gray.600">
-                      <Flex align="center" gap={1}>
-                        <Box w={3} h={3} bg="green.100" borderRadius="sm" />
-                        <Text>Подтвержденные</Text>
+                    <VStack mt={4} spacing={3} align="stretch">
+                      {/* Легенда статусов */}
+                      <Flex gap={4} justify="center" fontSize="sm" color="gray.600" wrap="wrap">
+                        <Flex align="center" gap={1}>
+                          <Box w={3} h={3} bg="gray.400" borderRadius="sm" border="none" />
+                          <Text>Подтвержденные (сплошная линия)</Text>
+                        </Flex>
+                        <Flex align="center" gap={1}>
+                          <Box w={3} h={3} bg="gray.400" borderRadius="sm" border="2px dashed white" />
+                          <Text>Неподтвержденные (пунктир)</Text>
+                        </Flex>
+                        <Flex align="center" gap={1}>
+                          <Box w={3} h={3} bg="blue.50" border="1px" borderColor="blue.300" borderRadius="sm" />
+                          <Text>Сегодня</Text>
+                        </Flex>
                       </Flex>
-                      <Flex align="center" gap={1}>
-                        <Box w={3} h={3} bg="yellow.100" borderRadius="sm" />
-                        <Text>Ожидают подтверждения</Text>
-                      </Flex>
-                      <Flex align="center" gap={1}>
-                        <Box w={3} h={3} bg="blue.50" border="1px" borderColor="blue.300" borderRadius="sm" />
-                        <Text>Сегодня</Text>
-                      </Flex>
-                    </Flex>
+
+                      {/* Легенда тарифов */}
+                      {availableTariffs.length > 0 && (
+                        <Box>
+                          <Text fontSize="xs" color="gray.500" mb={2} textAlign="center">Цвета тарифов:</Text>
+                          <Flex gap={3} justify="center" fontSize="xs" color="gray.600" wrap="wrap">
+                            {availableTariffs.slice(0, 8).map(tariff => (
+                              <Flex key={tariff.id} align="center" gap={1}>
+                                <Box w={3} h={3} bg={tariff.color} borderRadius="sm" />
+                                <Text>{tariff.name}</Text>
+                              </Flex>
+                            ))}
+                            {availableTariffs.length > 8 && (
+                              <Text color="gray.400">+{availableTariffs.length - 8} еще...</Text>
+                            )}
+                          </Flex>
+                        </Box>
+                      )}
+                    </VStack>
                   </>
                 )}
               </Box>

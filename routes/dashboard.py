@@ -560,7 +560,8 @@ async def get_bookings_calendar(
                         u.full_name as user_name,
                         u.telegram_id,
                         t.name as tariff_name,
-                        b.tariff_id
+                        b.tariff_id,
+                        t.color as tariff_color
                     FROM bookings b
                     LEFT JOIN users u ON b.user_id = u.id
                     LEFT JOIN tariffs t ON b.tariff_id = t.id
@@ -606,7 +607,9 @@ async def get_bookings_calendar(
                         "amount": float(row.amount) if row.amount else 0,
                         "user_name": row.user_name,
                         "telegram_id": row.telegram_id,
-                        "tariff_name": row.tariff_name
+                        "tariff_name": row.tariff_name,
+                        "tariff_id": row.tariff_id,
+                        "tariff_color": row.tariff_color or "#3182CE"
                     }
                     bookings.append(booking)
 

@@ -31,6 +31,7 @@ async def get_active_tariffs(db: Session = Depends(get_db)):
                     "purpose": t.purpose,
                     "service_id": t.service_id if t.service_id is not None else 0,
                     "is_active": t.is_active,
+                    "color": t.color if hasattr(t, 'color') and t.color else "#3182CE",
                 }
                 for t in tariffs
             ]
@@ -61,6 +62,7 @@ async def get_tariffs(db: Session = Depends(get_db), _: str = Depends(verify_tok
                     "purpose": t.purpose,
                     "service_id": t.service_id if t.service_id is not None else 0,
                     "is_active": t.is_active,
+                    "color": t.color if hasattr(t, 'color') and t.color else "#3182CE",
                 }
             )
         return result
@@ -93,6 +95,7 @@ async def get_tariff(tariff_id: int, db: Session = Depends(get_db)):
             "purpose": tariff.purpose,
             "service_id": tariff.service_id if tariff.service_id is not None else 0,
             "is_active": tariff.is_active,
+            "color": tariff.color if hasattr(tariff, 'color') and tariff.color else "#3182CE",
         }
     except HTTPException:
         raise
@@ -142,6 +145,7 @@ async def create_tariff(
             purpose=tariff_data.purpose,
             service_id=service_id,
             is_active=tariff_data.is_active,
+            color=tariff_data.color if hasattr(tariff_data, 'color') and tariff_data.color else "#3182CE",
         )
 
         db.add(tariff)
@@ -159,6 +163,7 @@ async def create_tariff(
             "purpose": tariff.purpose,
             "service_id": tariff.service_id if tariff.service_id is not None else 0,
             "is_active": tariff.is_active,
+            "color": tariff.color if hasattr(tariff, 'color') and tariff.color else "#3182CE",
         }
 
     except HTTPException:
@@ -239,6 +244,7 @@ async def update_tariff(
             "purpose": tariff.purpose,
             "service_id": tariff.service_id if tariff.service_id is not None else 0,
             "is_active": tariff.is_active,
+            "color": tariff.color if hasattr(tariff, 'color') and tariff.color else "#3182CE",
         }
 
     except HTTPException:

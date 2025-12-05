@@ -751,6 +751,7 @@ class Tariff(Base):
     purpose = Column(String(50), nullable=True)
     service_id = Column(Integer, nullable=True)
     is_active = Column(Boolean, default=True, index=True)
+    color = Column(String(20), default="#3182CE", nullable=False)
 
 
 class Promocode(Base):
