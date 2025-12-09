@@ -78,6 +78,11 @@ function AppContent() {
   const [password, setPassword] = useState('');
   const [section, setSection] = useState('dashboard');
   const [currentAdmin, setCurrentAdmin] = useState(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed');
+    return saved === 'true';
+  });
+  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
   // Данные приложения
   const [users, setUsers] = useState([]);
@@ -173,6 +178,15 @@ function AppContent() {
         setCurrentAdmin(null);
       }
     }
+  }, []);
+
+  // Функция переключения состояния sidebar
+  const toggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed(prev => {
+      const newState = !prev;
+      localStorage.setItem('sidebarCollapsed', newState.toString());
+      return newState;
+    });
   }, []);
 
   // Загрузка тикетов с фильтрами и проверкой прав
@@ -1224,6 +1238,10 @@ function AppContent() {
         soundEnabled={soundEnabled}
         onToggleNotificationSound={handleToggleNotificationSound}
         currentAdmin={currentAdmin}
+        isSidebarCollapsed={isSidebarCollapsed}
+        toggleSidebar={toggleSidebar}
+        isSidebarHovered={isSidebarHovered}
+        setIsSidebarHovered={setIsSidebarHovered}
       >
         {/* Suspense wrapper for lazy-loaded sections (P-MED-4) */}
         <Suspense fallback={<LoadingFallback />}>

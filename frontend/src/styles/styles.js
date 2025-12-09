@@ -117,8 +117,10 @@ export const spacing = {
 export const sizes = {
   sidebar: {
     width: '280px',
+    collapsedWidth: '70px',
     padding: spacing.md,
-    buttonPadding: { x: spacing.sm, y: spacing.md }
+    buttonPadding: { x: spacing.sm, y: spacing.md },
+    toggleButtonSize: '32px'
   },
   navbar: {
     height: '70px',
