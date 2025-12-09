@@ -1923,9 +1923,9 @@ const Dashboard = ({
                         <WrapItem key={tariff.id}>
                           <Tag
                             size="md"
-                            variant={selectedTariffIds.includes(tariff.id) ? 'solid' : 'outline'}
-                            bg={selectedTariffIds.includes(tariff.id) ? tariff.color : "transparent"}
-                            color={selectedTariffIds.includes(tariff.id) ? "white" : tariff.color}
+                            variant={selectedTariffIds.includes(tariff.id) ? 'outline' : 'solid'}
+                            bg={selectedTariffIds.includes(tariff.id) ? "transparent" : tariff.color}
+                            color={selectedTariffIds.includes(tariff.id) ? tariff.color : "white"}
                             borderColor={tariff.color}
                             borderWidth="2px"
                             cursor="pointer"
