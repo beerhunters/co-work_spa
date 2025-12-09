@@ -21,7 +21,9 @@ import {
   ModalFooter,
   Box,
   Image,
-  Link
+  Link,
+  Icon,
+  Heading
 } from '@chakra-ui/react';
 import { FiEdit, FiTrash2, FiUpload, FiExternalLink, FiUserX, FiUserCheck } from 'react-icons/fi';
 import { useForm } from 'react-hook-form';
@@ -75,6 +77,9 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [isBanModalOpen, setIsBanModalOpen] = useState(false);
   const [banReason, setBanReason] = useState('');
   const [isBanning, setIsBanning] = useState(false);
+  const [referrer, setReferrer] = useState(null);  // Пригласивший
+  const [invitedUsers, setInvitedUsers] = useState([]);  // Список приглашенных
+  const [loadingReferrals, setLoadingReferrals] = useState(false);  // Загрузка реферальных данных
   const toast = useToast();
 
   // Инициализация react-hook-form с Zod валидацией
@@ -106,8 +111,11 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
       // Обновляем версию при изменении пользователя
       setAvatarVersion(Date.now());
+
+      // Загружаем реферальные данные
+      fetchReferralData(user.id);
     }
-  }, [user, reset]);
+  }, [user, reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ИСПРАВЛЕНИЕ: Проверяем локальное состояние пользователя
   const isPlaceholderAvatar = !currentUser?.avatar || currentUser.avatar === 'placeholder_avatar.png' || currentUser.avatar === null;
@@ -210,6 +218,58 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       });
     } finally {
       setIsDownloadingAvatar(false);
+    }
+  };
+
+  // Функция загрузки реферальных данных
+  const fetchReferralData = async (userId) => {
+    if (!userId) return;
+
+    setLoadingReferrals(true);
+    try {
+      // Загружаем параллельно
+      const [referrerData, invitedData] = await Promise.all([
+        userApi.getReferrer(userId),
+        userApi.getInvitedUsers(userId)
+      ]);
+
+      setReferrer(referrerData);
+      setInvitedUsers(invitedData || []);
+    } catch (error) {
+      console.error('Error fetching referral data:', error);
+      toast({
+        title: 'Ошибка загрузки реферальных данных',
+        description: error.message || 'Не удалось загрузить реферальную информацию',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setLoadingReferrals(false);
+    }
+  };
+
+  // Функция навигации к профилю пользователя
+  const navigateToUserProfile = async (user) => {
+    if (!user || !user.id) return;
+
+    // Обновляем currentUser и перезагружаем данные
+    setCurrentUser(user);
+
+    // Загружаем свежие данные пользователя
+    try {
+      const userData = await userApi.getById(user.id);
+      setCurrentUser(userData);
+      await fetchReferralData(user.id);
+    } catch (error) {
+      console.error('Error navigating to user profile:', error);
+      toast({
+        title: 'Ошибка загрузки профиля',
+        description: error.message || 'Не удалось загрузить профиль пользователя',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
     }
   };
 
@@ -675,6 +735,119 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     <Text color="gray.700" whiteSpace="pre-wrap">
                       {currentUser.admin_comment || 'Комментарий отсутствует'}
                     </Text>
+                  </Box>
+
+                  {/* Реферальная информация */}
+                  <Box
+                    bg="purple.50"
+                    border="1px solid"
+                    borderColor="purple.200"
+                    p={4}
+                    borderRadius="md"
+                  >
+                    <Heading size="sm" mb={3} color="purple.700">
+                      Реферальная информация
+                    </Heading>
+
+                    <VStack align="stretch" spacing={3}>
+                      {/* Кто пригласил */}
+                      <Box>
+                        <Text fontSize="sm" fontWeight="semibold" color="gray.700" mb={2}>
+                          Пригласил:
+                        </Text>
+                        {loadingReferrals ? (
+                          <Text fontSize="sm" color="gray.500">Загрузка...</Text>
+                        ) : referrer ? (
+                          <HStack spacing={2} flexWrap="wrap">
+                            <Link
+                              color="blue.500"
+                              fontSize="sm"
+                              fontWeight="medium"
+                              cursor="pointer"
+                              onClick={() => navigateToUserProfile(referrer)}
+                              _hover={{
+                                color: 'blue.600',
+                                textDecoration: 'underline'
+                              }}
+                              display="flex"
+                              alignItems="center"
+                              gap={1}
+                            >
+                              {referrer.full_name || `Пользователь ${referrer.telegram_id}`}
+                              <Icon as={FiExternalLink} boxSize={3} />
+                            </Link>
+                            <Badge colorScheme="purple" fontSize="xs">
+                              ID: {referrer.telegram_id}
+                            </Badge>
+                          </HStack>
+                        ) : (
+                          <Text fontSize="sm" color="gray.500">-</Text>
+                        )}
+                      </Box>
+
+                      {/* Кого пригласил */}
+                      <Box>
+                        <Text fontSize="sm" fontWeight="semibold" color="gray.700" mb={2}>
+                          Приглашено пользователей: {currentUser.invited_count || 0}
+                        </Text>
+                        {loadingReferrals ? (
+                          <Text fontSize="sm" color="gray.500">Загрузка...</Text>
+                        ) : invitedUsers.length > 0 ? (
+                          <VStack
+                            align="stretch"
+                            spacing={2}
+                            maxH={invitedUsers.length > 2 ? "150px" : "auto"}
+                            overflowY={invitedUsers.length > 2 ? "auto" : "visible"}
+                            bg="white"
+                            p={3}
+                            borderRadius="md"
+                            border="1px solid"
+                            borderColor="gray.200"
+                          >
+                            {invitedUsers.map((invitedUser, index) => (
+                              <HStack
+                                key={invitedUser.id}
+                                spacing={2}
+                                p={2}
+                                bg="gray.50"
+                                borderRadius="md"
+                                border="1px solid"
+                                borderColor="gray.200"
+                                _hover={{ bg: 'gray.100' }}
+                                transition="all 0.2s"
+                              >
+                                <Text fontSize="sm" color="gray.500" minW="20px">
+                                  {index + 1}.
+                                </Text>
+                                <Link
+                                  color="blue.500"
+                                  fontSize="sm"
+                                  fontWeight="medium"
+                                  cursor="pointer"
+                                  onClick={() => navigateToUserProfile(invitedUser)}
+                                  _hover={{
+                                    color: 'blue.600',
+                                    textDecoration: 'underline'
+                                  }}
+                                  display="flex"
+                                  alignItems="center"
+                                  gap={1}
+                                  flex={1}
+                                >
+                                  {invitedUser.full_name || `Пользователь ${invitedUser.telegram_id}`}
+                                  <Icon as={FiExternalLink} boxSize={3} />
+                                </Link>
+                                <Badge colorScheme="blue" fontSize="xs">
+                                  ID: {invitedUser.telegram_id}
+                                </Badge>
+                              </HStack>
+                            ))}
+                          </VStack>
+                        ) : (
+                          <Text fontSize="sm" color="gray.500">Никого не пригласил</Text>
+                        )}
+                      </Box>
+                    </VStack>
                   </Box>
                 </VStack>
               )}

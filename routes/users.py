@@ -327,6 +327,82 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
     return user_data
 
 
+@router.get("/{user_id}/invited-users", response_model=List[UserBase])
+async def get_invited_users(
+    user_id: int,
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
+):
+    """
+    Получить список пользователей, приглашенных данным пользователем.
+
+    Требует разрешение VIEW_USERS.
+    Возвращает список пользователей, где referrer_id равен telegram_id текущего пользователя.
+    """
+    def _get_invited(session):
+        # Сначала получаем telegram_id текущего пользователя
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Находим всех пользователей, где referrer_id == telegram_id текущего
+        invited = session.query(User).filter(
+            User.referrer_id == user.telegram_id
+        ).order_by(User.first_join_time.desc()).all()
+
+        return invited
+
+    try:
+        return DatabaseManager.safe_execute(_get_invited)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении списка приглашенных пользователей для {user_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось получить список приглашенных пользователей"
+        )
+
+
+@router.get("/{user_id}/referrer", response_model=Optional[UserBase])
+async def get_referrer(
+    user_id: int,
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS])),
+):
+    """
+    Получить пользователя, который пригласил данного пользователя.
+
+    Требует разрешение VIEW_USERS.
+    Возвращает пользователя по telegram_id, который совпадает с referrer_id текущего пользователя.
+    Возвращает None, если пользователь не был приглашен.
+    """
+    def _get_referrer(session):
+        user = session.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Если нет referrer_id - возвращаем None
+        if not user.referrer_id:
+            return None
+
+        # Находим пользователя по telegram_id
+        referrer = session.query(User).filter(
+            User.telegram_id == user.referrer_id
+        ).first()
+
+        return referrer
+
+    try:
+        return DatabaseManager.safe_execute(_get_referrer)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении пригласившего для пользователя {user_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось получить информацию о пригласившем"
+        )
+
+
 @router.put("/telegram/{telegram_id}")
 async def update_user_by_telegram_id(telegram_id: int, user_data: UserUpdate):
     """Обновление пользователя по telegram_id. Используется ботом."""

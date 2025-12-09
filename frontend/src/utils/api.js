@@ -522,6 +522,38 @@ export const userApi = {
       throw new Error(error.response?.data?.detail || 'Не удалось экспортировать пользователей');
     }
   },
+
+  // Получить список приглашенных пользователей
+  getInvitedUsers: async (userId) => {
+    try {
+      const res = await apiClient.get(`/users/${userId}/invited-users`);
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/users/${userId}/invited-users`, 'GET', error.response?.status || 'unknown', 'Ошибка получения приглашенных пользователей', error.response?.data);
+
+      if (error.response?.status === 404) {
+        throw new Error('Пользователь не найден');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить список приглашенных пользователей');
+    }
+  },
+
+  // Получить информацию о пригласившем
+  getReferrer: async (userId) => {
+    try {
+      const res = await apiClient.get(`/users/${userId}/referrer`);
+      return res.data;
+    } catch (error) {
+      logger.apiError(`/users/${userId}/referrer`, 'GET', error.response?.status || 'unknown', 'Ошибка получения пригласившего', error.response?.data);
+
+      if (error.response?.status === 404) {
+        throw new Error('Пользователь не найден');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось загрузить информацию о пригласившем');
+    }
+  },
 };
 // -------------------- API: Бронирования (обновленный с фильтрацией) --------------------
 export const bookingApi = {
