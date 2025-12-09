@@ -554,6 +554,7 @@ async def get_bookings_calendar(
                         b.id,
                         b.visit_date,
                         b.visit_time,
+                        b.duration,
                         b.confirmed,
                         b.paid,
                         b.amount,
@@ -561,7 +562,8 @@ async def get_bookings_calendar(
                         u.telegram_id,
                         t.name as tariff_name,
                         b.tariff_id,
-                        t.color as tariff_color
+                        t.color as tariff_color,
+                        t.purpose as tariff_purpose
                     FROM bookings b
                     LEFT JOIN users u ON b.user_id = u.id
                     LEFT JOIN tariffs t ON b.tariff_id = t.id
@@ -609,6 +611,7 @@ async def get_bookings_calendar(
                             if isinstance(row.visit_time, str) and len(row.visit_time) >= 5
                             else None
                         ),
+                        "duration": row.duration if hasattr(row, 'duration') else None,
                         "confirmed": bool(row.confirmed),
                         "paid": bool(row.paid),
                         "amount": float(row.amount) if row.amount else 0,
@@ -616,7 +619,8 @@ async def get_bookings_calendar(
                         "telegram_id": row.telegram_id,
                         "tariff_name": row.tariff_name,
                         "tariff_id": row.tariff_id,
-                        "tariff_color": row.tariff_color or "#3182CE"
+                        "tariff_color": row.tariff_color or "#3182CE",
+                        "tariff_purpose": row.tariff_purpose if hasattr(row, 'tariff_purpose') else None
                     }
                     bookings.append(booking)
 

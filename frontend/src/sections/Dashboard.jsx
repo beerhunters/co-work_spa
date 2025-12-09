@@ -1028,6 +1028,39 @@ const Dashboard = ({
     }
   }, []);
 
+  // Функция для расчета времени окончания бронирования
+  const calculateEndTime = (startTime, durationHours) => {
+    if (!startTime || !durationHours) return null;
+
+    try {
+      // Парсим время начала (формат "HH:MM")
+      const [hours, minutes] = startTime.split(':').map(Number);
+
+      // Создаем объект Date для расчетов (день не важен)
+      const date = new Date();
+      date.setHours(hours, minutes, 0, 0);
+
+      // Добавляем длительность в часах
+      date.setHours(date.getHours() + durationHours);
+
+      // Форматируем обратно в "HH:MM"
+      const endHours = String(date.getHours()).padStart(2, '0');
+      const endMinutes = String(date.getMinutes()).padStart(2, '0');
+
+      return `${endHours}:${endMinutes}`;
+    } catch (error) {
+      console.error('Error calculating end time:', error);
+      return null;
+    }
+  };
+
+  // Проверка, является ли тариф переговорной комнатой
+  const isMeetingRoom = (tariffPurpose) => {
+    if (!tariffPurpose) return false;
+    const meetingRoomTypes = ['meeting_room', 'переговорная', 'meeting'];
+    return meetingRoomTypes.includes(tariffPurpose.toLowerCase());
+  };
+
   // Загрузка данных бронирований для календаря
   const loadBookingsData = useCallback(async (year, month) => {
     setIsLoadingBookings(true);
@@ -2022,8 +2055,43 @@ const Dashboard = ({
                               {bookings.slice(0, 3).map((booking) => (
                                 <Tooltip
                                   key={booking.id}
-                                  label={`${booking.visit_time || ''} | ${booking.user_name || 'Без имени'}`}
-                                  // label={`${booking.visit_time || ''} | ${booking.user_name || 'Без имени'} | ${booking.tariff_name || ''}`}
+                                  label={
+                                    <Box>
+                                      {(() => {
+                                        const userName = booking.user_name || 'Без имени';
+                                        const tariffName = booking.tariff_name || 'Без названия';
+
+                                        // Если это переговорная комната и есть время и длительность
+                                        if (
+                                          isMeetingRoom(booking.tariff_purpose) &&
+                                          booking.visit_time &&
+                                          booking.duration
+                                        ) {
+                                          const startTime = booking.visit_time.substring(0, 5); // HH:MM
+                                          const endTime = calculateEndTime(booking.visit_time, booking.duration);
+
+                                          if (endTime) {
+                                            return (
+                                              <>
+                                                <Text fontWeight="bold">Время: с {startTime} до {endTime}</Text>
+                                                <Text>Клиент: {userName}</Text>
+                                                <Text>Тариф: {tariffName}</Text>
+                                              </>
+                                            );
+                                          }
+                                        }
+
+                                        // Для остальных случаев
+                                        return (
+                                          <>
+                                            {booking.visit_time && <Text fontWeight="bold">Время: {booking.visit_time.substring(0, 5)}</Text>}
+                                            <Text>Клиент: {userName}</Text>
+                                            <Text>Тариф: {tariffName}</Text>
+                                          </>
+                                        );
+                                      })()}
+                                    </Box>
+                                  }
                                   placement="top"
                                   bg="gray.800"
                                   color="white"
