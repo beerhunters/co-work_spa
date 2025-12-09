@@ -48,7 +48,8 @@ const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
     price: 0,
     purpose: 'coworking',
     service_id: null,
-    is_active: true
+    is_active: true,
+    color: '#3182CE'
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState({});
@@ -61,7 +62,8 @@ const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
       price: 0,
       purpose: 'coworking',
       service_id: null,
-      is_active: true
+      is_active: true,
+      color: '#3182CE'
     });
     setErrors({});
   };
@@ -249,6 +251,34 @@ const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
               <FormHelperText>
                 {errors.service_id || 'ID услуги в внешней системе (например, Rubitime)'}
               </FormHelperText>
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Цвет тарифа</FormLabel>
+              <HStack spacing={3}>
+                <Input
+                  type="color"
+                  value={formData.color}
+                  onChange={(e) => setFormData({...formData, color: e.target.value})}
+                  w="80px"
+                  h="40px"
+                  cursor="pointer"
+                />
+                <Box
+                  w="40px"
+                  h="40px"
+                  bg={formData.color}
+                  borderRadius="md"
+                  border="2px solid"
+                  borderColor="gray.200"
+                />
+                <VStack align="start" spacing={0} flex={1}>
+                  <Text fontSize="sm" fontWeight="medium">{formData.color.toUpperCase()}</Text>
+                  <Text fontSize="xs" color="gray.600">
+                    Цвет отображается в календаре бронирований
+                  </Text>
+                </VStack>
+              </HStack>
             </FormControl>
 
             <FormControl>

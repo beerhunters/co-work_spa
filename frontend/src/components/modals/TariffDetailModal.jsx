@@ -49,7 +49,8 @@ const TariffDetailModal = ({ isOpen, onClose, tariff, onUpdate }) => {
     price: 0,
     purpose: 'coworking',
     service_id: null,
-    is_active: true
+    is_active: true,
+    color: '#3182CE'
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -66,7 +67,8 @@ const TariffDetailModal = ({ isOpen, onClose, tariff, onUpdate }) => {
         price: tariff.price || 0,
         purpose: tariff.purpose || 'coworking',
         service_id: tariff.service_id || null,
-        is_active: tariff.is_active ?? true
+        is_active: tariff.is_active ?? true,
+        color: tariff.color || '#3182CE'
       });
     }
     setErrors({});
@@ -169,7 +171,8 @@ const TariffDetailModal = ({ isOpen, onClose, tariff, onUpdate }) => {
       price: tariff.price || 0,
       purpose: tariff.purpose || 'coworking',
       service_id: tariff.service_id || null,
-      is_active: tariff.is_active ?? true
+      is_active: tariff.is_active ?? true,
+      color: tariff.color || '#3182CE'
     });
     setErrors({});
     setIsEditing(false);
@@ -317,6 +320,34 @@ const TariffDetailModal = ({ isOpen, onClose, tariff, onUpdate }) => {
                 </FormControl>
 
                 <FormControl>
+                  <FormLabel>Цвет тарифа</FormLabel>
+                  <HStack spacing={3}>
+                    <Input
+                      type="color"
+                      value={formData.color}
+                      onChange={(e) => setFormData({...formData, color: e.target.value})}
+                      w="80px"
+                      h="40px"
+                      cursor="pointer"
+                    />
+                    <Box
+                      w="40px"
+                      h="40px"
+                      bg={formData.color}
+                      borderRadius="md"
+                      border="2px solid"
+                      borderColor="gray.200"
+                    />
+                    <VStack align="start" spacing={0} flex={1}>
+                      <Text fontSize="sm" fontWeight="medium">{formData.color.toUpperCase()}</Text>
+                      <Text fontSize="xs" color="gray.600">
+                        Цвет отображается в календаре бронирований
+                      </Text>
+                    </VStack>
+                  </HStack>
+                </FormControl>
+
+                <FormControl>
                   <HStack justify="space-between">
                     <VStack align="start" spacing={0}>
                       <FormLabel mb={0}>Активный тариф</FormLabel>
@@ -370,6 +401,23 @@ const TariffDetailModal = ({ isOpen, onClose, tariff, onUpdate }) => {
                     {tariff.is_active ? 'Активный' : 'Неактивный'}
                   </Badge>
                 </HStack>
+
+                <Box>
+                  <Text fontWeight="bold" mb={2}>Цвет тарифа:</Text>
+                  <HStack spacing={3}>
+                    <Box
+                      w="40px"
+                      h="40px"
+                      bg={tariff.color || '#3182CE'}
+                      borderRadius="md"
+                      border="2px solid"
+                      borderColor="gray.200"
+                    />
+                    <Text fontSize="sm" fontWeight="medium">
+                      {(tariff.color || '#3182CE').toUpperCase()}
+                    </Text>
+                  </HStack>
+                </Box>
 
                 {/* Информационные сообщения */}
                 {!tariff.is_active && (
