@@ -8,7 +8,7 @@ from typing import List, Dict, Optional
 import aiofiles
 from celery import Task
 from aiogram.types import BufferedInputFile, InputMediaPhoto
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 from celery_app import celery_app
 from config import MOSCOW_TZ
@@ -339,6 +339,13 @@ async def _send_newsletter_async(
                 except Exception as db_error:
                     logger.error(f"Failed to update bot_blocked status for {telegram_id}: {db_error}")
 
+            except TelegramBadRequest as e:
+                # Чат не найден или пользователь удалил аккаунт
+                failed_count += 1
+                send_status = 'chat_not_found'
+                error_message = f"Чат не найден: {str(e)}"
+                logger.warning(f"Chat not found for telegram_id {telegram_id}: {e}")
+
             except Exception as e:
                 failed_count += 1
                 send_status = 'failed'
@@ -388,7 +395,9 @@ async def _send_newsletter_async(
         success_count=success_count,
         failed_count=failed_count,
         status=status,
-        **newsletter_data
+        recipient_type=newsletter_data.get("recipient_type"),
+        segment_type=newsletter_data.get("segment_type"),
+        segment_params=newsletter_data.get("segment_params")
     )
 
     # Clean up photos
