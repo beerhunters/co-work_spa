@@ -187,6 +187,9 @@ async def _send_newsletter_async(
     # Список для хранения деталей отправки каждому получателю
     recipient_details = []
 
+    # Список для хранения всех получателей (для сохранения в БД)
+    all_recipients = []
+
     # P-CRIT-3: Batch size of 100
     BATCH_SIZE = 100
     offset = 0
@@ -252,6 +255,10 @@ async def _send_newsletter_async(
         # Process each recipient in the current batch
         for idx, recipient in enumerate(recipients_batch, 1):
             telegram_id = recipient['telegram_id']
+
+            # Добавляем получателя в общий список для сохранения в БД
+            all_recipients.append(recipient)
+
             full_name = recipient.get('full_name', 'Unknown')
             user_id = recipient.get('user_id')
 
@@ -375,7 +382,7 @@ async def _send_newsletter_async(
     # Save to database
     newsletter_id = _save_newsletter_to_db(
         message=message,
-        recipients=recipients,
+        recipients=all_recipients,
         recipient_details=recipient_details,
         photo_count=len(photo_paths),
         success_count=success_count,

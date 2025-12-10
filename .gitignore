@@ -170,9 +170,9 @@ web/static/adminlte/
 avatars/
 /config/logging_config.json
 /CLAUDE.md
-/правки/newsletters.md
+/pravki/newsletters.md
 /newsletter_photos/
-/правки/
+/pravki/
 /frontend/src/sections/Dashboard.jsx.backup
 /docs/
 /.env.bak
