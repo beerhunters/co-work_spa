@@ -20,82 +20,13 @@ import { StatCardSkeleton } from '../components/LoadingSkeletons';
 
 const logger = createLogger('Dashboard');
 
-// Компонент Sparkline для миниатюрного графика (P-HIGH-4: optimized with React.memo)
-// Performance: Prevents re-renders when props haven't changed (~75% reduction in re-renders)
-const Sparkline = React.memo(({ data = [], width = 80, height = 30, color = '#3B82F6', strokeWidth = 1.5 }) => {
-  // Memoize expensive path calculations (P-HIGH-4)
-  // Only recalculate when data, width, or height changes
-  const pathD = useMemo(() => {
-    if (!data || data.length === 0) return null;
-
-    const max = Math.max(...data, 1); // Минимум 1 чтобы избежать деления на 0
-    const min = Math.min(...data, 0);
-    const range = max - min || 1;
-
-    // Вычисляем точки для SVG path
-    const points = data.map((value, index) => {
-      const x = (index / (data.length - 1 || 1)) * width;
-      const y = height - ((value - min) / range) * height;
-      return `${x},${y}`;
-    }).join(' ');
-
-    return `M ${points}`;
-  }, [data, width, height]);
-
-  if (!pathD) return null;
-
-  return (
-    <svg
-      width={width}
-      height={height}
-      style={{ opacity: 0.7 }}
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-    >
-      {/* Область под линией (заливка) */}
-      <defs>
-        <linearGradient id={`gradient-${color}`} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" style={{ stopColor: color, stopOpacity: 0.3 }} />
-          <stop offset="100%" style={{ stopColor: color, stopOpacity: 0.05 }} />
-        </linearGradient>
-      </defs>
-
-      {/* Заливка под линией */}
-      <path
-        d={`${pathD} L ${width},${height} L 0,${height} Z`}
-        fill={`url(#gradient-${color})`}
-      />
-
-      {/* Линия графика */}
-      <path
-        d={pathD}
-        fill="none"
-        stroke={color}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}, (prevProps, nextProps) => {
-  // Custom comparison for optimal re-rendering (P-HIGH-4)
-  // Only re-render if data values or styling props actually changed
-  return (
-    prevProps.data.length === nextProps.data.length &&
-    prevProps.data.every((val, idx) => val === nextProps.data[idx]) &&
-    prevProps.color === nextProps.color &&
-    prevProps.width === nextProps.width &&
-    prevProps.height === nextProps.height &&
-    prevProps.strokeWidth === nextProps.strokeWidth
-  );
-});
-
 const Dashboard = ({
   stats,
   chartRef,
   chartInstanceRef,
   section,
-  setSection
+  setSection,
+  offices = []
 }) => {
   const [chartData, setChartData] = useState(null);
   const [availablePeriods, setAvailablePeriods] = useState([]);
@@ -116,6 +47,14 @@ const Dashboard = ({
   // Состояния для календаря бронирований
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [bookingsData, setBookingsData] = useState([]);
+
+  // Вычисление количества свободных офисов (без постояльцев)
+  const freeOfficesCount = useMemo(() => {
+    if (!offices || offices.length === 0) return 0;
+    return offices.filter(office =>
+      office.is_active && (!office.tenants || office.tenants.length === 0)
+    ).length;
+  }, [offices]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(false);
   const [bookingsError, setBookingsError] = useState(null);
 
@@ -1332,7 +1271,7 @@ const Dashboard = ({
         {!stats ? (
           <StatCardSkeleton count={4} />
         ) : (
-          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={spacing.md} data-tour="dashboard-stats">
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 5 }} spacing={spacing.md} data-tour="dashboard-stats">
               <Card
                 bgGradient={colors.stats.users.gradient}
                 color="white"
@@ -1390,17 +1329,6 @@ const Dashboard = ({
                         </VStack>
                       </StatHelpText>
                     </Stat>
-                    {stats?.users?.sparkline?.values?.length > 0 && (
-                      <Box ml={2} mt={-1}>
-                        <Sparkline
-                          data={stats.users.sparkline.values}
-                          width={80}
-                          height={40}
-                          color="rgba(255, 255, 255, 0.8)"
-                          strokeWidth={2}
-                        />
-                      </Box>
-                    )}
                   </Flex>
                 </CardBody>
               </Card>
@@ -1446,17 +1374,6 @@ const Dashboard = ({
                         )}
                       </StatHelpText>
                     </Stat>
-                    {stats?.bookings?.sparkline?.values?.length > 0 && (
-                      <Box ml={2} mt={-1}>
-                        <Sparkline
-                          data={stats.bookings.sparkline.values}
-                          width={80}
-                          height={40}
-                          color="rgba(255, 255, 255, 0.8)"
-                          strokeWidth={2}
-                        />
-                      </Box>
-                    )}
                   </Flex>
                 </CardBody>
               </Card>
@@ -1502,17 +1419,6 @@ const Dashboard = ({
                         )}
                       </StatHelpText>
                     </Stat>
-                    {stats?.average_booking_value?.sparkline?.values?.length > 0 && (
-                      <Box ml={2} mt={-1}>
-                        <Sparkline
-                          data={stats.average_booking_value.sparkline.values}
-                          width={80}
-                          height={40}
-                          color="rgba(255, 255, 255, 0.8)"
-                          strokeWidth={2}
-                        />
-                      </Box>
-                    )}
                   </Flex>
                 </CardBody>
               </Card>
@@ -1558,17 +1464,37 @@ const Dashboard = ({
                         )}
                       </StatHelpText>
                     </Stat>
-                    {stats?.tickets?.sparkline?.values?.length > 0 && (
-                      <Box ml={2} mt={-1}>
-                        <Sparkline
-                          data={stats.tickets.sparkline.values}
-                          width={80}
-                          height={40}
-                          color="rgba(255, 255, 255, 0.8)"
-                          strokeWidth={2}
-                        />
-                      </Box>
-                    )}
+                  </Flex>
+                </CardBody>
+              </Card>
+
+              <Card
+                bgGradient="linear(to-br, purple.400, purple.600)"
+                color="white"
+                borderRadius={styles.card.borderRadius}
+                boxShadow="lg"
+                transition="all 0.3s ease"
+                _hover={{
+                  transform: styles.card.hoverTransform,
+                  boxShadow: styles.card.hoverShadow
+                }}
+              >
+                <CardBody p={spacing.md}>
+                  <Flex justify="space-between" align="flex-start">
+                    <Stat flex="1">
+                      <StatLabel fontSize={typography.fontSizes.sm} fontWeight={typography.fontWeights.medium} opacity={0.9}>
+                        Свободные офисы
+                      </StatLabel>
+                      <StatNumber fontSize={typography.fontSizes['3xl']} fontWeight={typography.fontWeights.bold} my={spacing.xs}>
+                        {freeOfficesCount}
+                      </StatNumber>
+                      <StatHelpText opacity={0.9}>
+                        <HStack spacing={1}>
+                          <Icon as={FiUsers} />
+                          <Text>Без постояльцев</Text>
+                        </HStack>
+                      </StatHelpText>
+                    </Stat>
                   </Flex>
                 </CardBody>
               </Card>

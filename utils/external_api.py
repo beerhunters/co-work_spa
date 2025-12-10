@@ -282,29 +282,48 @@ def update_rubitime_booking(
         if visit_time:
             datetime_str += f' {visit_time.strftime("%H:%M:%S")}'
 
-        # Данные для обновления
-        update_data = {
-            "service_id": service_id,
-            "date": datetime_str,
+        # Формируем параметры согласно документации Rubitime
+        params = {
+            "id": int(rubitime_id),
+            "rk": RUBITIME_API_KEY,
+            "service_id": int(service_id),
+            "record": datetime_str,  # ДАТА И ВРЕМЯ ЗАПИСИ
         }
 
         if duration:
-            update_data["duration"] = duration * 60  # В минутах
+            params["duration"] = int(duration * 60)  # В минутах
+
+        url = f"{RUBITIME_BASE_URL}update-record"
+
+        logger.info(f"Обновление записи Rubitime ID {rubitime_id}: {url}")
+        logger.info(f"Параметры: {params}")
 
         # API запрос к Rubitime
-        response = requests.put(
-            f"{RUBITIME_BASE_URL}/records/{rubitime_id}",
-            headers={
-                "Authorization": f"Bearer {RUBITIME_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=update_data,
+        response = requests.post(
+            url,
+            json=params,
             timeout=10
         )
 
-        response.raise_for_status()
-        logger.info(f"Rubitime booking {rubitime_id} updated successfully")
-        return True
+        response_text = response.text
+        logger.info(f"Ответ Rubitime update ({response.status_code}): {response_text}")
+
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                if data.get("status") == "success" or data.get("status") == "ok":
+                    logger.info(f"Rubitime booking {rubitime_id} updated successfully")
+                    return True
+                else:
+                    error_msg = data.get("message", "Неизвестная ошибка")
+                    logger.warning(f"Ошибка обновления Rubitime: {error_msg}")
+                    return False
+            except Exception as e:
+                logger.error(f"Ошибка парсинга ответа Rubitime update: {e}")
+                return False
+        else:
+            logger.warning(f"Rubitime вернул статус {response.status_code}: {response_text}")
+            return False
 
     except Exception as e:
         logger.error(f"Ошибка обновления Rubitime booking {rubitime_id}: {e}")

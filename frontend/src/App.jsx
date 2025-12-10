@@ -13,6 +13,7 @@ import { GlobalLoadingProvider, useGlobalLoading } from './hooks/useGlobalLoadin
 const BookingDetailModal = lazy(() => import('./components/modals').then(m => ({ default: m.BookingDetailModal })));
 const PromocodeDetailModal = lazy(() => import('./components/modals').then(m => ({ default: m.PromocodeDetailModal })));
 const TariffDetailModal = lazy(() => import('./components/modals').then(m => ({ default: m.TariffDetailModal })));
+const OfficeDetailModal = lazy(() => import('./components/modals/OfficeDetailModal'));
 const TicketDetailModal = lazy(() => import('./components/modals').then(m => ({ default: m.TicketDetailModal })));
 const UserDetailModal = lazy(() => import('./components/modals').then(m => ({ default: m.UserDetailModal })));
 const AdminDetailModal = lazy(() => import('./components/modals').then(m => ({ default: m.AdminDetailModal })));
@@ -23,6 +24,7 @@ const Dashboard = lazy(() => import('./sections/Dashboard'));
 const Users = lazy(() => import('./sections/Users'));
 const Bookings = lazy(() => import('./sections/Bookings'));
 const Tariffs = lazy(() => import('./sections/Tariffs'));
+const Offices = lazy(() => import('./sections/Offices'));
 const Promocodes = lazy(() => import('./sections/Promocodes'));
 const Tickets = lazy(() => import('./sections/Tickets'));
 const Notifications = lazy(() => import('./sections/Notifications'));
@@ -44,6 +46,7 @@ import {
   userApi,
   promocodeApi,
   tariffApi,
+  officeApi,
   bookingApi,
   ticketApi,
   adminApi,
@@ -89,6 +92,7 @@ function AppContent() {
   const [bookings, setBookings] = useState([]);
   const [bookingsMeta, setBookingsMeta] = useState({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
   const [tariffs, setTariffs] = useState([]);
+  const [offices, setOffices] = useState([]);
   const [promocodes, setPromocodes] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [ticketsMeta, setTicketsMeta] = useState({ total_count: 0, page: 1, per_page: 20, total_pages: 0 });
@@ -128,6 +132,7 @@ function AppContent() {
     bookings: setBookings,
     bookingsMeta: setBookingsMeta,
     tariffs: setTariffs,
+    offices: setOffices,
     promocodes: setPromocodes,
     tickets: setTickets,
     ticketsMeta: setTicketsMeta,
@@ -398,6 +403,7 @@ function AppContent() {
         users: 'view_users',
         bookings: 'view_bookings',
         tariffs: 'view_tariffs',
+        offices: 'view_offices',
         promocodes: 'view_promocodes',
         tickets: 'view_tickets',
         notifications: 'view_notifications',
@@ -816,6 +822,7 @@ function AppContent() {
             users: 'view_users',
             bookings: 'view_bookings',
             tariffs: 'view_tariffs',
+            offices: 'view_offices',
             promocodes: 'view_promocodes',
             tickets: 'view_tickets',
             notifications: 'view_notifications',
@@ -963,6 +970,17 @@ function AppContent() {
             onClose();
           }
         }
+      } else if (selectedItem?.type === 'office') {
+        await fetchSectionDataEnhanced('offices');
+        if (selectedItem?.id) {
+          try {
+            const updatedOffice = await officeApi.getById(selectedItem.id);
+            setSelectedItem(prev => ({ ...updatedOffice, type: prev.type }));
+          } catch (error) {
+            logger.info('Офис не найден, возможно был удален');
+            onClose();
+          }
+        }
       } else if (selectedItem?.type === 'user') {
         await fetchSectionDataEnhanced('users');
         if (selectedItem?.id) {
@@ -1045,6 +1063,7 @@ function AppContent() {
       users: 'view_users',
       bookings: 'view_bookings',
       tariffs: 'view_tariffs',
+      offices: 'view_offices',
       promocodes: 'view_promocodes',
       tickets: 'view_tickets',
       notifications: 'view_notifications',
@@ -1093,6 +1112,7 @@ function AppContent() {
             users={users}
             tickets={tickets}
             bookings={bookings}
+            offices={offices}
             chartRef={chartRef}
             chartInstanceRef={chartInstanceRef}
             isChartInitialized={isChartInitialized}
@@ -1123,6 +1143,16 @@ function AppContent() {
             tariffs={tariffs}
             openDetailModal={openDetailModal}
             onUpdate={() => fetchSectionDataEnhanced('tariffs')}
+            currentAdmin={currentAdmin}
+          />
+        );
+      case 'offices':
+        return (
+          <Offices
+            offices={offices}
+            users={users}
+            openDetailModal={openDetailModal}
+            onUpdate={() => fetchSectionDataEnhanced('offices')}
             currentAdmin={currentAdmin}
           />
         );
@@ -1185,6 +1215,7 @@ function AppContent() {
             users={users}
             tickets={tickets}
             bookings={bookings}
+            offices={offices}
             chartRef={chartRef}
             chartInstanceRef={chartInstanceRef}
             isChartInitialized={isChartInitialized}
@@ -1277,6 +1308,18 @@ function AppContent() {
             onClose={onClose}
             tariff={selectedItem}
             onUpdate={() => fetchSectionDataEnhanced('tariffs')}
+            currentAdmin={currentAdmin}
+          />
+        )}
+
+        {selectedItem?.type === 'office' && (
+          <OfficeDetailModal
+            isOpen={isOpen}
+            onClose={onClose}
+            office={selectedItem}
+            users={users}
+            offices={offices}
+            onUpdate={() => fetchSectionDataEnhanced('offices')}
             currentAdmin={currentAdmin}
           />
         )}

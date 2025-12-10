@@ -177,3 +177,6 @@ echo "  docker-compose logs -f frontend          # Логи фронтенда"
 echo "  docker-compose down                      # Остановка"
 echo ""
 echo "🎯 Для продакшена используйте: ./scripts/start-prod.sh"
+
+sleep 10
+docker-compose logs -f

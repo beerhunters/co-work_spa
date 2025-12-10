@@ -41,6 +41,7 @@ export const fetchInitialData = async (dataSetters, setLastNotificationId, toast
     { url: '/users?per_page=1000', setter: dataSetters.users },
     { url: '/bookings/detailed?per_page=500', setter: (data) => dataSetters.bookings(data.bookings || []) },
     { url: '/tariffs', setter: dataSetters.tariffs },
+    { url: '/offices', setter: dataSetters.offices },
     { url: '/promocodes', setter: dataSetters.promocodes },
     { url: '/tickets/detailed?per_page=100', setter: (data) => dataSetters.tickets(data.tickets || []) },
     { url: '/newsletters', setter: dataSetters.newsletters },
@@ -87,6 +88,7 @@ export const fetchSectionData = async (sectionName, dataSetters) => {
     'users': { url: '/users?per_page=1000', setter: dataSetters.users },
     'bookings': { url: '/bookings/detailed?per_page=500', setter: (data) => dataSetters.bookings(data.bookings || []) },
     'tariffs': { url: '/tariffs', setter: dataSetters.tariffs },
+    'offices': { url: '/offices', setter: dataSetters.offices },
     'promocodes': { url: '/promocodes', setter: dataSetters.promocodes },
     'tickets': { url: '/tickets/detailed?per_page=100', setter: (data) => dataSetters.tickets(data.tickets || []) },
     'notifications': { url: '/notifications?per_page=500', setter: dataSetters.notifications },
@@ -1012,6 +1014,49 @@ export const tariffApi = {
 
   getActive: async () => {
     const res = await apiClient.get('/tariffs/active');
+    return res.data;
+  }
+};
+
+// -------------------- API: Офисы --------------------
+export const officeApi = {
+  getAll: async () => {
+    const res = await apiClient.get('/offices');
+    return res.data;
+  },
+
+  getById: async (officeId) => {
+    const res = await apiClient.get(`/offices/${officeId}`);
+    return res.data;
+  },
+
+  create: async (officeData) => {
+    const res = await apiClient.post('/offices', officeData);
+    return res.data;
+  },
+
+  update: async (officeId, officeData) => {
+    const res = await apiClient.put(`/offices/${officeId}`, officeData);
+    return res.data;
+  },
+
+  delete: async (officeId) => {
+    const res = await apiClient.delete(`/offices/${officeId}`);
+    return res.data;
+  },
+
+  getActive: async () => {
+    const res = await apiClient.get('/offices/active');
+    return res.data;
+  },
+
+  clear: async (officeId) => {
+    const res = await apiClient.post(`/offices/${officeId}/clear`);
+    return res.data;
+  },
+
+  relocate: async (sourceOfficeId, targetOfficeId) => {
+    const res = await apiClient.post(`/offices/${sourceOfficeId}/relocate/${targetOfficeId}`);
     return res.data;
   }
 };

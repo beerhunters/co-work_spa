@@ -29,6 +29,7 @@ from sqlalchemy import (
     Index,
     event,
     Text,
+    Table,
 )
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
@@ -483,6 +484,12 @@ class Permission(enum.Enum):
     EDIT_TARIFFS = "edit_tariffs"
     DELETE_TARIFFS = "delete_tariffs"
 
+    # Офисы
+    VIEW_OFFICES = "view_offices"
+    CREATE_OFFICES = "create_offices"
+    EDIT_OFFICES = "edit_offices"
+    DELETE_OFFICES = "delete_offices"
+
     # Промокоды
     VIEW_PROMOCODES = "view_promocodes"
     CREATE_PROMOCODES = "create_promocodes"
@@ -735,6 +742,7 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    offices = relationship("Office", secondary="office_tenants", back_populates="tenants")
 
     def __repr__(self) -> str:
         return f"<User {self.telegram_id} - {self.full_name}>"
@@ -780,6 +788,85 @@ class Promocode(Base):
             return False
 
         return True
+
+
+class Office(Base):
+    """Модель офиса для долгосрочной аренды."""
+
+    __tablename__ = "offices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    office_number = Column(String(20), nullable=False, unique=True, index=True)
+    floor = Column(Integer, nullable=False, index=True)
+    capacity = Column(Integer, nullable=False)  # Вместимость
+    price_per_month = Column(Float, nullable=False)  # Стоимость в месяц
+
+    # Информация об аренде
+    duration_months = Column(Integer, nullable=True)  # Длительность аренды (месяцы)
+    rental_start_date = Column(DateTime, nullable=True)  # Дата начала аренды
+    rental_end_date = Column(DateTime, nullable=True)  # Дата окончания аренды
+
+    # Дата аренды = день месяца для ежемесячного платежа (1-31)
+    payment_day = Column(Integer, nullable=True)  # День месяца для платежа
+
+    # Напоминания
+    admin_reminder_enabled = Column(Boolean, default=False)
+    admin_reminder_days = Column(Integer, default=5)  # За сколько дней до платежа
+
+    tenant_reminder_enabled = Column(Boolean, default=False)
+    tenant_reminder_days = Column(Integer, default=5)
+
+    # Комментарий
+    comment = Column(Text, nullable=True)
+
+    # Метаданные
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), onupdate=lambda: datetime.now(MOSCOW_TZ))
+
+    # Связь с постояльцами (many-to-many)
+    tenants = relationship("User", secondary="office_tenants", back_populates="offices")
+
+    # Связь с настройками напоминаний для конкретных постояльцев
+    tenant_reminders = relationship("OfficeTenantReminder", back_populates="office", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_offices_floor_active', 'floor', 'is_active'),
+    )
+
+    def __repr__(self):
+        return f"<Office(id={self.id}, number='{self.office_number}', floor={self.floor})>"
+
+
+# Промежуточная таблица для связи офисов и постояльцев
+office_tenants = Table(
+    'office_tenants',
+    Base.metadata,
+    Column('office_id', Integer, ForeignKey('offices.id', ondelete='CASCADE'), primary_key=True),
+    Column('user_id', Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True),
+    Column('added_at', DateTime, default=lambda: datetime.now(MOSCOW_TZ))
+)
+
+
+class OfficeTenantReminder(Base):
+    """Настройки напоминаний для конкретных постояльцев офиса."""
+
+    __tablename__ = "office_tenant_reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    office_id = Column(Integer, ForeignKey('offices.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    is_enabled = Column(Boolean, default=True)
+
+    office = relationship("Office", back_populates="tenant_reminders")
+    user = relationship("User")
+
+    __table_args__ = (
+        Index('idx_office_tenant_reminder', 'office_id', 'user_id', unique=True),
+    )
+
+    def __repr__(self):
+        return f"<OfficeTenantReminder(office_id={self.office_id}, user_id={self.user_id})>"
 
 
 class Booking(Base):

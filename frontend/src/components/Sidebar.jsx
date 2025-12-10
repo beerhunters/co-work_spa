@@ -10,7 +10,7 @@ import {
   Collapse,
   Text
 } from '@chakra-ui/react';
-import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiMail, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronRight, FiFileText } from 'react-icons/fi';
+import { FiHome, FiTrendingUp, FiUser, FiCalendar, FiTag, FiPercent, FiHelpCircle, FiBell, FiSend, FiMail, FiLogOut, FiShield, FiDatabase, FiActivity, FiLayers, FiCpu, FiKey, FiSettings, FiChevronRight, FiFileText, FiBriefcase } from 'react-icons/fi';
 import { colors, sizes, styles, typography, spacing, animations } from '../styles/styles';
 
 const Sidebar = ({ section, setSection, handleLogout, currentAdmin, isCollapsed, isHovered, setIsHovered }) => {
@@ -22,6 +22,7 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin, isCollapsed,
     { icon: FiUser, label: 'Пользователи', section: 'users', color: 'blue' },
     { icon: FiCalendar, label: 'Бронирования', section: 'bookings', color: 'green' },
     { icon: FiTag, label: 'Тарифы', section: 'tariffs', color: 'cyan' },
+    { icon: FiBriefcase, label: 'Офисы', section: 'offices', color: 'orange' },
     { icon: FiPercent, label: 'Промокоды', section: 'promocodes', color: 'orange' },
     { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },

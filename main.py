@@ -30,12 +30,14 @@ from models.models import cleanup_database
 from utils.logger import get_logger, log_startup_info
 from utils.database_maintenance import start_maintenance_tasks
 from utils.backup_manager import start_backup_scheduler, stop_backup_scheduler
+from utils.office_reminder_scheduler import start_office_reminder_scheduler
 
 # Импорты всех роутеров
 from routes.auth import router as auth_router
 from routes.users import router as users_router
 from routes.bookings import router as bookings_router
 from routes.tariffs import router as tariffs_router
+from routes.offices import router as offices_router
 from routes.promocodes import router as promocodes_router
 from routes.tickets import router as tickets_router
 from routes.payments import router as payments_router
@@ -263,6 +265,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка запуска планировщика бэкапов: {e}")
 
+    # Запускаем планировщик напоминаний по офисам
+    try:
+        start_office_reminder_scheduler()
+        logger.info("🏢 Планировщик напоминаний по офисам запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска планировщика напоминаний по офисам: {e}")
+
     yield
 
     # Shutdown
@@ -393,6 +402,7 @@ routers = [
     (users_router, "users"),
     (bookings_router, "bookings"),
     (tariffs_router, "tariffs"),
+    (offices_router, "offices"),
     (promocodes_router, "promocodes"),
     (tickets_router, "tickets"),
     (payments_router, "payments"),

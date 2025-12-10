@@ -70,6 +70,12 @@ class PermissionEnum(str, Enum):
     # Бэкапы
     MANAGE_BACKUPS = "manage_backups"
 
+    # Офисы
+    VIEW_OFFICES = "view_offices"
+    CREATE_OFFICES = "create_offices"
+    EDIT_OFFICES = "edit_offices"
+    DELETE_OFFICES = "delete_offices"
+
 
 class AdminBase(BaseModel):
     id: int
@@ -196,6 +202,11 @@ class AvailablePermissions(BaseModel):
             "manage_logging": "Управление логированием",
             # Бэкапы
             "manage_backups": "Управление бэкапами",
+            # Офисы
+            "view_offices": "Просмотр офисов",
+            "create_offices": "Создание офисов",
+            "edit_offices": "Редактирование офисов",
+            "delete_offices": "Удаление офисов",
         }
         return labels.get(permission, permission)
 
@@ -235,7 +246,11 @@ class AvailablePermissions(BaseModel):
             "manage_admins": "Администрирование",
             "view_dashboard": "Система",
             "view_logs": "Система",
-            "manage_logging": "Система", 
+            "manage_logging": "Система",
             "manage_backups": "Администрирование",
+            "view_offices": "Офисы",
+            "create_offices": "Офисы",
+            "edit_offices": "Офисы",
+            "delete_offices": "Офисы",
         }
         return categories.get(permission, "Другое")

@@ -111,6 +111,97 @@ def migrate_create_refresh_tokens_table(conn, cursor):
     return True
 
 
+def migrate_create_offices_tables(conn, cursor):
+    """Создает таблицы для управления офисами."""
+    logger.info("Проверка миграции: создание таблиц для управления офисами")
+
+    changes_made = False
+
+    # 1. Создаем таблицу offices
+    if not check_table_exists(cursor, 'offices'):
+        logger.info("Создание таблицы offices")
+        cursor.execute("""
+            CREATE TABLE offices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                office_number VARCHAR(20) NOT NULL UNIQUE,
+                floor INTEGER NOT NULL,
+                capacity INTEGER NOT NULL,
+                price_per_month FLOAT NOT NULL,
+                payment_day INTEGER,
+                admin_reminder_enabled BOOLEAN DEFAULT 0,
+                admin_reminder_days INTEGER DEFAULT 5,
+                tenant_reminder_enabled BOOLEAN DEFAULT 0,
+                tenant_reminder_days INTEGER DEFAULT 5,
+                comment TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME
+            )
+        """)
+
+        # Создаем индексы для таблицы offices
+        cursor.execute("CREATE INDEX idx_offices_office_number ON offices(office_number)")
+        cursor.execute("CREATE INDEX idx_offices_floor ON offices(floor)")
+        cursor.execute("CREATE INDEX idx_offices_is_active ON offices(is_active)")
+        cursor.execute("CREATE INDEX idx_offices_created_at ON offices(created_at)")
+        cursor.execute("CREATE INDEX idx_offices_floor_active ON offices(floor, is_active)")
+
+        conn.commit()
+        changes_made = True
+        logger.info("✅ Таблица offices успешно создана")
+    else:
+        logger.info("⏭️  Таблица offices уже существует, пропускаем")
+
+    # 2. Создаем таблицу office_tenants
+    if not check_table_exists(cursor, 'office_tenants'):
+        logger.info("Создание таблицы office_tenants")
+        cursor.execute("""
+            CREATE TABLE office_tenants (
+                office_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (office_id, user_id),
+                FOREIGN KEY (office_id) REFERENCES offices(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("CREATE INDEX idx_office_tenants_office ON office_tenants(office_id)")
+        cursor.execute("CREATE INDEX idx_office_tenants_user ON office_tenants(user_id)")
+
+        conn.commit()
+        changes_made = True
+        logger.info("✅ Таблица office_tenants успешно создана")
+    else:
+        logger.info("⏭️  Таблица office_tenants уже существует, пропускаем")
+
+    # 3. Создаем таблицу office_tenant_reminders
+    if not check_table_exists(cursor, 'office_tenant_reminders'):
+        logger.info("Создание таблицы office_tenant_reminders")
+        cursor.execute("""
+            CREATE TABLE office_tenant_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                office_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                is_enabled BOOLEAN DEFAULT 1,
+                FOREIGN KEY (office_id) REFERENCES offices(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """)
+
+        cursor.execute("CREATE INDEX idx_office_tenant_reminder_office ON office_tenant_reminders(office_id)")
+        cursor.execute("CREATE INDEX idx_office_tenant_reminder_user ON office_tenant_reminders(user_id)")
+        cursor.execute("CREATE UNIQUE INDEX idx_office_tenant_reminder ON office_tenant_reminders(office_id, user_id)")
+
+        conn.commit()
+        changes_made = True
+        logger.info("✅ Таблица office_tenant_reminders успешно создана")
+    else:
+        logger.info("⏭️  Таблица office_tenant_reminders уже существует, пропускаем")
+
+    return changes_made
+
+
 def run_migrations():
     """Запускает все миграции."""
     logger.info("=" * 60)
@@ -132,6 +223,7 @@ def run_migrations():
         migrations = [
             ("Добавление полей bot_blocked", migrate_add_bot_blocked_fields),
             ("Создание таблицы refresh_tokens", migrate_create_refresh_tokens_table),
+            ("Создание таблиц для управления офисами", migrate_create_offices_tables),
         ]
 
         total_changes = 0
