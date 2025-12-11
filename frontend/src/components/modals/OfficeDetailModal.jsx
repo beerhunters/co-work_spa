@@ -59,6 +59,18 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
   const toast = useToast();
 
+  // Преобразует ISO datetime в формат datetime-local (YYYY-MM-DDTHH:mm)
+  const formatDatetimeLocal = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isClearOpen, onOpen: onClearOpen, onClose: onClearClose } = useDisclosure();
   const { isOpen: isRelocateOpen, onOpen: onRelocateOpen, onClose: onRelocateClose } = useDisclosure();
@@ -79,11 +91,11 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
         admin_reminder_enabled: office.admin_reminder_enabled || false,
         admin_reminder_days: office.admin_reminder_days || 5,
         admin_reminder_type: office.admin_reminder_type || 'days_before',
-        admin_reminder_datetime: office.admin_reminder_datetime || null,
+        admin_reminder_datetime: formatDatetimeLocal(office.admin_reminder_datetime),
         tenant_reminder_enabled: office.tenant_reminder_enabled || false,
         tenant_reminder_days: office.tenant_reminder_days || 5,
         tenant_reminder_type: office.tenant_reminder_type || 'days_before',
-        tenant_reminder_datetime: office.tenant_reminder_datetime || null,
+        tenant_reminder_datetime: formatDatetimeLocal(office.tenant_reminder_datetime),
         tenant_ids: office.tenants ? office.tenants.map(t => t.id) : [],
         tenant_reminder_settings: office.tenant_reminder_settings || [],
         comment: office.comment || '',
@@ -162,14 +174,12 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
   const handleRemoveTenant = (userId) => {
     setSelectedTenants(selectedTenants.filter(t => t.id !== userId));
-    setFormData({
-      ...formData,
-      tenant_ids: formData.tenant_ids.filter(id => id !== userId)
-    });
-    // Также удаляем из напоминаний
     setSelectedReminderTenants(selectedReminderTenants.filter(id => id !== userId));
+
+    // Обновляем formData одним вызовом, чтобы не терять данные
     setFormData({
       ...formData,
+      tenant_ids: formData.tenant_ids.filter(id => id !== userId),
       tenant_reminder_settings: formData.tenant_reminder_settings.filter(s => s.user_id !== userId)
     });
   };
@@ -246,9 +256,16 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
       const cleanedData = { ...formData };
       if (cleanedData.admin_reminder_type === 'days_before') {
         cleanedData.admin_reminder_datetime = null;
+      } else if (cleanedData.admin_reminder_datetime) {
+        // Преобразуем datetime-local формат в ISO формат
+        cleanedData.admin_reminder_datetime = new Date(cleanedData.admin_reminder_datetime).toISOString();
       }
+
       if (cleanedData.tenant_reminder_type === 'days_before') {
         cleanedData.tenant_reminder_datetime = null;
+      } else if (cleanedData.tenant_reminder_datetime) {
+        // Преобразуем datetime-local формат в ISO формат
+        cleanedData.tenant_reminder_datetime = new Date(cleanedData.tenant_reminder_datetime).toISOString();
       }
 
       // Преобразуем пустые строки в null для datetime полей

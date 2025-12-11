@@ -1006,7 +1006,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                   Без оплаты
                 </Button>
                 <Button size="sm" colorScheme="telegram" leftIcon={<FiSend />} onClick={handleSendPaymentLink} isLoading={actionLoading.sendLink}>
-                  Отправить ссылку на оплату
+                  Отправить ссылку
                 </Button>
               </HStack>
             )}

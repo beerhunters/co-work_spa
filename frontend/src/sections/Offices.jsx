@@ -254,9 +254,16 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
       const cleanedData = { ...formData };
       if (cleanedData.admin_reminder_type === 'days_before') {
         cleanedData.admin_reminder_datetime = null;
+      } else if (cleanedData.admin_reminder_datetime) {
+        // Преобразуем datetime-local формат в ISO формат
+        cleanedData.admin_reminder_datetime = new Date(cleanedData.admin_reminder_datetime).toISOString();
       }
+
       if (cleanedData.tenant_reminder_type === 'days_before') {
         cleanedData.tenant_reminder_datetime = null;
+      } else if (cleanedData.tenant_reminder_datetime) {
+        // Преобразуем datetime-local формат в ISO формат
+        cleanedData.tenant_reminder_datetime = new Date(cleanedData.tenant_reminder_datetime).toISOString();
       }
 
       // Преобразуем пустые строки в null для datetime полей
