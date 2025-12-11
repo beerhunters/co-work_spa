@@ -40,8 +40,12 @@ import {
   Divider,
   InputGroup,
   InputLeftElement,
+  ButtonGroup,
+  IconButton,
+  SimpleGrid,
 } from '@chakra-ui/react';
 import { FiEye, FiPlus, FiUsers, FiBell, FiSearch } from 'react-icons/fi';
+import { BsList, BsGrid3X3Gap } from 'react-icons/bs';
 import { sizes, styles, getStatusColor, colors } from '../styles/styles';
 import { officeApi } from '../utils/api';
 import { ListSkeleton } from '../components/LoadingSkeletons';
@@ -58,8 +62,12 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
     payment_day: null,
     admin_reminder_enabled: false,
     admin_reminder_days: 5,
+    admin_reminder_type: 'days_before',
+    admin_reminder_datetime: null,
     tenant_reminder_enabled: false,
     tenant_reminder_days: 5,
+    tenant_reminder_type: 'days_before',
+    tenant_reminder_datetime: null,
     tenant_ids: [],
     tenant_reminder_settings: [],
     comment: '',
@@ -85,8 +93,12 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
       payment_day: null,
       admin_reminder_enabled: false,
       admin_reminder_days: 5,
+      admin_reminder_type: 'days_before',
+      admin_reminder_datetime: null,
       tenant_reminder_enabled: false,
       tenant_reminder_days: 5,
+      tenant_reminder_type: 'days_before',
+      tenant_reminder_datetime: null,
       tenant_ids: [],
       tenant_reminder_settings: [],
       comment: '',
@@ -238,7 +250,24 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
 
     setIsLoading(true);
     try {
-      await officeApi.create(formData);
+      // Очищаем datetime поля, если выбран тип "days_before"
+      const cleanedData = { ...formData };
+      if (cleanedData.admin_reminder_type === 'days_before') {
+        cleanedData.admin_reminder_datetime = null;
+      }
+      if (cleanedData.tenant_reminder_type === 'days_before') {
+        cleanedData.tenant_reminder_datetime = null;
+      }
+
+      // Преобразуем пустые строки в null для datetime полей
+      if (cleanedData.admin_reminder_datetime === '') {
+        cleanedData.admin_reminder_datetime = null;
+      }
+      if (cleanedData.tenant_reminder_datetime === '') {
+        cleanedData.tenant_reminder_datetime = null;
+      }
+
+      await officeApi.create(cleanedData);
 
       toast({
         title: 'Успешно',
@@ -687,6 +716,16 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
 const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoading = false }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
 
+  // Состояние для переключения между списком и сеткой
+  const [viewMode, setViewMode] = useState(() => {
+    return localStorage.getItem('officesViewMode') || 'list';
+  });
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+    localStorage.setItem('officesViewMode', mode);
+  };
+
   const EmptyState = () => (
     <Box textAlign="center" py={10}>
       <Text color="gray.500" fontSize="lg">
@@ -705,25 +744,43 @@ const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoadin
           <CardHeader>
             <HStack justify="space-between">
               <Heading size="md">Офисы</Heading>
-              <Button
-                leftIcon={<FiPlus />}
-                colorScheme="blue"
-                onClick={onOpen}
-                size="sm"
-              >
-                Добавить офис
-              </Button>
+              <HStack spacing={3}>
+                <ButtonGroup size="sm" isAttached variant="outline">
+                  <IconButton
+                    icon={<BsList />}
+                    aria-label="Список"
+                    onClick={() => handleViewModeChange('list')}
+                    colorScheme={viewMode === 'list' ? 'blue' : 'gray'}
+                    isActive={viewMode === 'list'}
+                  />
+                  <IconButton
+                    icon={<BsGrid3X3Gap />}
+                    aria-label="Сетка"
+                    onClick={() => handleViewModeChange('grid')}
+                    colorScheme={viewMode === 'grid' ? 'blue' : 'gray'}
+                    isActive={viewMode === 'grid'}
+                  />
+                </ButtonGroup>
+                <Button
+                  leftIcon={<FiPlus />}
+                  colorScheme="blue"
+                  onClick={onOpen}
+                  size="sm"
+                >
+                  Добавить офис
+                </Button>
+              </HStack>
             </HStack>
           </CardHeader>
 
           <CardBody>
-            <VStack align="stretch" spacing={2}>
-              {isLoading ? (
-                <ListSkeleton items={5} />
-              ) : offices.length === 0 ? (
-                <EmptyState />
-              ) : (
-                offices.map(office => (
+            {isLoading ? (
+              <ListSkeleton items={5} />
+            ) : offices.length === 0 ? (
+              <EmptyState />
+            ) : viewMode === 'list' ? (
+              <VStack align="stretch" spacing={2}>
+                {offices.map(office => (
                   <Box
                     key={office.id}
                     p={styles.listItem.padding}
@@ -806,9 +863,96 @@ const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoadin
                       <Icon as={FiEye} color="blue.500" boxSize={5} />
                     </HStack>
                   </Box>
-                ))
-              )}
-            </VStack>
+                ))}
+              </VStack>
+            ) : (
+              <SimpleGrid columns={{ base: 1, md: 2, lg: 3, xl: 4 }} spacing={4}>
+                {offices.map(office => (
+                  <Box
+                    key={office.id}
+                    p={4}
+                    borderRadius="lg"
+                    bg="white"
+                    border="1px solid"
+                    borderColor="gray.200"
+                    cursor="pointer"
+                    onClick={() => openDetailModal(office, 'office')}
+                    transition="all 0.2s"
+                    _hover={{
+                      bg: 'gray.50',
+                      transform: 'translateY(-2px)',
+                      boxShadow: 'md',
+                    }}
+                  >
+                    <VStack align="start" spacing={3}>
+                      <HStack justify="space-between" width="100%">
+                        <Text fontWeight="bold" fontSize="lg">
+                          Офис {office.office_number}
+                        </Text>
+                        <Icon as={FiEye} color="blue.500" boxSize={4} />
+                      </HStack>
+
+                      <HStack spacing={2} flexWrap="wrap">
+                        <Badge colorScheme={office.is_active ? 'green' : 'gray'}>
+                          {office.is_active ? 'Активен' : 'Неактивен'}
+                        </Badge>
+                        {office.tenants && office.tenants.length > 0 && (
+                          <Badge colorScheme="blue">
+                            <HStack spacing={1}>
+                              <Icon as={FiUsers} boxSize={3} />
+                              <Text>{office.tenants.length}/{office.capacity}</Text>
+                            </HStack>
+                          </Badge>
+                        )}
+                        {(office.admin_reminder_enabled || office.tenant_reminder_enabled) && (
+                          <Badge colorScheme="orange">
+                            <Icon as={FiBell} boxSize={3} />
+                          </Badge>
+                        )}
+                      </HStack>
+
+                      <VStack align="start" spacing={1} fontSize="sm" color="gray.600" width="100%">
+                        <Text>Этаж: {office.floor}</Text>
+                        <Text>Вместимость: {office.capacity}</Text>
+                        <Text fontWeight="medium" color="blue.600" fontSize="md">
+                          {office.price_per_month} ₽/мес
+                        </Text>
+                        {office.payment_day && (
+                          <Text>Платеж: {office.payment_day} число</Text>
+                        )}
+                        {office.duration_months && (
+                          <HStack>
+                            <Text>
+                              Аренда: {office.duration_months} мес
+                            </Text>
+                            {office.duration_months >= 6 && (
+                              <Badge colorScheme="green">
+                                -{office.duration_months >= 12 ? '15%' : '10%'}
+                              </Badge>
+                            )}
+                          </HStack>
+                        )}
+                      </VStack>
+
+                      {office.tenants && office.tenants.length > 0 && (
+                        <VStack align="start" spacing={1} width="100%">
+                          {office.tenants.slice(0, 2).map(tenant => (
+                            <Tag key={tenant.id} size="sm" colorScheme="blue" width="100%">
+                              {tenant.full_name}
+                            </Tag>
+                          ))}
+                          {office.tenants.length > 2 && (
+                            <Tag size="sm" colorScheme="gray">
+                              +{office.tenants.length - 2} еще
+                            </Tag>
+                          )}
+                        </VStack>
+                      )}
+                    </VStack>
+                  </Box>
+                ))}
+              </SimpleGrid>
+            )}
           </CardBody>
         </Card>
       </Box>

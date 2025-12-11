@@ -76,6 +76,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     duration: null
   });
   const [recalculatedAmount, setRecalculatedAmount] = useState(null);
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   const bgColor = useColorModeValue('white', 'gray.800');
 
@@ -133,6 +134,37 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       setRetryCount(0);
     }
   }, [isOpen]);
+
+  // Автоматический пересчет суммы при изменении полей редактирования
+  useEffect(() => {
+    // Только если находимся в режиме редактирования и есть данные для пересчета
+    if (!isEditing || !booking || !editData.duration) return;
+
+    // Дебаунс для предотвращения частых запросов
+    setIsRecalculating(true);
+    const timeoutId = setTimeout(async () => {
+      try {
+        const result = await bookingApi.recalculateAmount(booking.id, {
+          visit_date: editData.visit_date,
+          visit_time: editData.visit_time,
+          duration: editData.duration ? parseInt(editData.duration) : null
+        });
+
+        setRecalculatedAmount(result.amount);
+        console.log('Сумма автоматически пересчитана:', result.amount);
+      } catch (error) {
+        console.error('Ошибка автоматического пересчета:', error);
+        // Не показываем toast при автоматическом пересчете, чтобы не спамить
+      } finally {
+        setIsRecalculating(false);
+      }
+    }, 500); // Задержка 500ms перед пересчетом
+
+    return () => {
+      clearTimeout(timeoutId);
+      setIsRecalculating(false);
+    };
+  }, [isEditing, editData.duration, editData.visit_date, editData.visit_time, booking?.id]);
 
   const handleRetry = async () => {
     setRetryCount(prev => prev + 1);
@@ -281,7 +313,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       await bookingApi.updateBooking(booking.id, {
         amount: 0,
         paid: true,
-        confirmed: true
+        confirmed: true,
+        comment: "Без оплаты"
       });
 
       toast({
@@ -386,36 +419,6 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     setIsEditing(false);
     setEditData({ visit_date: null, visit_time: null, duration: null });
     setRecalculatedAmount(null);
-  };
-
-  // Пересчет суммы при изменении полей
-  const handleRecalculate = async () => {
-    try {
-      const result = await bookingApi.recalculateAmount(booking.id, {
-        visit_date: editData.visit_date,
-        visit_time: editData.visit_time,
-        duration: editData.duration ? parseInt(editData.duration) : null
-      });
-
-      setRecalculatedAmount(result.amount);
-
-      toast({
-        title: 'Сумма пересчитана',
-        description: `Новая сумма: ${result.amount} ₽ ${result.discount > 0 ? `(скидка ${result.discount}%)` : ''}`,
-        status: 'info',
-        duration: 3000,
-        isClosable: true,
-      });
-    } catch (error) {
-      console.error('Ошибка пересчета суммы:', error);
-      toast({
-        title: 'Ошибка пересчета',
-        description: error.message || 'Не удалось пересчитать сумму',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
-    }
   };
 
   // Сохранить изменения
@@ -725,22 +728,19 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                           <Icon as={FiDollarSign} color="green.500" />
                           <Text fontWeight="medium">Пересчитанная сумма:</Text>
                         </HStack>
-                        <Text fontSize="lg" fontWeight="bold" color="green.500">
-                          {recalculatedAmount !== null ? `${recalculatedAmount} ₽` : `${data.amount} ₽`}
-                        </Text>
+                        {isRecalculating ? (
+                          <HStack spacing={2}>
+                            <Skeleton height="24px" width="80px" />
+                            <Icon as={FiRefreshCw} className="spin" color="blue.500" />
+                          </HStack>
+                        ) : (
+                          <Text fontSize="lg" fontWeight="bold" color="green.500">
+                            {recalculatedAmount !== null ? `${recalculatedAmount} ₽` : `${data.amount} ₽`}
+                          </Text>
+                        )}
                       </HStack>
 
                       <HStack spacing={2} width="100%">
-                        <Button
-                          leftIcon={<FiRefreshCw />}
-                          colorScheme="blue"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleRecalculate}
-                          flex={1}
-                        >
-                          Пересчитать
-                        </Button>
                         <Button
                           leftIcon={<FiSave />}
                           colorScheme="green"
@@ -975,150 +975,68 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
           </VStack>
         </ModalBody>
 
-        <ModalFooter p={4}>
-          <VStack spacing={2} width="100%">
-            {/* Первый ряд - основные действия с бронированием */}
-            {(!data.confirmed || data.confirmed || error) && (
-              <HStack spacing={2} width="100%" justify="center" flexWrap="wrap">
-                {/* Кнопка редактирования */}
-                {!isEditing && !loading && !error && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
-                  <Button
-                    leftIcon={<FiEdit2 />}
-                    colorScheme="blue"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleStartEdit}
-                    flex={1}
-                    maxW="150px"
-                  >
-                    Редактировать
-                  </Button>
-                )}
-
-                {/* Кнопка подтверждения */}
-                {!data.confirmed && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
-                  <Button
-                    leftIcon={<FiCheck />}
-                    colorScheme="green"
-                    size="sm"
-                    onClick={handleConfirmBooking}
-                    isLoading={actionLoading.confirm}
-                    loadingText="Подтверждение..."
-                    flex={1}
-                    maxW="150px"
-                  >
-                    Подтвердить
-                  </Button>
-                )}
-
-                {/* Кнопка отмены бронирования */}
-                {data.confirmed && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
-                  <Button
-                    leftIcon={<FiX />}
-                    colorScheme="red"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleCancelBooking}
-                    isLoading={actionLoading.cancel}
-                    loadingText="Отмена..."
-                    flex={1}
-                    maxW="150px"
-                  >
-                    Отменить бронь
-                  </Button>
-                )}
-
-                {/* Кнопка повтора при ошибке */}
-                {error && (
-                  <Button
-                    leftIcon={<FiRefreshCw />}
-                    colorScheme="red"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRetry}
-                    flex={1}
-                    maxW="150px"
-                  >
-                    Повторить ({retryCount})
-                  </Button>
-                )}
-              </HStack>
-            )}
-
-            {/* Второй ряд - платежные операции */}
-            {!data.paid && (
-              <HStack spacing={2} width="100%" justify="center" flexWrap="wrap">
-                {/* Кнопка отметки об оплате */}
-                {(currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
-                  <Button
-                    leftIcon={<FiDollarSign />}
-                    colorScheme="teal"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleMarkAsPaid}
-                    isLoading={actionLoading.markPaid}
-                    loadingText="Обновление..."
-                    flex={1}
-                    maxW="200px"
-                  >
-                    Оплачено
-                  </Button>
-                )}
-
-                {/* Кнопка "Без оплаты" */}
-                {(currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
-                  <Button
-                    leftIcon={<FiCheck />}
-                    colorScheme="purple"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleMarkAsFree}
-                    isLoading={actionLoading.markFree}
-                    loadingText="Обновление..."
-                    flex={1}
-                    maxW="200px"
-                  >
-                    Без оплаты
-                  </Button>
-                )}
-
-                {/* Кнопка отправки платежной ссылки */}
-                {data.confirmed && tariff.purpose === 'meeting_room' && (currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
-                  <Button
-                    leftIcon={<FiSend />}
-                    colorScheme="blue"
-                    size="sm"
-                    onClick={handleSendPaymentLink}
-                    isLoading={actionLoading.sendLink}
-                    loadingText="Отправка..."
-                    flex={1}
-                    maxW="240px"
-                  >
-                    Отправить ссылку на оплату
-                  </Button>
-                )}
-              </HStack>
-            )}
-
-            {/* Второй ряд - основные кнопки */}
-            <HStack spacing={2} width="100%" justify="center">
-              <Button colorScheme="blue" onClick={onClose} size="sm">
-                Закрыть
-              </Button>
-
-              {user.username && (
-                <Link href={getTelegramUrl(user.username)} isExternal>
-                  <Button leftIcon={<FiMessageCircle />} colorScheme="purple" variant="outline" size="sm">
-                    Telegram
-                  </Button>
-                </Link>
+        <ModalFooter>
+          <VStack spacing={3} width="100%">
+            {/* Ряд 1: Основные действия */}
+            <HStack width="100%" spacing={2} justify="flex-start" flexWrap="wrap">
+              {!isEditing && (
+                <Button size="sm" colorScheme="blue" leftIcon={<FiEdit2 />} onClick={handleStartEdit}>
+                  Редактировать
+                </Button>
               )}
+              {!data.confirmed && (
+                <Button size="sm" colorScheme="green" leftIcon={<FiCheck />} onClick={handleConfirmBooking} isLoading={actionLoading.confirm}>
+                  Подтвердить
+                </Button>
+              )}
+              {data.confirmed && (
+                <Button size="sm" colorScheme="red" leftIcon={<FiX />} onClick={handleCancelBooking} isLoading={actionLoading.cancel}>
+                  Отменить бронь
+                </Button>
+              )}
+            </HStack>
 
+            {/* Ряд 2: Действия с оплатой */}
+            {!data.paid && (
+              <HStack width="100%" spacing={2} justify="flex-start" flexWrap="wrap" borderTop="1px solid" borderColor="gray.200" pt={3}>
+                <Button size="sm" colorScheme="green" leftIcon={<FiDollarSign />} onClick={handleMarkAsPaid} isLoading={actionLoading.markPaid}>
+                  Оплачено
+                </Button>
+                <Button size="sm" colorScheme="purple" leftIcon={<FiCheck />} onClick={handleMarkAsFree} isLoading={actionLoading.markFree}>
+                  Без оплаты
+                </Button>
+                <Button size="sm" colorScheme="telegram" leftIcon={<FiSend />} onClick={handleSendPaymentLink} isLoading={actionLoading.sendLink}>
+                  Отправить ссылку на оплату
+                </Button>
+              </HStack>
+            )}
+
+            {/* Ряд 3: Дополнительные действия */}
+            <HStack width="100%" spacing={2} justify="flex-start" flexWrap="wrap" borderTop="1px solid" borderColor="gray.200" pt={3}>
+              {user.telegram_id && (
+                <Button
+                  size="sm"
+                  colorScheme="telegram"
+                  leftIcon={<FiMessageCircle />}
+                  as="a"
+                  href={`https://t.me/${user.telegram_username || user.telegram_id}`}
+                  target="_blank"
+                >
+                  Telegram
+                </Button>
+              )}
               {error && (
-                <Button leftIcon={<FiAlertTriangle />} variant="outline" onClick={debugBooking} size="sm">
+                <Button size="sm" colorScheme="orange" leftIcon={<FiAlertTriangle />} onClick={debugBooking}>
                   Отладка
                 </Button>
               )}
+            </HStack>
+
+            {/* Ряд 4: Навигация */}
+            <HStack width="100%" spacing={2} justify="flex-end" borderTop="1px solid" borderColor="gray.200" pt={3}>
+              <Button size="sm" onClick={onClose}>
+                Закрыть
+              </Button>
             </HStack>
           </VStack>
         </ModalFooter>

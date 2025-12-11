@@ -42,6 +42,8 @@ import {
   Icon,
   InputGroup,
   InputLeftElement,
+  Radio,
+  RadioGroup,
 } from '@chakra-ui/react';
 import { FiEdit2, FiTrash2, FiX as FiClear, FiBell, FiUsers, FiSearch, FiArrowRight } from 'react-icons/fi';
 import { officeApi } from '../../utils/api';
@@ -76,8 +78,12 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
         payment_day: office.payment_day || null,
         admin_reminder_enabled: office.admin_reminder_enabled || false,
         admin_reminder_days: office.admin_reminder_days || 5,
+        admin_reminder_type: office.admin_reminder_type || 'days_before',
+        admin_reminder_datetime: office.admin_reminder_datetime || null,
         tenant_reminder_enabled: office.tenant_reminder_enabled || false,
         tenant_reminder_days: office.tenant_reminder_days || 5,
+        tenant_reminder_type: office.tenant_reminder_type || 'days_before',
+        tenant_reminder_datetime: office.tenant_reminder_datetime || null,
         tenant_ids: office.tenants ? office.tenants.map(t => t.id) : [],
         tenant_reminder_settings: office.tenant_reminder_settings || [],
         comment: office.comment || '',
@@ -236,7 +242,24 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
     setIsLoading(true);
     try {
-      await officeApi.update(office.id, formData);
+      // Очищаем datetime поля, если выбран тип "days_before"
+      const cleanedData = { ...formData };
+      if (cleanedData.admin_reminder_type === 'days_before') {
+        cleanedData.admin_reminder_datetime = null;
+      }
+      if (cleanedData.tenant_reminder_type === 'days_before') {
+        cleanedData.tenant_reminder_datetime = null;
+      }
+
+      // Преобразуем пустые строки в null для datetime полей
+      if (cleanedData.admin_reminder_datetime === '') {
+        cleanedData.admin_reminder_datetime = null;
+      }
+      if (cleanedData.tenant_reminder_datetime === '') {
+        cleanedData.tenant_reminder_datetime = null;
+      }
+
+      await officeApi.update(office.id, cleanedData);
 
       toast({
         title: 'Успешно',
@@ -673,53 +696,91 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                 <Divider />
 
                 <FormControl>
-                  <HStack justify="space-between">
-                    <FormLabel mb={0}>Напоминание администратору</FormLabel>
-                    <Switch
-                      isChecked={formData.admin_reminder_enabled}
-                      onChange={(e) => setFormData({...formData, admin_reminder_enabled: e.target.checked})}
-                    />
-                  </HStack>
+                  <FormLabel>Напоминание администратору</FormLabel>
+                  <Checkbox
+                    isChecked={formData.admin_reminder_enabled}
+                    onChange={(e) => setFormData({...formData, admin_reminder_enabled: e.target.checked})}
+                  >
+                    Включить напоминание
+                  </Checkbox>
+
                   {formData.admin_reminder_enabled && (
-                    <NumberInput
-                      value={formData.admin_reminder_days}
-                      onChange={(val) => setFormData({...formData, admin_reminder_days: parseInt(val) || 5})}
-                      min={1}
-                      max={30}
-                      mt={2}
-                    >
-                      <NumberInputField />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
+                    <VStack align="stretch" spacing={2} mt={2} ml={6}>
+                      <RadioGroup
+                        value={formData.admin_reminder_type || 'days_before'}
+                        onChange={(value) => setFormData({...formData, admin_reminder_type: value})}
+                      >
+                        <Stack direction="column">
+                          <Radio value="days_before">За N дней до окончания аренды</Radio>
+                          <Radio value="specific_datetime">Конкретная дата и время</Radio>
+                        </Stack>
+                      </RadioGroup>
+
+                      {formData.admin_reminder_type === 'days_before' ? (
+                        <NumberInput
+                          value={formData.admin_reminder_days || 5}
+                          min={1}
+                          max={365}
+                          onChange={(valueString) => setFormData({...formData, admin_reminder_days: parseInt(valueString)})}
+                        >
+                          <NumberInputField placeholder="Количество дней" />
+                          <NumberInputStepper>
+                            <NumberIncrementStepper />
+                            <NumberDecrementStepper />
+                          </NumberInputStepper>
+                        </NumberInput>
+                      ) : (
+                        <Input
+                          type="datetime-local"
+                          value={formData.admin_reminder_datetime || ''}
+                          onChange={(e) => setFormData({...formData, admin_reminder_datetime: e.target.value})}
+                        />
+                      )}
+                    </VStack>
                   )}
                 </FormControl>
 
-                <FormControl>
-                  <HStack justify="space-between">
-                    <FormLabel mb={0}>Напоминание постояльцам</FormLabel>
-                    <Switch
-                      isChecked={formData.tenant_reminder_enabled}
-                      onChange={(e) => setFormData({...formData, tenant_reminder_enabled: e.target.checked})}
-                    />
-                  </HStack>
+                <FormControl mt={4}>
+                  <FormLabel>Напоминание арендатору</FormLabel>
+                  <Checkbox
+                    isChecked={formData.tenant_reminder_enabled}
+                    onChange={(e) => setFormData({...formData, tenant_reminder_enabled: e.target.checked})}
+                  >
+                    Включить напоминание
+                  </Checkbox>
+
                   {formData.tenant_reminder_enabled && (
-                    <>
-                      <NumberInput
-                        value={formData.tenant_reminder_days}
-                        onChange={(val) => setFormData({...formData, tenant_reminder_days: parseInt(val) || 5})}
-                        min={1}
-                        max={30}
-                        mt={2}
+                    <VStack align="stretch" spacing={2} mt={2} ml={6}>
+                      <RadioGroup
+                        value={formData.tenant_reminder_type || 'days_before'}
+                        onChange={(value) => setFormData({...formData, tenant_reminder_type: value})}
                       >
-                        <NumberInputField />
-                        <NumberInputStepper>
-                          <NumberIncrementStepper />
-                          <NumberDecrementStepper />
-                        </NumberInputStepper>
-                      </NumberInput>
+                        <Stack direction="column">
+                          <Radio value="days_before">За N дней до окончания аренды</Radio>
+                          <Radio value="specific_datetime">Конкретная дата и время</Radio>
+                        </Stack>
+                      </RadioGroup>
+
+                      {formData.tenant_reminder_type === 'days_before' ? (
+                        <NumberInput
+                          value={formData.tenant_reminder_days || 5}
+                          min={1}
+                          max={365}
+                          onChange={(valueString) => setFormData({...formData, tenant_reminder_days: parseInt(valueString)})}
+                        >
+                          <NumberInputField placeholder="Количество дней" />
+                          <NumberInputStepper>
+                            <NumberIncrementStepper />
+                            <NumberDecrementStepper />
+                          </NumberInputStepper>
+                        </NumberInput>
+                      ) : (
+                        <Input
+                          type="datetime-local"
+                          value={formData.tenant_reminder_datetime || ''}
+                          onChange={(e) => setFormData({...formData, tenant_reminder_datetime: e.target.value})}
+                        />
+                      )}
 
                       {selectedTenants.length > 0 && (
                         <Box mt={3}>
@@ -737,7 +798,7 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                           </Stack>
                         </Box>
                       )}
-                    </>
+                    </VStack>
                   )}
                 </FormControl>
 

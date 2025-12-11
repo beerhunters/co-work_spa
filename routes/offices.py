@@ -396,12 +396,15 @@ async def update_office(
             # Добавляем новые
             for setting in settings:
                 # Проверяем, что пользователь среди постояльцев
-                is_tenant = any(t.id == setting.user_id for t in office.tenants)
+                user_id = setting['user_id'] if isinstance(setting, dict) else setting.user_id
+                is_enabled = setting['is_enabled'] if isinstance(setting, dict) else setting.is_enabled
+
+                is_tenant = any(t.id == user_id for t in office.tenants)
                 if is_tenant:
                     reminder = OfficeTenantReminder(
                         office_id=office.id,
-                        user_id=setting.user_id,
-                        is_enabled=setting.is_enabled
+                        user_id=user_id,
+                        is_enabled=is_enabled
                     )
                     db.add(reminder)
 

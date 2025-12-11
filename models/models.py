@@ -790,6 +790,11 @@ class Promocode(Base):
         return True
 
 
+class ReminderType(str, enum.Enum):
+    days_before = "days_before"
+    specific_datetime = "specific_datetime"
+
+
 class Office(Base):
     """Модель офиса для долгосрочной аренды."""
 
@@ -815,6 +820,12 @@ class Office(Base):
 
     tenant_reminder_enabled = Column(Boolean, default=False)
     tenant_reminder_days = Column(Integer, default=5)
+
+    # Типы напоминаний
+    admin_reminder_type = Column(Enum(ReminderType), default=ReminderType.days_before, nullable=False)
+    admin_reminder_datetime = Column(DateTime, nullable=True)
+    tenant_reminder_type = Column(Enum(ReminderType), default=ReminderType.days_before, nullable=False)
+    tenant_reminder_datetime = Column(DateTime, nullable=True)
 
     # Комментарий
     comment = Column(Text, nullable=True)
@@ -892,6 +903,7 @@ class Booking(Base):
     created_at = Column(
         DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True
     )
+    comment = Column(String, nullable=True, default=None)
 
     # Связи
     user = relationship("User", back_populates="bookings")

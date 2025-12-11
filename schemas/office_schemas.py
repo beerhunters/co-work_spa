@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
 
@@ -29,8 +29,12 @@ class OfficeBase(BaseModel):
     payment_day: Optional[int] = None
     admin_reminder_enabled: bool = False
     admin_reminder_days: int = 5
+    admin_reminder_type: Literal['days_before', 'specific_datetime'] = 'days_before'
+    admin_reminder_datetime: Optional[datetime] = None
     tenant_reminder_enabled: bool = False
     tenant_reminder_days: int = 5
+    tenant_reminder_type: Literal['days_before', 'specific_datetime'] = 'days_before'
+    tenant_reminder_datetime: Optional[datetime] = None
     comment: Optional[str] = None
     is_active: bool = True
     created_at: datetime
@@ -53,8 +57,12 @@ class OfficeCreate(BaseModel):
     payment_day: Optional[int] = Field(None, ge=1, le=31)
     admin_reminder_enabled: bool = False
     admin_reminder_days: int = Field(5, ge=1, le=30)
+    admin_reminder_type: Literal['days_before', 'specific_datetime'] = 'days_before'
+    admin_reminder_datetime: Optional[datetime] = None
     tenant_reminder_enabled: bool = False
     tenant_reminder_days: int = Field(5, ge=1, le=30)
+    tenant_reminder_type: Literal['days_before', 'specific_datetime'] = 'days_before'
+    tenant_reminder_datetime: Optional[datetime] = None
     tenant_ids: List[int] = []  # ID пользователей-постояльцев
     tenant_reminder_settings: List[TenantReminderSetting] = []
     comment: Optional[str] = None
@@ -96,8 +104,12 @@ class OfficeUpdate(BaseModel):
     payment_day: Optional[int] = Field(None, ge=1, le=31)
     admin_reminder_enabled: Optional[bool] = None
     admin_reminder_days: Optional[int] = Field(None, ge=1, le=30)
+    admin_reminder_type: Optional[Literal['days_before', 'specific_datetime']] = None
+    admin_reminder_datetime: Optional[datetime] = None
     tenant_reminder_enabled: Optional[bool] = None
     tenant_reminder_days: Optional[int] = Field(None, ge=1, le=30)
+    tenant_reminder_type: Optional[Literal['days_before', 'specific_datetime']] = None
+    tenant_reminder_datetime: Optional[datetime] = None
     tenant_ids: Optional[List[int]] = None
     tenant_reminder_settings: Optional[List[TenantReminderSetting]] = None
     comment: Optional[str] = None
