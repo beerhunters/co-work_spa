@@ -225,8 +225,6 @@ const CreateTariffModal = ({ isOpen, onClose, onUpdate }) => {
                 >
                   <option value="coworking">Опенспейс</option>
                   <option value="meeting_room">Переговорная</option>
-                  <option value="event">Мероприятие</option>
-                  <option value="other">Другое</option>
                 </Select>
                 <FormHelperText>
                   Тип предоставляемой услуги
@@ -332,9 +330,7 @@ const Tariffs = ({ tariffs, openDetailModal, onUpdate, isLoading = false }) => {
   const getPurposeLabel = (purpose) => {
     const labels = {
       'coworking': 'Опенспейс',
-      'meeting_room': 'Переговорная',
-      'event': 'Мероприятие',
-      'other': 'Другое'
+      'meeting_room': 'Переговорная'
     };
     return labels[purpose] || purpose;
   };

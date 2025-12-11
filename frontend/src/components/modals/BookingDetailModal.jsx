@@ -65,7 +65,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false, save: false, sendLink: false, cancel: false });
+  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false, markFree: false, save: false, sendLink: false, cancel: false });
   const toast = useToast();
 
   // Состояния для редактирования
@@ -214,10 +214,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
         isClosable: true,
       });
 
-      // Обновляем локальные данные
-      if (detailedBooking) {
-        setDetailedBooking(prev => ({ ...prev, confirmed: true }));
-      }
+      // Перезагружаем данные из API для актуального отображения
+      await fetchBookingDetails(false);
 
       // Вызываем callback для обновления родительского компонента
       if (onUpdate) {
@@ -253,10 +251,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
         isClosable: true,
       });
 
-      // Обновляем локальные данные
-      if (detailedBooking) {
-        setDetailedBooking(prev => ({ ...prev, paid: true }));
-      }
+      // Перезагружаем данные из API для актуального отображения
+      await fetchBookingDetails(false);
 
       // Вызываем callback для обновления родительского компонента
       if (onUpdate) {
@@ -277,12 +273,70 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     }
   };
 
+  // Отметить как бесплатное (без оплаты)
+  const handleMarkAsFree = async () => {
+    setActionLoading(prev => ({ ...prev, markFree: true }));
+
+    try {
+      await bookingApi.updateBooking(booking.id, {
+        amount: 0,
+        paid: true,
+        confirmed: true
+      });
+
+      toast({
+        title: 'Отмечено как бесплатное',
+        description: 'Бронирование подтверждено без оплаты',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Перезагружаем данные из API для актуального отображения
+      await fetchBookingDetails(false);
+
+      // Вызываем callback для обновления родительского компонента
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error) {
+      console.error('Ошибка отметки как бесплатное:', error);
+      toast({
+        title: 'Ошибка обновления',
+        description: error.message || 'Не удалось отметить как бесплатное',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, markFree: false }));
+    }
+  };
+
   // Отменить бронирование
   const handleCancelBooking = async () => {
     setActionLoading(prev => ({ ...prev, cancel: true }));
 
     try {
-      await bookingApi.updateBooking(booking.id, { confirmed: false });
+      // Рассчитываем сумму на основе тарифа
+      const data = detailedBooking || booking;
+      const tariff = data.tariff || {};
+      const duration = data.duration || 1;
+
+      // Базовая сумма тарифа
+      let calculatedAmount = tariff.price || 0;
+
+      // Для переговорных умножаем на длительность
+      if (tariff.purpose === 'meeting_room' && duration) {
+        calculatedAmount = tariff.price * duration;
+      }
+
+      await bookingApi.updateBooking(booking.id, {
+        confirmed: false,
+        paid: false,
+        amount: calculatedAmount
+      });
 
       toast({
         title: 'Бронирование отменено',
@@ -292,10 +346,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
         isClosable: true,
       });
 
-      // Обновляем локальные данные
-      if (detailedBooking) {
-        setDetailedBooking(prev => ({ ...prev, confirmed: false }));
-      }
+      // Перезагружаем данные из API для актуального отображения
+      await fetchBookingDetails(false);
 
       // Вызываем callback для обновления родительского компонента
       if (onUpdate) {
@@ -990,6 +1042,23 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                     maxW="200px"
                   >
                     Оплачено
+                  </Button>
+                )}
+
+                {/* Кнопка "Без оплаты" */}
+                {(currentAdmin?.role === 'super_admin' || currentAdmin?.permissions?.includes('edit_bookings')) && (
+                  <Button
+                    leftIcon={<FiCheck />}
+                    colorScheme="purple"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleMarkAsFree}
+                    isLoading={actionLoading.markFree}
+                    loadingText="Обновление..."
+                    flex={1}
+                    maxW="200px"
+                  >
+                    Без оплаты
                   </Button>
                 )}
 

@@ -386,7 +386,7 @@ def create_date_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return keyboard.as_markup()
 
 
-def create_duration_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
+def create_duration_keyboard(lang: str = "ru", show_discount: bool = True) -> InlineKeyboardMarkup:
     """Создаёт клавиатуру выбора длительности от 1 до 8 часов."""
     keyboard = InlineKeyboardBuilder()
 
@@ -394,7 +394,7 @@ def create_duration_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     buttons = []
     for i in range(1, 9):  # От 1 до 8 часов
         discount_text = (
-            f" {get_text(lang, 'booking.discount_10_percent')}" if i > 2 else ""
+            f" {get_text(lang, 'booking.discount_10_percent')}" if (i > 2 and show_discount) else ""
         )
         buttons.append(
             InlineKeyboardButton(
@@ -565,8 +565,12 @@ async def select_date(callback_query: CallbackQuery, state: FSMContext) -> None:
         lang = data.get("lang", "ru")
 
         # ИСПРАВЛЕНО: правильная логика определения типа тарифа
-        if tariff_purpose in ["переговорная", "meeting_room", "meeting"]:
-            # Для переговорной комнаты запрашиваем время
+        # Проверка для переговорных и детской комнаты
+        is_meeting_room = tariff_purpose in ["переговорная", "meeting_room", "meeting"]
+        is_kids_room = "детская комната" in tariff_name.lower()
+
+        if is_meeting_room or is_kids_room:
+            # Для переговорной комнаты или детской комнаты запрашиваем время
             await callback_query.message.edit_text(
                 get_text(lang, "booking.enter_time_title", tariff_name=tariff_name)
                 + "\n\n"
@@ -622,15 +626,26 @@ async def process_time(message: Message, state: FSMContext) -> None:
         tariff_name = data["tariff_name"]
         visit_date = data["visit_date"]
 
-        # ИСПРАВЛЕНО: для переговорной ВСЕГДА показываем клавиатуру выбора длительности
-        keyboard = create_duration_keyboard(lang)
+        # Проверка на детскую комнату
+        is_kids_room = "детская комната" in tariff_name.lower()
 
-        await message.answer(
+        # ИСПРАВЛЕНО: для переговорной ВСЕГДА показываем клавиатуру выбора длительности
+        keyboard = create_duration_keyboard(lang, show_discount=not is_kids_room)
+
+        # Формируем сообщение
+        message_text = (
             get_text(lang, "booking.select_duration_title", tariff_name=tariff_name)
             + "\n\n"
             + f"📅 {get_text(lang, 'booking.date_label')} {visit_date.strftime('%d.%m.%Y')}\n"
             + f"⏰ {get_text(lang, 'booking.time_label')} {visit_time.strftime('%H:%M')}\n\n"
-            + get_text(lang, "booking.discount_info"),
+        )
+
+        # Добавляем информацию о скидке только если это не детская комната
+        if not is_kids_room:
+            message_text += get_text(lang, "booking.discount_info")
+
+        await message.answer(
+            message_text,
             reply_markup=keyboard,
             parse_mode="HTML",
         )
@@ -659,7 +674,106 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
         visit_time = data["visit_time"]
         lang = data.get("lang", "ru")
 
-        # Показываем ввод промокода
+        # Проверка на детскую комнату
+        is_kids_room = "детская комната" in tariff_name.lower()
+
+        if is_kids_room:
+            # Для детской комнаты сразу создаем бронь без промокода
+            # Устанавливаем amount = 0 (бесплатно)
+            await state.update_data(
+                amount=0,
+                promocode_id=None,
+                promocode_name=None,
+                discount=0,
+            )
+
+            # Получаем пользователя и создаем бронь
+            api_client = await get_api_client()
+            try:
+                user = await api_client.get_user_by_telegram_id(callback_query.from_user.id)
+                if not user:
+                    logger.error(f"Пользователь {callback_query.from_user.id} не найден в БД")
+                    await callback_query.message.edit_text(
+                        get_text(lang, "errors.user_not_found"),
+                        reply_markup=None,
+                    )
+                    return
+
+                # Создаем бронь без оплаты (ожидает подтверждения админа)
+                # НЕ создаем запись в Rubitime до подтверждения админом
+                booking_data = {
+                    "user_id": callback_query.from_user.id,
+                    "tariff_id": data["tariff_id"],
+                    "visit_date": visit_date.strftime("%Y-%m-%d"),
+                    "visit_time": visit_time.strftime("%H:%M:%S") if visit_time else None,
+                    "duration": duration,
+                    "promocode_id": None,
+                    "amount": 0,
+                    "paid": False,
+                    "confirmed": False,  # Ожидает подтверждения админа
+                    "rubitime_id": None,
+                }
+
+                booking_result = await api_client.create_booking(booking_data)
+
+                if not booking_result:
+                    await callback_query.message.edit_text(
+                        "❌ Не удалось создать бронирование. Попробуйте позже.",
+                        reply_markup=None,
+                    )
+                    return
+
+                logger.info(f"Создано бронирование детской комнаты: {booking_result}")
+
+                # Получаем тариф для уведомлений
+                tariff = await api_client.get_tariff(data["tariff_id"])
+
+                # Формируем данные брони для уведомлений
+                updated_booking_data = {
+                    **data,
+                    "booking_id": booking_result.get("id"),
+                    "amount": 0,
+                    "promocode_name": None,
+                }
+
+                # Отправляем уведомление админу
+                try:
+                    admin_notification = format_booking_notification(
+                        user, tariff, updated_booking_data
+                    )
+                    if ADMIN_TELEGRAM_ID:
+                        await callback_query.bot.send_message(
+                            chat_id=ADMIN_TELEGRAM_ID,
+                            text=admin_notification,
+                            parse_mode="HTML",
+                        )
+                        logger.info("Уведомление админу о детской комнате отправлено успешно")
+                except Exception as notif_error:
+                    logger.error(f"Ошибка отправки уведомления админу: {notif_error}")
+
+                # Отправляем подтверждение пользователю
+                user_notification = format_user_booking_notification(
+                    user, updated_booking_data, confirmed=False
+                )
+
+                await callback_query.message.edit_text(
+                    user_notification,
+                    parse_mode="HTML",
+                    reply_markup=None,
+                )
+
+                # Очищаем состояние
+                await state.clear()
+
+            except Exception as e:
+                logger.error(f"Ошибка при создании брони для детской комнаты: {e}")
+                await callback_query.message.edit_text(
+                    "❌ Произошла ошибка при создании бронирования. Попробуйте позже.",
+                    reply_markup=None,
+                )
+            return
+
+        # Для обычных переговорных - показываем ввод промокода
         keyboard = create_promocode_keyboard(lang)
 
         await callback_query.message.edit_text(
@@ -835,8 +949,12 @@ async def process_promocode_final(
         )
 
         # Логика по типам тарифов
-        if tariff_purpose in ["переговорная", "meeting_room", "meeting"]:
-            # Для переговорной - создаем бронь без оплаты, ожидает подтверждения админа
+        # Проверка типа тарифа
+        is_meeting_room = tariff_purpose in ["переговорная", "meeting_room", "meeting"]
+        is_kids_room = "детская комната" in data["tariff_name"].lower()
+
+        if is_meeting_room or is_kids_room:
+            # Переговорная или Детская комната - без оплаты, ждет подтверждения
             await create_booking_without_payment(message, state, user)
         elif final_amount <= 0:
             # Бесплатная бронь (100% скидка) - создаем и подтверждаем

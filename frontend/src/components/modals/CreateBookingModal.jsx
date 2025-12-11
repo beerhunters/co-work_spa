@@ -344,6 +344,97 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     }
   };
 
+  // Создание бронирования без оплаты (бесплатно)
+  const handleSaveWithoutPayment = async () => {
+    // Валидация полей
+    const newErrors = {};
+
+    if (!formData.user_id) {
+      newErrors.user_id = 'Выберите пользователя';
+    }
+    if (!formData.tariff_id) {
+      newErrors.tariff_id = 'Выберите тариф';
+    }
+    if (!formData.visit_date) {
+      newErrors.visit_date = 'Укажите дату посещения';
+    }
+
+    // Для meeting_room требуется время и длительность
+    if (selectedTariff?.purpose === 'meeting_room') {
+      if (!formData.visit_time) {
+        newErrors.visit_time = 'Укажите время для переговорной';
+      }
+      if (!formData.duration || formData.duration < 1) {
+        newErrors.duration = 'Укажите длительность (минимум 1 час)';
+      }
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      toast({
+        title: 'Ошибка валидации',
+        description: 'Проверьте заполнение всех полей',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      // Подготовка данных для бесплатной брони
+      const bookingData = {
+        user_id: parseInt(formData.user_id),
+        tariff_id: parseInt(formData.tariff_id),
+        visit_date: formData.visit_date,
+        visit_time: formData.visit_time || null,
+        duration: formData.duration || null,
+        amount: 0,  // Бесплатно
+        paid: true,  // Считается оплаченным
+        confirmed: true,  // Подтверждено
+        promocode_id: null
+      };
+
+      console.log('Создание бесплатного бронирования:', bookingData);
+
+      const result = await bookingApi.create(bookingData);
+
+      toast({
+        title: 'Успешно',
+        description: 'Бесплатное бронирование создано',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      if (onSuccess) {
+        onSuccess(result);
+      }
+      onClose();
+      resetForm();
+    } catch (error) {
+      console.error('Ошибка при создании бесплатного бронирования:', error);
+
+      let errorMessage = 'Не удалось создать бронирование';
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toast({
+        title: 'Ошибка',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Отмена
   const handleCancel = () => {
     resetForm();
@@ -639,7 +730,7 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
         </ModalBody>
 
         <ModalFooter>
-          <HStack spacing={3}>
+          <HStack spacing={3} width="100%">
             <Button
               leftIcon={<FiX />}
               variant="outline"
@@ -648,12 +739,28 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
             >
               Отмена
             </Button>
+
+            {/* Кнопка "Без оплаты" для всех тарифов */}
+            {selectedTariff && (
+              <Button
+                leftIcon={<FiSave />}
+                colorScheme="purple"
+                variant="outline"
+                onClick={handleSaveWithoutPayment}
+                isLoading={isSaving}
+                loadingText="Создание..."
+              >
+                Без оплаты
+              </Button>
+            )}
+
             <Button
               leftIcon={<FiSave />}
               colorScheme="green"
               onClick={handleSave}
               isLoading={isSaving}
               loadingText="Сохранение..."
+              ml="auto"
             >
               Создать бронирование
             </Button>
