@@ -954,6 +954,9 @@ async def update_booking(
         if "paid" in update_data:
             booking.paid = update_data["paid"]
 
+        if "amount" in update_data:
+            booking.amount = update_data["amount"]
+
         # Создание записи в Rubitime при подтверждении
         if (
             "confirmed" in update_data

@@ -423,11 +423,30 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     setActionLoading(prev => ({ ...prev, save: true }));
 
     try {
+      // Автоматически пересчитываем сумму перед сохранением
+      let finalAmount = recalculatedAmount;
+
+      if (finalAmount === null || finalAmount === undefined) {
+        // Если сумма не была пересчитана вручную, делаем это автоматически
+        try {
+          const recalcResult = await bookingApi.recalculateAmount(booking.id, {
+            visit_date: editData.visit_date,
+            visit_time: editData.visit_time,
+            duration: editData.duration ? parseInt(editData.duration) : null
+          });
+          finalAmount = recalcResult.amount;
+        } catch (recalcError) {
+          console.error('Ошибка автоматического пересчета:', recalcError);
+          // Если пересчет не удался, используем текущую сумму
+          finalAmount = booking.amount;
+        }
+      }
+
       await bookingApi.updateBookingFull(booking.id, {
         visit_date: editData.visit_date,
         visit_time: editData.visit_time,
         duration: editData.duration ? parseInt(editData.duration) : null,
-        amount: recalculatedAmount
+        amount: finalAmount
       });
 
       toast({
@@ -439,9 +458,10 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       });
 
       setIsEditing(false);
+      setRecalculatedAmount(null); // Сбрасываем пересчитанную сумму
 
-      // Перезагрузить данные
-      await fetchBookingDetails();
+      // Перезагрузить данные из API для корректного отображения
+      await fetchBookingDetails(false);
 
       // Вызываем callback для обновления родительского компонента
       if (onUpdate) {
