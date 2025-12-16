@@ -45,7 +45,7 @@ import {
   Radio,
   RadioGroup,
 } from '@chakra-ui/react';
-import { FiEdit2, FiTrash2, FiX as FiClear, FiBell, FiUsers, FiSearch, FiArrowRight } from 'react-icons/fi';
+import { FiEdit2, FiTrash2, FiX as FiClear, FiBell, FiUsers, FiSearch, FiArrowRight, FiCheck, FiAlertTriangle } from 'react-icons/fi';
 import { officeApi } from '../../utils/api';
 
 const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], onUpdate }) => {
@@ -57,6 +57,7 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
   const [selectedReminderTenants, setSelectedReminderTenants] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [isPaymentLoading, setIsPaymentLoading] = useState(false);
   const toast = useToast();
 
   // Преобразует ISO datetime в формат datetime-local (YYYY-MM-DDTHH:mm)
@@ -74,20 +75,26 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
   const { isOpen: isDeleteOpen, onOpen: onDeleteOpen, onClose: onDeleteClose } = useDisclosure();
   const { isOpen: isClearOpen, onOpen: onClearOpen, onClose: onClearClose } = useDisclosure();
   const { isOpen: isRelocateOpen, onOpen: onRelocateOpen, onClose: onRelocateClose } = useDisclosure();
+  const { isOpen: isPaymentConfirmOpen, onOpen: onPaymentConfirmOpen, onClose: onPaymentConfirmClose } = useDisclosure();
   const [selectedTargetOffice, setSelectedTargetOffice] = useState(null);
+  const [paymentDateMismatch, setPaymentDateMismatch] = useState(false);
   const cancelRef = React.useRef();
 
   useEffect(() => {
     if (office && isOpen) {
+      // Автоматически определяем тип оплаты по длительности аренды
+      const durationMonths = office.duration_months || null;
+      const paymentType = durationMonths === 1 ? 'monthly' : durationMonths > 1 ? 'one_time' : null;
+
       setFormData({
         office_number: office.office_number || '',
         floor: office.floor || 0,
         capacity: office.capacity || 1,
         price_per_month: office.price_per_month || 0,
-        duration_months: office.duration_months || null,
+        duration_months: durationMonths,
         rental_start_date: office.rental_start_date || null,
         rental_end_date: office.rental_end_date || null,
-        payment_day: office.payment_day || null,
+        payment_type: paymentType,
         admin_reminder_enabled: office.admin_reminder_enabled || false,
         admin_reminder_days: office.admin_reminder_days || 5,
         admin_reminder_type: office.admin_reminder_type || 'days_before',
@@ -147,10 +154,6 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
     if (formData.price_per_month <= 0) {
       newErrors.price_per_month = 'Стоимость должна быть больше 0';
-    }
-
-    if (formData.payment_day && (formData.payment_day < 1 || formData.payment_day > 31)) {
-      newErrors.payment_day = 'День платежа должен быть от 1 до 31';
     }
 
     setErrors(newErrors);
@@ -252,31 +255,18 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
     setIsLoading(true);
     try {
-      // Очищаем datetime поля, если выбран тип "days_before"
+      // Подготавливаем данные для отправки
       const cleanedData = { ...formData };
-      if (cleanedData.admin_reminder_type === 'days_before') {
-        cleanedData.admin_reminder_datetime = null;
-      } else if (cleanedData.admin_reminder_datetime) {
-        // Преобразуем datetime-local формат в ISO формат
-        cleanedData.admin_reminder_datetime = new Date(cleanedData.admin_reminder_datetime).toISOString();
-      }
 
-      if (cleanedData.tenant_reminder_type === 'days_before') {
-        cleanedData.tenant_reminder_datetime = null;
-      } else if (cleanedData.tenant_reminder_datetime) {
-        // Преобразуем datetime-local формат в ISO формат
-        cleanedData.tenant_reminder_datetime = new Date(cleanedData.tenant_reminder_datetime).toISOString();
-      }
+      // Теперь всегда используем только "days_before", очищаем datetime поля
+      cleanedData.admin_reminder_type = 'days_before';
+      cleanedData.admin_reminder_datetime = null;
+      cleanedData.tenant_reminder_type = 'days_before';
+      cleanedData.tenant_reminder_datetime = null;
 
-      // Преобразуем пустые строки в null для datetime полей
-      if (cleanedData.admin_reminder_datetime === '') {
-        cleanedData.admin_reminder_datetime = null;
-      }
-      if (cleanedData.tenant_reminder_datetime === '') {
-        cleanedData.tenant_reminder_datetime = null;
-      }
+      console.log('Sending office update:', cleanedData);
 
-      await officeApi.update(office.id, cleanedData);
+      const updatedOffice = await officeApi.update(office.id, cleanedData);
 
       toast({
         title: 'Успешно',
@@ -285,12 +275,8 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
         duration: 3000,
       });
 
-      // Обновляем локальные данные офиса
-      Object.assign(office, formData);
-      office.tenants = selectedTenants;
-
-      setIsEditing(false);
       await onUpdate();
+      onClose();
     } catch (error) {
       toast({
         title: 'Ошибка',
@@ -337,17 +323,27 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
       toast({
         title: 'Успешно',
-        description: `Офис "${office.office_number}" очищен`,
+        description: `Офис "${office.office_number}" очищен. Сохранены только базовые данные.`,
         status: 'success',
         duration: 3000,
       });
 
-      // Обновляем локальные данные
+      // Обновляем локальные данные - очищаем всё кроме базовых полей
       office.tenants = [];
+      office.duration_months = null;
+      office.rental_start_date = null;
+      office.rental_end_date = null;
       office.payment_day = null;
+      office.payment_type = null;
+      office.last_payment_date = null;
+      office.next_payment_date = null;
+      office.payment_status = null;
+      office.payment_notes = null;
       office.admin_reminder_enabled = false;
+      office.admin_reminder_days = 5;
       office.tenant_reminder_enabled = false;
-      office.comment = '';
+      office.tenant_reminder_days = 5;
+      office.comment = null;
 
       await onUpdate();
       onClearClose();
@@ -401,17 +397,80 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
     }
   };
 
+  const handlePayment = async () => {
+    if (!office.rental_start_date) {
+      toast({
+        title: 'Ошибка',
+        description: 'Не указана дата начала аренды',
+        status: 'error',
+        duration: 3000,
+      });
+      return;
+    }
+
+    // Проверка совпадения дат
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const rentalStart = new Date(office.rental_start_date);
+    rentalStart.setHours(0, 0, 0, 0);
+
+    const datesMatch = today.getTime() === rentalStart.getTime();
+    setPaymentDateMismatch(!datesMatch);
+
+    // Открыть диалог подтверждения
+    onPaymentConfirmOpen();
+  };
+
+  const handleConfirmPayment = async (updateStartDate = false) => {
+    setIsPaymentLoading(true);
+    try {
+      await officeApi.recordPayment(office.id, {
+        update_rental_start_date: updateStartDate
+      });
+
+      toast({
+        title: 'Успешно',
+        description: 'Платеж записан',
+        status: 'success',
+        duration: 3000,
+      });
+
+      await onUpdate();
+      onPaymentConfirmClose();
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: error.response?.data?.detail || 'Не удалось записать платеж',
+        status: 'error',
+        duration: 5000,
+      });
+    } finally {
+      setIsPaymentLoading(false);
+    }
+  };
+
   const handleCancel = () => {
+    // Автоматически определяем тип оплаты по длительности аренды
+    const durationMonths = office.duration_months || null;
+    const paymentType = durationMonths === 1 ? 'monthly' : durationMonths > 1 ? 'one_time' : null;
+
     setFormData({
       office_number: office.office_number || '',
       floor: office.floor || 0,
       capacity: office.capacity || 1,
       price_per_month: office.price_per_month || 0,
-      payment_day: office.payment_day || null,
+      duration_months: durationMonths,
+      rental_start_date: office.rental_start_date || null,
+      rental_end_date: office.rental_end_date || null,
+      payment_type: paymentType,
       admin_reminder_enabled: office.admin_reminder_enabled || false,
       admin_reminder_days: office.admin_reminder_days || 5,
+      admin_reminder_type: office.admin_reminder_type || 'days_before',
+      admin_reminder_datetime: formatDatetimeLocal(office.admin_reminder_datetime),
       tenant_reminder_enabled: office.tenant_reminder_enabled || false,
       tenant_reminder_days: office.tenant_reminder_days || 5,
+      tenant_reminder_type: office.tenant_reminder_type || 'days_before',
+      tenant_reminder_datetime: formatDatetimeLocal(office.tenant_reminder_datetime),
       tenant_ids: office.tenants ? office.tenants.map(t => t.id) : [],
       tenant_reminder_settings: office.tenant_reminder_settings || [],
       comment: office.comment || '',
@@ -512,7 +571,12 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                   <FormLabel>Длительность аренды (месяцев)</FormLabel>
                   <NumberInput
                     value={formData.duration_months || ''}
-                    onChange={(val) => setFormData({...formData, duration_months: val ? parseInt(val) : null})}
+                    onChange={(val) => {
+                      const months = val ? parseInt(val) : null;
+                      // Автоматически определяем тип оплаты
+                      const paymentType = months === 1 ? 'monthly' : months > 1 ? 'one_time' : null;
+                      setFormData({...formData, duration_months: months, payment_type: paymentType});
+                    }}
                     min={1}
                     max={120}
                   >
@@ -522,7 +586,14 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                       <NumberDecrementStepper />
                     </NumberInputStepper>
                   </NumberInput>
-                  <FormHelperText>Скидки: от 6 месяцев -10%, от 12 месяцев -15%</FormHelperText>
+                  <FormHelperText>
+                    Скидки: от 6 месяцев -10%, от 12 месяцев -15%.
+                    {formData.duration_months && (
+                      <Text as="span" color="blue.600" fontWeight="medium">
+                        {' '}Тип оплаты: {formData.duration_months === 1 ? 'Ежемесячная' : 'Разовая'}
+                      </Text>
+                    )}
+                  </FormHelperText>
                 </FormControl>
 
                 {formData.duration_months && (
@@ -572,27 +643,6 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                       </Text>
                     </VStack>
                   </Box>
-                )}
-
-                {selectedTenants.length > 0 && (
-                  <FormControl isInvalid={errors.payment_day}>
-                    <FormLabel>День платежа</FormLabel>
-                    <NumberInput
-                      value={formData.payment_day || ''}
-                      onChange={(val) => setFormData({...formData, payment_day: val ? parseInt(val) : null})}
-                      min={1}
-                      max={31}
-                    >
-                      <NumberInputField placeholder="1-31" />
-                      <NumberInputStepper>
-                        <NumberIncrementStepper />
-                        <NumberDecrementStepper />
-                      </NumberInputStepper>
-                    </NumberInput>
-                    <FormHelperText color={errors.payment_day ? 'red.500' : 'gray.600'}>
-                      {errors.payment_day || 'Число месяца для ежемесячного платежа'}
-                    </FormHelperText>
-                  </FormControl>
                 )}
 
                 <Divider />
@@ -723,36 +773,19 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
                   {formData.admin_reminder_enabled && (
                     <VStack align="stretch" spacing={2} mt={2} ml={6}>
-                      <RadioGroup
-                        value={formData.admin_reminder_type || 'days_before'}
-                        onChange={(value) => setFormData({...formData, admin_reminder_type: value})}
+                      <NumberInput
+                        value={formData.admin_reminder_days || 5}
+                        min={1}
+                        max={365}
+                        onChange={(valueString) => setFormData({...formData, admin_reminder_days: parseInt(valueString)})}
                       >
-                        <Stack direction="column">
-                          <Radio value="days_before">За N дней до окончания аренды</Radio>
-                          <Radio value="specific_datetime">Конкретная дата и время</Radio>
-                        </Stack>
-                      </RadioGroup>
-
-                      {formData.admin_reminder_type === 'days_before' ? (
-                        <NumberInput
-                          value={formData.admin_reminder_days || 5}
-                          min={1}
-                          max={365}
-                          onChange={(valueString) => setFormData({...formData, admin_reminder_days: parseInt(valueString)})}
-                        >
-                          <NumberInputField placeholder="Количество дней" />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                      ) : (
-                        <Input
-                          type="datetime-local"
-                          value={formData.admin_reminder_datetime || ''}
-                          onChange={(e) => setFormData({...formData, admin_reminder_datetime: e.target.value})}
-                        />
-                      )}
+                        <NumberInputField placeholder="За сколько дней до окончания аренды" />
+                        <NumberInputStepper>
+                          <NumberIncrementStepper />
+                          <NumberDecrementStepper />
+                        </NumberInputStepper>
+                      </NumberInput>
+                      <FormHelperText>Напоминание будет отправлено за указанное количество дней до окончания аренды</FormHelperText>
                     </VStack>
                   )}
                 </FormControl>
@@ -768,36 +801,19 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
 
                   {formData.tenant_reminder_enabled && (
                     <VStack align="stretch" spacing={2} mt={2} ml={6}>
-                      <RadioGroup
-                        value={formData.tenant_reminder_type || 'days_before'}
-                        onChange={(value) => setFormData({...formData, tenant_reminder_type: value})}
+                      <NumberInput
+                        value={formData.tenant_reminder_days || 5}
+                        min={1}
+                        max={365}
+                        onChange={(valueString) => setFormData({...formData, tenant_reminder_days: parseInt(valueString)})}
                       >
-                        <Stack direction="column">
-                          <Radio value="days_before">За N дней до окончания аренды</Radio>
-                          <Radio value="specific_datetime">Конкретная дата и время</Radio>
-                        </Stack>
-                      </RadioGroup>
-
-                      {formData.tenant_reminder_type === 'days_before' ? (
-                        <NumberInput
-                          value={formData.tenant_reminder_days || 5}
-                          min={1}
-                          max={365}
-                          onChange={(valueString) => setFormData({...formData, tenant_reminder_days: parseInt(valueString)})}
-                        >
-                          <NumberInputField placeholder="Количество дней" />
-                          <NumberInputStepper>
-                            <NumberIncrementStepper />
-                            <NumberDecrementStepper />
-                          </NumberInputStepper>
-                        </NumberInput>
-                      ) : (
-                        <Input
-                          type="datetime-local"
-                          value={formData.tenant_reminder_datetime || ''}
-                          onChange={(e) => setFormData({...formData, tenant_reminder_datetime: e.target.value})}
-                        />
-                      )}
+                        <NumberInputField placeholder="За сколько дней до окончания аренды" />
+                        <NumberInputStepper>
+                          <NumberIncrementStepper />
+                          <NumberDecrementStepper />
+                        </NumberInputStepper>
+                      </NumberInput>
+                      <FormHelperText>Напоминание будет отправлено за указанное количество дней до окончания аренды</FormHelperText>
 
                       {selectedTenants.length > 0 && (
                         <Box mt={3}>
@@ -863,10 +879,30 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                   <Text fontWeight="semibold" color="blue.600">{office.price_per_month} ₽</Text>
                 </HStack>
 
-                <HStack justify="space-between">
-                  <Text fontWeight="bold">День платежа:</Text>
-                  <Text>{office.payment_day ? `${office.payment_day} число` : 'Не указан'}</Text>
-                </HStack>
+                {office.duration_months && (
+                  <>
+                    <HStack justify="space-between">
+                      <Text fontWeight="bold">Длительность аренды:</Text>
+                      <Text>
+                        {office.duration_months} {office.duration_months === 1 ? 'месяц' : office.duration_months < 5 ? 'месяца' : 'месяцев'}
+                      </Text>
+                    </HStack>
+
+                    {office.rental_start_date && (
+                      <HStack justify="space-between">
+                        <Text fontWeight="bold">Дата начала аренды:</Text>
+                        <Text>{new Date(office.rental_start_date).toLocaleDateString('ru-RU')}</Text>
+                      </HStack>
+                    )}
+
+                    {office.rental_end_date && (
+                      <HStack justify="space-between">
+                        <Text fontWeight="bold">Дата окончания аренды:</Text>
+                        <Text>{new Date(office.rental_end_date).toLocaleDateString('ru-RU')}</Text>
+                      </HStack>
+                    )}
+                  </>
+                )}
 
                 <Divider />
 
@@ -920,6 +956,57 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                   </VStack>
                 </Box>
 
+                {/* Информация об оплате */}
+                {office.tenants && office.tenants.length > 0 && (office.payment_type || office.next_payment_date) && (
+                  <>
+                    <Divider />
+                    <Box>
+                      <Text fontWeight="bold" mb={2}>💰 Информация об оплате</Text>
+                      <VStack align="stretch" spacing={2}>
+                        {office.payment_type && (
+                          <HStack justify="space-between">
+                            <Text fontWeight="bold">Тип оплаты:</Text>
+                            <Badge colorScheme={office.payment_type === 'one_time' ? 'purple' : 'blue'}>
+                              {office.payment_type === 'one_time' ? 'Разовая' : 'Ежемесячная'}
+                            </Badge>
+                          </HStack>
+                        )}
+
+                        {office.payment_status && (
+                          <HStack justify="space-between">
+                            <Text fontWeight="bold">Статус:</Text>
+                            <Badge colorScheme={
+                              office.payment_status === 'paid' ? 'green' :
+                              office.payment_status === 'overdue' ? 'red' : 'yellow'
+                            }>
+                              {office.payment_status === 'paid' ? 'Оплачено' :
+                               office.payment_status === 'overdue' ? 'Просрочено' : 'Ожидается'}
+                            </Badge>
+                          </HStack>
+                        )}
+
+                        {office.last_payment_date && (
+                          <HStack justify="space-between">
+                            <Text fontWeight="bold">Последний платеж:</Text>
+                            <Text>
+                              {new Date(office.last_payment_date).toLocaleDateString('ru-RU')}
+                            </Text>
+                          </HStack>
+                        )}
+
+                        {office.next_payment_date && (
+                          <HStack justify="space-between">
+                            <Text fontWeight="bold">Следующий платеж:</Text>
+                            <Text>
+                              {new Date(office.next_payment_date).toLocaleDateString('ru-RU')}
+                            </Text>
+                          </HStack>
+                        )}
+                      </VStack>
+                    </Box>
+                  </>
+                )}
+
                 {office.comment && (
                   <>
                     <Divider />
@@ -960,6 +1047,25 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
             ) : (
               <VStack spacing={2} align="stretch" width="100%">
                 <HStack spacing={2} justify="flex-start">
+                  {/* Кнопка оплаты - показывается если есть постояльцы и дата начала аренды */}
+                  {office.tenants && office.tenants.length > 0 && office.rental_start_date && (
+                    <Button
+                      colorScheme={
+                        office.last_payment_date
+                          ? (office.payment_status === 'paid' ? 'green' : 'blue')
+                          : 'orange'
+                      }
+                      onClick={handlePayment}
+                      isLoading={isPaymentLoading}
+                      leftIcon={<FiCheck />}
+                      flex="1"
+                      variant={office.last_payment_date ? 'solid' : 'outline'}
+                    >
+                      {office.last_payment_date
+                        ? (office.payment_status === 'paid' ? 'Оплачено' : 'Продлить')
+                        : 'Оплатить'}
+                    </Button>
+                  )}
                   {office.tenants && office.tenants.length > 0 && (
                     <Button
                       colorScheme="purple"
@@ -1058,7 +1164,6 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                 </Text>
                 <VStack align="stretch" pl={4} fontSize="sm" spacing={1}>
                   <Text>• Все постояльцы</Text>
-                  <Text>• Дата платежа</Text>
                   <Text>• Настройки напоминаний</Text>
                   <Text>• Комментарий</Text>
                 </VStack>
@@ -1174,6 +1279,87 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
                 isDisabled={!selectedTargetOffice}
               >
                 Переселить
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialogOverlay>
+      </AlertDialog>
+
+      {/* AlertDialog для подтверждения оплаты */}
+      <AlertDialog
+        isOpen={isPaymentConfirmOpen}
+        leastDestructiveRef={cancelRef}
+        onClose={onPaymentConfirmClose}
+      >
+        <AlertDialogOverlay>
+          <AlertDialogContent>
+            <AlertDialogHeader>Подтверждение оплаты</AlertDialogHeader>
+
+            <AlertDialogBody>
+              <VStack align="stretch" spacing={3}>
+                <Box>
+                  <Text fontWeight="medium" mb={2}>Информация:</Text>
+                  <VStack align="stretch" spacing={1} fontSize="sm">
+                    <HStack justify="space-between">
+                      <Text>Дата оплаты (сегодня):</Text>
+                      <Text fontWeight="bold">{new Date().toLocaleDateString('ru-RU')}</Text>
+                    </HStack>
+                    <HStack justify="space-between">
+                      <Text>Дата начала аренды:</Text>
+                      <Text fontWeight="bold">
+                        {office.rental_start_date
+                          ? new Date(office.rental_start_date).toLocaleDateString('ru-RU')
+                          : 'Не указана'}
+                      </Text>
+                    </HStack>
+                  </VStack>
+                </Box>
+
+                {paymentDateMismatch ? (
+                  <Box p={3} bg="orange.50" borderRadius="md" borderWidth="1px" borderColor="orange.200">
+                    <HStack mb={2}>
+                      <Icon as={FiAlertTriangle} color="orange.500" />
+                      <Text fontWeight="bold" color="orange.700">Внимание!</Text>
+                    </HStack>
+                    <Text fontSize="sm" color="orange.700">
+                      Дата оплаты не совпадает с датой начала аренды.
+                      Вы можете подтвердить оплату с текущими датами или обновить дату начала аренды.
+                    </Text>
+                  </Box>
+                ) : (
+                  <Box p={3} bg="green.50" borderRadius="md" borderWidth="1px" borderColor="green.200">
+                    <HStack>
+                      <Icon as={FiCheck} color="green.500" />
+                      <Text fontSize="sm" color="green.700">Даты совпадают ✓</Text>
+                    </HStack>
+                  </Box>
+                )}
+              </VStack>
+            </AlertDialogBody>
+
+            <AlertDialogFooter>
+              <Button ref={cancelRef} onClick={onPaymentConfirmClose}>
+                Отмена
+              </Button>
+
+              {paymentDateMismatch && (
+                <Button
+                  colorScheme="blue"
+                  onClick={() => handleConfirmPayment(true)}
+                  ml={3}
+                  isLoading={isPaymentLoading}
+                >
+                  Обновить дату начала аренды
+                </Button>
+              )}
+
+              <Button
+                colorScheme="green"
+                onClick={() => handleConfirmPayment(false)}
+                ml={3}
+                isLoading={isPaymentLoading}
+              >
+                Подтвердить оплату
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>

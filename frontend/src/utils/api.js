@@ -1058,6 +1058,16 @@ export const officeApi = {
   relocate: async (sourceOfficeId, targetOfficeId) => {
     const res = await apiClient.post(`/offices/${sourceOfficeId}/relocate/${targetOfficeId}`);
     return res.data;
+  },
+
+  getPaymentStatus: async (officeId) => {
+    const res = await apiClient.get(`/offices/${officeId}/payment-status`);
+    return res.data;
+  },
+
+  recordPayment: async (officeId, paymentData = {}) => {
+    const res = await apiClient.post(`/offices/${officeId}/pay`, paymentData);
+    return res.data;
   }
 };
 

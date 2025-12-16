@@ -5,11 +5,15 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import delete
 
-from models.models import Office, office_tenants, OfficeTenantReminder, User, Permission
+from models.models import Office, office_tenants, OfficeTenantReminder, OfficePaymentHistory, User, Permission
 from dependencies import get_db, verify_token, verify_token_with_permissions, CachedAdmin
-from schemas.office_schemas import OfficeBase, OfficeCreate, OfficeUpdate, OfficeTenantBase, TenantReminderSetting
+from schemas.office_schemas import OfficeBase, OfficeCreate, OfficeUpdate, OfficeTenantBase, TenantReminderSetting, OfficePaymentRecord, OfficePaymentButtonStatus
 from utils.logger import get_logger
 from utils.cache_manager import cache_manager
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+import asyncio
+from config import MOSCOW_TZ, ADMIN_TELEGRAM_ID
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/offices", tags=["offices"])
@@ -86,11 +90,23 @@ async def get_offices(
                 "floor": o.floor,
                 "capacity": o.capacity,
                 "price_per_month": o.price_per_month,
+                "duration_months": o.duration_months,
+                "rental_start_date": o.rental_start_date,
+                "rental_end_date": o.rental_end_date,
                 "payment_day": o.payment_day,
                 "admin_reminder_enabled": o.admin_reminder_enabled,
                 "admin_reminder_days": o.admin_reminder_days,
+                "admin_reminder_type": o.admin_reminder_type.value if o.admin_reminder_type else None,
+                "admin_reminder_datetime": o.admin_reminder_datetime,
                 "tenant_reminder_enabled": o.tenant_reminder_enabled,
                 "tenant_reminder_days": o.tenant_reminder_days,
+                "tenant_reminder_type": o.tenant_reminder_type.value if o.tenant_reminder_type else None,
+                "tenant_reminder_datetime": o.tenant_reminder_datetime,
+                "payment_type": o.payment_type,
+                "last_payment_date": o.last_payment_date,
+                "next_payment_date": o.next_payment_date,
+                "payment_status": o.payment_status,
+                "payment_notes": o.payment_notes,
                 "comment": o.comment,
                 "is_active": o.is_active,
                 "created_at": o.created_at,
@@ -145,11 +161,23 @@ async def get_office(
             "floor": office.floor,
             "capacity": office.capacity,
             "price_per_month": office.price_per_month,
+            "duration_months": office.duration_months,
+            "rental_start_date": office.rental_start_date,
+            "rental_end_date": office.rental_end_date,
             "payment_day": office.payment_day,
             "admin_reminder_enabled": office.admin_reminder_enabled,
             "admin_reminder_days": office.admin_reminder_days,
+            "admin_reminder_type": office.admin_reminder_type.value if office.admin_reminder_type else None,
+            "admin_reminder_datetime": office.admin_reminder_datetime,
             "tenant_reminder_enabled": office.tenant_reminder_enabled,
             "tenant_reminder_days": office.tenant_reminder_days,
+            "tenant_reminder_type": office.tenant_reminder_type.value if office.tenant_reminder_type else None,
+            "tenant_reminder_datetime": office.tenant_reminder_datetime,
+            "payment_type": office.payment_type,
+            "last_payment_date": office.last_payment_date,
+            "next_payment_date": office.next_payment_date,
+            "payment_status": office.payment_status,
+            "payment_notes": office.payment_notes,
             "comment": office.comment,
             "is_active": office.is_active,
             "created_at": office.created_at,
@@ -222,6 +250,8 @@ async def create_office(
             tenant_reminder_enabled=office_data.tenant_reminder_enabled,
             tenant_reminder_days=office_data.tenant_reminder_days,
             comment=office_data.comment,
+            payment_type=office_data.payment_type,
+            payment_notes=office_data.payment_notes,
             is_active=office_data.is_active
         )
 
@@ -252,6 +282,16 @@ async def create_office(
                     )
                     db.add(reminder)
 
+        # Инициализация платежной системы, если добавлены постояльцы
+        if office_data.tenant_ids and office_data.rental_start_date:
+            office.payment_type = office_data.payment_type or 'monthly'
+            office.payment_status = 'pending'
+
+            if office.payment_type == 'one_time':
+                office.next_payment_date = office.rental_end_date
+            else:  # monthly
+                office.next_payment_date = office_data.rental_start_date + relativedelta(months=1)
+
         db.commit()
         db.refresh(office)
 
@@ -274,11 +314,23 @@ async def create_office(
             "floor": office.floor,
             "capacity": office.capacity,
             "price_per_month": office.price_per_month,
+            "duration_months": office.duration_months,
+            "rental_start_date": office.rental_start_date,
+            "rental_end_date": office.rental_end_date,
             "payment_day": office.payment_day,
             "admin_reminder_enabled": office.admin_reminder_enabled,
             "admin_reminder_days": office.admin_reminder_days,
+            "admin_reminder_type": office.admin_reminder_type.value if office.admin_reminder_type else None,
+            "admin_reminder_datetime": office.admin_reminder_datetime,
             "tenant_reminder_enabled": office.tenant_reminder_enabled,
             "tenant_reminder_days": office.tenant_reminder_days,
+            "tenant_reminder_type": office.tenant_reminder_type.value if office.tenant_reminder_type else None,
+            "tenant_reminder_datetime": office.tenant_reminder_datetime,
+            "payment_type": office.payment_type,
+            "last_payment_date": office.last_payment_date,
+            "next_payment_date": office.next_payment_date,
+            "payment_status": office.payment_status,
+            "payment_notes": office.payment_notes,
             "comment": office.comment,
             "is_active": office.is_active,
             "created_at": office.created_at,
@@ -409,12 +461,33 @@ async def update_office(
                     db.add(reminder)
 
         # Обновление остальных полей
+        logger.info(f"Updating office {office.id} with data: {update_data}")
         for field, value in update_data.items():
+            logger.info(f"Setting {field} = {value} (type: {type(value)})")
             setattr(office, field, value)
+
+        # Пересчет next_payment_date при изменении важных полей
+        recalc_payment = ("tenant_ids" in office_data.dict(exclude_unset=True) or
+                         "rental_start_date" in update_data or
+                         "payment_type" in update_data or
+                         "duration_months" in update_data)
+
+        if recalc_payment and office.tenants and office.rental_start_date:
+            if office.payment_type == 'one_time':
+                office.next_payment_date = office.rental_end_date
+            else:  # monthly
+                if not office.last_payment_date:
+                    office.next_payment_date = office.rental_start_date + relativedelta(months=1)
+                # Если уже были платежи, не перезаписываем next_payment_date
+
+            # Установить payment_status в pending если еще не установлен
+            if not office.payment_status:
+                office.payment_status = 'pending'
 
         db.commit()
         db.refresh(office)
 
+        logger.info(f"Office after update - admin_reminder_type: {office.admin_reminder_type}, admin_reminder_datetime: {office.admin_reminder_datetime}")
         logger.info(f"Обновлен офис: {office.office_number} (ID: {office.id}) администратором {current_admin.login}")
 
         # Инвалидация кэша
@@ -434,11 +507,23 @@ async def update_office(
             "floor": office.floor,
             "capacity": office.capacity,
             "price_per_month": office.price_per_month,
+            "duration_months": office.duration_months,
+            "rental_start_date": office.rental_start_date,
+            "rental_end_date": office.rental_end_date,
             "payment_day": office.payment_day,
             "admin_reminder_enabled": office.admin_reminder_enabled,
             "admin_reminder_days": office.admin_reminder_days,
+            "admin_reminder_type": office.admin_reminder_type.value if office.admin_reminder_type else None,
+            "admin_reminder_datetime": office.admin_reminder_datetime,
             "tenant_reminder_enabled": office.tenant_reminder_enabled,
             "tenant_reminder_days": office.tenant_reminder_days,
+            "tenant_reminder_type": office.tenant_reminder_type.value if office.tenant_reminder_type else None,
+            "tenant_reminder_datetime": office.tenant_reminder_datetime,
+            "payment_type": office.payment_type,
+            "last_payment_date": office.last_payment_date,
+            "next_payment_date": office.next_payment_date,
+            "payment_status": office.payment_status,
+            "payment_notes": office.payment_notes,
             "comment": office.comment,
             "is_active": office.is_active,
             "created_at": office.created_at,
@@ -529,10 +614,24 @@ async def clear_office(
         # Удалить настройки напоминаний
         db.query(OfficeTenantReminder).filter_by(office_id=office_id).delete()
 
-        # Очистить поля
+        # Очистить ВСЕ поля кроме базовых (номер офиса, этаж, вместимость, стоимость)
+        office.duration_months = None
+        office.rental_start_date = None
+        office.rental_end_date = None
         office.payment_day = None
+        office.payment_type = None
+        office.last_payment_date = None
+        office.next_payment_date = None
+        office.payment_status = None
+        office.payment_notes = None
         office.admin_reminder_enabled = False
+        office.admin_reminder_days = 5
+        office.admin_reminder_type = 'days_before'
+        office.admin_reminder_datetime = None
         office.tenant_reminder_enabled = False
+        office.tenant_reminder_days = 5
+        office.tenant_reminder_type = 'days_before'
+        office.tenant_reminder_datetime = None
         office.comment = None
 
         db.commit()
@@ -544,7 +643,7 @@ async def clear_office(
 
         return {
             "success": True,
-            "message": f"Офис '{office.office_number}' успешно очищен. Удалены постояльцы, дата платежа, напоминания и комментарий."
+            "message": f"Офис '{office.office_number}' успешно очищен. Сохранены только базовые данные: номер, этаж, вместимость, стоимость."
         }
 
     except HTTPException:
@@ -672,3 +771,305 @@ async def relocate_office(
         db.rollback()
         logger.error(f"Неожиданная ошибка при переселении из офиса {source_office_id} в {target_office_id}: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+# ===== PAYMENT ENDPOINTS =====
+
+@router.post("/{office_id}/pay", response_model=OfficeBase)
+async def record_office_payment(
+    office_id: int,
+    payment_data: OfficePaymentRecord,
+    db: Session = Depends(get_db),
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.EDIT_OFFICES]))
+):
+    """
+    Записать платеж по офису.
+    
+    Логика:
+    1. Проверить наличие постояльцев
+    2. Создать запись в OfficePaymentHistory
+    3. Обновить last_payment_date, payment_status = 'paid'
+    4. Рассчитать next_payment_date:
+       - monthly: +1 месяц от текущего next_payment_date
+       - one_time: = rental_end_date
+    5. Отправить уведомления в Telegram
+    """
+    try:
+        office = db.query(Office).filter_by(id=office_id).first()
+        if not office:
+            raise HTTPException(status_code=404, detail="Офис не найден")
+        
+        # Валидация: должны быть постояльцы
+        if not office.tenants or len(office.tenants) == 0:
+            raise HTTPException(
+                status_code=400, 
+                detail="Невозможно записать платеж для офиса без постояльцев"
+            )
+        
+        # Валидация: должен быть установлен тип платежа
+        if not office.payment_type:
+            raise HTTPException(
+                status_code=400,
+                detail="Тип платежа не установлен. Отредактируйте офис и укажите тип платежа."
+            )
+        
+        # Определяем параметры платежа
+        payment_date = payment_data.payment_date or datetime.now(MOSCOW_TZ)
+        amount = payment_data.amount or office.price_per_month
+        
+        # Определяем период, за который производится оплата
+        if office.payment_type == 'one_time':
+            # Одноразовый платеж покрывает весь период аренды
+            period_start = office.rental_start_date or payment_date
+            period_end = office.rental_end_date
+            
+            if not period_end:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Для одноразового платежа необходимо указать дату окончания аренды"
+                )
+        else:  # monthly
+            # Месячный платеж
+            if office.last_payment_date:
+                # Следующий месяц от последнего платежа
+                period_start = office.last_payment_date
+                period_end = period_start + relativedelta(months=1)
+            else:
+                # Первый платеж
+                period_start = office.rental_start_date or payment_date
+                period_end = period_start + relativedelta(months=1)
+        
+        # Создаем запись в истории платежей
+        payment_history = OfficePaymentHistory(
+            office_id=office.id,
+            payment_date=payment_date,
+            amount=amount,
+            period_start=period_start,
+            period_end=period_end,
+            payment_type=office.payment_type,
+            recorded_by_admin_id=current_admin.id,
+            notes=payment_data.notes
+        )
+        db.add(payment_history)
+        
+        # Обновляем офис
+        office.last_payment_date = payment_date
+        office.payment_status = 'paid'
+
+        # Обновление даты начала аренды если требуется
+        if payment_data.update_rental_start_date and payment_date != office.rental_start_date:
+            logger.info(f"Updating rental_start_date from {office.rental_start_date} to {payment_date}")
+            office.rental_start_date = payment_date
+
+            # Пересчитать rental_end_date
+            if office.duration_months:
+                office.rental_end_date = payment_date + relativedelta(months=office.duration_months)
+                logger.info(f"Recalculated rental_end_date to {office.rental_end_date}")
+
+        # Рассчитываем следующую дату платежа
+        if office.payment_type == 'one_time':
+            # Для одноразового платежа следующий платеж - окончание аренды
+            office.next_payment_date = office.rental_end_date
+        else:  # monthly
+            office.next_payment_date = period_end
+            
+            # Проверяем, не выходит ли следующий платеж за рамки аренды
+            if office.rental_end_date and office.next_payment_date > office.rental_end_date:
+                office.next_payment_date = office.rental_end_date
+        
+        db.commit()
+        db.refresh(office)
+        
+        logger.info(
+            f"Платеж записан для офиса {office.office_number} "
+            f"(ID: {office.id}) администратором {current_admin.login}. "
+            f"Сумма: {amount}, Период: {period_start} - {period_end}"
+        )
+        
+        # Отправляем уведомления
+        await _send_payment_notifications(office, amount, period_start, period_end, current_admin, db)
+        
+        # Инвалидация кэша
+        await cache_manager.delete(cache_manager.get_cache_key("offices", "active"))
+        
+        # Формируем ответ
+        tenant_reminder_settings = []
+        for tr in office.tenant_reminders:
+            tenant_reminder_settings.append({
+                "user_id": tr.user_id,
+                "is_enabled": tr.is_enabled
+            })
+        
+        return {
+            "id": office.id,
+            "office_number": office.office_number,
+            "floor": office.floor,
+            "capacity": office.capacity,
+            "price_per_month": office.price_per_month,
+            "duration_months": office.duration_months,
+            "rental_start_date": office.rental_start_date,
+            "rental_end_date": office.rental_end_date,
+            "payment_day": office.payment_day,
+            "payment_type": office.payment_type,
+            "last_payment_date": office.last_payment_date,
+            "next_payment_date": office.next_payment_date,
+            "payment_status": office.payment_status,
+            "payment_notes": office.payment_notes,
+            "admin_reminder_enabled": office.admin_reminder_enabled,
+            "admin_reminder_days": office.admin_reminder_days,
+            "admin_reminder_type": office.admin_reminder_type.value if office.admin_reminder_type else "days_before",
+            "admin_reminder_datetime": office.admin_reminder_datetime,
+            "tenant_reminder_enabled": office.tenant_reminder_enabled,
+            "tenant_reminder_days": office.tenant_reminder_days,
+            "tenant_reminder_type": office.tenant_reminder_type.value if office.tenant_reminder_type else "days_before",
+            "tenant_reminder_datetime": office.tenant_reminder_datetime,
+            "comment": office.comment,
+            "is_active": office.is_active,
+            "created_at": office.created_at,
+            "updated_at": office.updated_at,
+            "tenants": [
+                {
+                    "id": t.id,
+                    "telegram_id": t.telegram_id,
+                    "full_name": t.full_name or "Нет имени"
+                }
+                for t in office.tenants
+            ],
+            "tenant_reminder_settings": tenant_reminder_settings
+        }
+        
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Ошибка записи платежа для офиса {office_id}: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+
+@router.get("/{office_id}/payment-status", response_model=OfficePaymentButtonStatus)
+async def get_office_payment_button_status(
+    office_id: int,
+    db: Session = Depends(get_db),
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_OFFICES]))
+):
+    """
+    Проверить, должна ли отображаться кнопка "Оплатить" для офиса.
+    
+    Кнопка показывается если:
+    1. Есть постояльцы
+    2. next_payment_date установлен
+    3. Текущая дата >= (next_payment_date - admin_reminder_days)
+    4. payment_status != 'paid' для текущего периода
+    """
+    try:
+        office = db.query(Office).filter_by(id=office_id).first()
+        if not office:
+            raise HTTPException(status_code=404, detail="Офис не найден")
+        
+        # Базовые проверки
+        has_tenants = office.tenants and len(office.tenants) > 0
+        
+        if not has_tenants or not office.next_payment_date:
+            return OfficePaymentButtonStatus(
+                show_button=False,
+                days_until_due=None,
+                next_payment_date=office.next_payment_date,
+                payment_status=office.payment_status,
+                can_pay_early=False
+            )
+        
+        # Рассчитываем дни до платежа
+        today = datetime.now(MOSCOW_TZ)
+        next_payment_aware = office.next_payment_date.replace(tzinfo=MOSCOW_TZ) if office.next_payment_date.tzinfo is None else office.next_payment_date
+        days_until_due = (next_payment_aware - today).days
+        
+        # Кнопка показывается за N дней до платежа (admin_reminder_days)
+        reminder_days = office.admin_reminder_days or 5
+        show_button = days_until_due <= reminder_days
+        
+        # Также проверяем статус платежа
+        if office.payment_status == 'paid' and days_until_due > 0:
+            # Уже оплачен текущий период
+            show_button = False
+        
+        return OfficePaymentButtonStatus(
+            show_button=show_button,
+            days_until_due=days_until_due,
+            next_payment_date=office.next_payment_date,
+            payment_status=office.payment_status,
+            can_pay_early=True
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка проверки статуса кнопки оплаты для офиса {office_id}: {e}")
+        raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
+
+
+async def _send_payment_notifications(
+    office: Office,
+    amount: float,
+    period_start: datetime,
+    period_end: datetime,
+    admin: CachedAdmin,
+    db: Session
+):
+    """Отправка уведомлений о платеже в Telegram."""
+    from utils.bot_instance import get_bot
+    
+    bot = get_bot()
+    
+    # Уведомление администратору
+    try:
+        # Формируем строку с информацией о следующем платеже
+        next_payment_info = 'Аренда полностью оплачена'
+        if office.payment_type != 'one_time' and office.next_payment_date:
+            next_payment_info = f'Следующий платеж: {office.next_payment_date.strftime("%d.%m.%Y")}'
+
+        admin_message = (
+            f"✅ Платеж за офис записан\n\n"
+            f"Офис: {office.office_number} (этаж {office.floor})\n"
+            f"Сумма: {amount} ₽\n"
+            f"Период: {period_start.strftime('%d.%m.%Y')} - {period_end.strftime('%d.%m.%Y')}\n"
+            f"Тип платежа: {'Разовый' if office.payment_type == 'one_time' else 'Ежемесячный'}\n"
+            f"Записал: {admin.login}\n\n"
+            f"{next_payment_info}"
+        )
+        await bot.send_message(ADMIN_TELEGRAM_ID, admin_message)
+        logger.info(f"Отправлено уведомление админу о платеже для офиса {office.office_number}")
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления админу: {e}")
+    
+    # Уведомления постояльцам
+    if office.tenant_reminder_enabled:
+        # Получаем постояльцев с включенными напоминаниями
+        tenant_reminders = db.query(OfficeTenantReminder).filter(
+            OfficeTenantReminder.office_id == office.id,
+            OfficeTenantReminder.is_enabled == True
+        ).all()
+        
+        for tr in tenant_reminders:
+            try:
+                user = tr.user
+
+                # Формируем строку с информацией о следующем платеже для постояльца
+                payment_info = 'Аренда полностью оплачена'
+                if office.payment_type == 'one_time' and office.rental_end_date:
+                    payment_info = f'Аренда полностью оплачена до {office.rental_end_date.strftime("%d.%m.%Y")}'
+                elif office.payment_type != 'one_time' and office.next_payment_date:
+                    payment_info = f'Следующий платеж: {office.next_payment_date.strftime("%d.%m.%Y")}'
+
+                tenant_message = (
+                    f"✅ Платеж принят\n\n"
+                    f"Офис: {office.office_number} (этаж {office.floor})\n"
+                    f"Сумма: {amount} ₽\n"
+                    f"Период: {period_start.strftime('%d.%m.%Y')} - {period_end.strftime('%d.%m.%Y')}\n\n"
+                    f"{payment_info}"
+                )
+                await bot.send_message(user.telegram_id, tenant_message)
+                logger.info(f"Отправлено уведомление пользователю {user.telegram_id} о платеже")
+
+                await asyncio.sleep(0.3)  # Rate limiting
+            except Exception as e:
+                logger.error(f"Ошибка отправки уведомления постояльцу: {e}")

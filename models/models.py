@@ -830,6 +830,13 @@ class Office(Base):
     # Комментарий
     comment = Column(Text, nullable=True)
 
+    # Система оплаты
+    payment_type = Column(String(20), nullable=True)  # 'monthly' или 'one_time'
+    last_payment_date = Column(DateTime, nullable=True, index=True)
+    next_payment_date = Column(DateTime, nullable=True, index=True)
+    payment_status = Column(String(20), nullable=True)  # 'pending', 'paid', 'overdue'
+    payment_notes = Column(Text, nullable=True)
+
     # Метаданные
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
@@ -878,6 +885,33 @@ class OfficeTenantReminder(Base):
 
     def __repr__(self):
         return f"<OfficeTenantReminder(office_id={self.office_id}, user_id={self.user_id})>"
+
+
+class OfficePaymentHistory(Base):
+    """История платежей по офисам."""
+
+    __tablename__ = "office_payment_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    office_id = Column(Integer, ForeignKey('offices.id', ondelete='CASCADE'), nullable=False, index=True)
+    payment_date = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    period_start = Column(DateTime, nullable=False)
+    period_end = Column(DateTime, nullable=False)
+    payment_type = Column(String(20), nullable=False)  # 'monthly' или 'one_time'
+    recorded_by_admin_id = Column(Integer, ForeignKey('admins.id'), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False)
+
+    office = relationship("Office", backref="payment_history")
+    recorded_by = relationship("Admin")
+
+    __table_args__ = (
+        Index('idx_office_payment_date', 'office_id', 'payment_date'),
+    )
+
+    def __repr__(self):
+        return f"<OfficePaymentHistory(office_id={self.office_id}, amount={self.amount}, period={self.period_start} to {self.period_end})>"
 
 
 class Booking(Base):

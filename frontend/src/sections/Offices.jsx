@@ -43,6 +43,8 @@ import {
   ButtonGroup,
   IconButton,
   SimpleGrid,
+  Radio,
+  RadioGroup,
 } from '@chakra-ui/react';
 import { FiEye, FiPlus, FiUsers, FiBell, FiSearch } from 'react-icons/fi';
 import { BsList, BsGrid3X3Gap } from 'react-icons/bs';
@@ -71,6 +73,7 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
     tenant_ids: [],
     tenant_reminder_settings: [],
     comment: '',
+    payment_type: 'monthly',
     is_active: true
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -471,6 +474,38 @@ const CreateOfficeModal = ({ isOpen, onClose, onUpdate, users = [] }) => {
                 </NumberInput>
                 <FormHelperText color={errors.payment_day ? 'red.500' : 'gray.600'}>
                   {errors.payment_day || 'Число месяца для ежемесячного платежа'}
+                </FormHelperText>
+              </FormControl>
+            )}
+
+            {/* Тип оплаты - показывать только если есть постояльцы и дата начала */}
+            {selectedTenants.length > 0 && formData.rental_start_date && (
+              <FormControl>
+                <FormLabel>Тип оплаты</FormLabel>
+                <RadioGroup
+                  value={formData.payment_type}
+                  onChange={(value) => setFormData({...formData, payment_type: value})}
+                >
+                  <Stack direction="row" spacing={4}>
+                    <Radio value="monthly">
+                      <VStack align="start" spacing={0}>
+                        <Text>Ежемесячная</Text>
+                        <Text fontSize="xs" color="gray.500">Платеж каждый месяц</Text>
+                      </VStack>
+                    </Radio>
+                    <Radio value="one_time">
+                      <VStack align="start" spacing={0}>
+                        <Text>Разовая</Text>
+                        <Text fontSize="xs" color="gray.500">Один платеж на весь период</Text>
+                      </VStack>
+                    </Radio>
+                  </Stack>
+                </RadioGroup>
+                <FormHelperText>
+                  {formData.payment_type === 'monthly'
+                    ? 'Оплата производится каждый месяц до окончания аренды'
+                    : `Одноразовый платеж покрывает весь период (${formData.duration_months || 0} мес.)`
+                  }
                 </FormHelperText>
               </FormControl>
             )}
