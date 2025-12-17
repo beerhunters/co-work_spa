@@ -150,3 +150,29 @@ class CacheInvalidator:
 
 # Глобальный экземпляр для удобства использования
 cache_invalidator = CacheInvalidator()
+
+
+# Вспомогательные функции для удобства использования
+async def invalidate_dashboard_cache():
+    """Инвалидация кэша дашборда"""
+    return await cache_invalidator.invalidate_dashboard_cache()
+
+
+async def invalidate_user_cache(user_id: Optional[int] = None):
+    """Инвалидация кэша пользователей"""
+    return await cache_invalidator.invalidate_user_related_cache(user_id)
+
+
+async def invalidate_booking_cache():
+    """Инвалидация кэша бронирований"""
+    return await cache_invalidator.invalidate_booking_related_cache()
+
+
+async def invalidate_ticket_cache():
+    """Инвалидация кэша тикетов"""
+    return await cache_invalidator.invalidate_ticket_related_cache()
+
+
+async def invalidate_tariff_cache():
+    """Инвалидация кэша тарифов"""
+    return await cache_invalidator.invalidate_tariff_related_cache()

@@ -613,11 +613,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
         });
       }
 
-      if (recipientType === 'segment') {
-        formData.append('segment_type', segmentType);
-        formData.append('segment_params', JSON.stringify(segmentParams));
-      }
-
       photos.forEach((photo) => {
         formData.append('photos', photo.file);
       });
@@ -915,7 +910,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                     >
                       <option value="all">Все пользователи</option>
                       <option value="selected">Выбранные</option>
-                      <option value="segment">Сегмент</option>
                     </Select>
 
                     {recipientType === 'selected' && (
@@ -943,86 +937,9 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                     )}
                   </HStack>
 
-                  {/* UI для настройки сегмента */}
-                  {recipientType === 'segment' && (
-                    <VStack mt={4} spacing={3} align="stretch" p={4} bg={useColorModeValue('gray.50', 'gray.700')} borderRadius="md">
-                      <FormControl>
-                        <FormLabel fontSize="sm">Тип сегмента</FormLabel>
-                        <Select
-                          value={segmentType}
-                          onChange={(e) => {
-                            const newType = e.target.value;
-                            setSegmentType(newType);
-                            // Устанавливаем дефолтные параметры в зависимости от типа
-                            if (newType === 'active_users' || newType === 'new_users') {
-                              setSegmentParams({ days: 30 });
-                            } else if (newType === 'inactive_users') {
-                              setSegmentParams({ days: 30 });
-                            } else if (newType === 'vip_users') {
-                              setSegmentParams({ min_bookings: 5 });
-                            } else if (newType === 'with_agreement') {
-                              setSegmentParams({});
-                            }
-                          }}
-                          size="sm"
-                        >
-                          <option value="active_users">Активные пользователи</option>
-                          <option value="new_users">Новые пользователи</option>
-                          <option value="vip_users">VIP пользователи</option>
-                          <option value="inactive_users">Неактивные пользователи</option>
-                          <option value="with_agreement">Согласившиеся с условиями</option>
-                        </Select>
-                        <FormHelperText fontSize="xs">
-                          {segmentType === 'active_users' && 'Пользователи с бронированиями за последние N дней'}
-                          {segmentType === 'new_users' && 'Недавно зарегистрированные пользователи'}
-                          {segmentType === 'vip_users' && 'Пользователи с большим количеством успешных бронирований'}
-                          {segmentType === 'inactive_users' && 'Пользователи без бронирований N+ дней'}
-                          {segmentType === 'with_agreement' && 'Пользователи, согласившиеся с условиями использования'}
-                        </FormHelperText>
-                      </FormControl>
-
-                      {/* Параметры для сегментов с днями */}
-                      {(segmentType === 'active_users' || segmentType === 'new_users' || segmentType === 'inactive_users') && (
-                        <FormControl>
-                          <FormLabel fontSize="sm">Количество дней</FormLabel>
-                          <Input
-                            type="number"
-                            size="sm"
-                            value={segmentParams.days || 30}
-                            onChange={(e) => setSegmentParams({ days: parseInt(e.target.value) || 30 })}
-                            min={1}
-                            max={365}
-                          />
-                          <FormHelperText fontSize="xs">
-                            От 1 до 365 дней
-                          </FormHelperText>
-                        </FormControl>
-                      )}
-
-                      {/* Параметры для VIP пользователей */}
-                      {segmentType === 'vip_users' && (
-                        <FormControl>
-                          <FormLabel fontSize="sm">Минимум успешных бронирований</FormLabel>
-                          <Input
-                            type="number"
-                            size="sm"
-                            value={segmentParams.min_bookings || 5}
-                            onChange={(e) => setSegmentParams({ min_bookings: parseInt(e.target.value) || 5 })}
-                            min={1}
-                            max={100}
-                          />
-                          <FormHelperText fontSize="xs">
-                            От 1 до 100 бронирований
-                          </FormHelperText>
-                        </FormControl>
-                      )}
-                    </VStack>
-                  )}
-
                   <FormHelperText>
                     {recipientType === 'all' && `Будет отправлено всем ${totalUsersWithTelegram} пользователям`}
                     {recipientType === 'selected' && `Выбрано ${selectedUsers.length} получателей`}
-                    {recipientType === 'segment' && 'Рассылка будет отправлена пользователям, соответствующим выбранному сегменту'}
                   </FormHelperText>
                 </FormControl>
 
@@ -1402,7 +1319,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                   >
                     <option value="all">Все пользователи</option>
                     <option value="selected">Выбранные</option>
-                    <option value="segment">Сегмент</option>
                   </Select>
                 </FormControl>
 
@@ -1491,15 +1407,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                               )}
                               {newsletter.recipient_type === 'selected' && (
                                 <Badge size="xs" colorScheme="blue">Выбранные</Badge>
-                              )}
-                              {newsletter.recipient_type === 'segment' && newsletter.segment_type && (
-                                <Badge size="xs" colorScheme="green">
-                                  {newsletter.segment_type === 'active_users' && 'Активные'}
-                                  {newsletter.segment_type === 'new_users' && 'Новые'}
-                                  {newsletter.segment_type === 'vip_users' && 'VIP'}
-                                  {newsletter.segment_type === 'inactive_users' && 'Неактивные'}
-                                  {newsletter.segment_type === 'with_agreement' && 'С соглашением'}
-                                </Badge>
                               )}
                             </HStack>
                           </VStack>
@@ -1753,22 +1660,8 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                       <Badge colorScheme="purple">
                         {selectedNewsletter.recipient_type === 'all' && 'Все пользователи'}
                         {selectedNewsletter.recipient_type === 'selected' && 'Выбранные пользователи'}
-                        {selectedNewsletter.recipient_type === 'segment' && 'Сегмент пользователей'}
                       </Badge>
                     </HStack>
-
-                    {selectedNewsletter.recipient_type === 'segment' && selectedNewsletter.segment_type && (
-                      <HStack justify="space-between">
-                        <Text fontSize="sm" color="gray.600">Тип сегмента:</Text>
-                        <Badge colorScheme="green">
-                          {selectedNewsletter.segment_type === 'active_users' && 'Активные пользователи'}
-                          {selectedNewsletter.segment_type === 'new_users' && 'Новые пользователи'}
-                          {selectedNewsletter.segment_type === 'vip_users' && 'VIP пользователи'}
-                          {selectedNewsletter.segment_type === 'inactive_users' && 'Неактивные пользователи'}
-                          {selectedNewsletter.segment_type === 'with_agreement' && 'С соглашением'}
-                        </Badge>
-                      </HStack>
-                    )}
 
                     {selectedNewsletter.photo_count > 0 && (
                       <HStack justify="space-between">

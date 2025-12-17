@@ -31,6 +31,7 @@ from utils.logger import get_logger, log_startup_info
 from utils.database_maintenance import start_maintenance_tasks
 from utils.backup_manager import start_backup_scheduler, stop_backup_scheduler
 from utils.office_reminder_scheduler import start_office_reminder_scheduler
+from utils.openspace_scheduler import start_openspace_scheduler
 
 # Импорты всех роутеров
 from routes.auth import router as auth_router
@@ -56,6 +57,7 @@ from routes.cache import router as cache_router
 from routes.logging import router as logging_router
 from routes.ip_bans import router as ip_bans_router
 from routes.emails import router as emails_router
+from routes.openspace_rentals import router as openspace_rentals_router
 
 logger = get_logger(__name__)
 
@@ -272,6 +274,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка запуска планировщика напоминаний по офисам: {e}")
 
+    # Запускаем планировщик опенспейса
+    try:
+        start_openspace_scheduler()
+        logger.info("🪑 Планировщик опенспейса запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска планировщика опенспейса: {e}")
+
     yield
 
     # Shutdown
@@ -409,6 +418,7 @@ routers = [
     (notifications_router, "notifications"),
     (newsletters_router, "newsletters"),
     (emails_router, "emails"),
+    (openspace_rentals_router, "openspace_rentals"),
     (dashboard_router, "dashboard"),
     (health_router, "health"),
     (monitoring_router, "monitoring"),

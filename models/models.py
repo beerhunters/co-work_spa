@@ -743,6 +743,12 @@ class User(Base):
         passive_deletes=True,
     )
     offices = relationship("Office", secondary="office_tenants", back_populates="tenants")
+    openspace_rentals = relationship(
+        "UserOpenspaceRental",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.telegram_id} - {self.full_name}>"
@@ -912,6 +918,93 @@ class OfficePaymentHistory(Base):
 
     def __repr__(self):
         return f"<OfficePaymentHistory(office_id={self.office_id}, amount={self.amount}, period={self.period_start} to {self.period_end})>"
+
+
+class RentalType(str, enum.Enum):
+    """Типы аренды опенспейса."""
+    ONE_DAY = "one_day"           # Один день
+    MONTHLY_FIXED = "monthly_fixed"     # Фикс месяц (с фиксированным местом)
+    MONTHLY_FLOATING = "monthly_floating"  # Нефикс месяц (без фикс. места)
+
+
+class UserOpenspaceRental(Base):
+    """Модель аренды опенспейса пользователем."""
+
+    __tablename__ = "user_openspace_rentals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Тип аренды
+    rental_type = Column(Enum(RentalType), nullable=False, index=True)
+
+    # Рабочее место (только для MONTHLY_FIXED)
+    workplace_number = Column(String(20), nullable=True)
+
+    # Даты и статус
+    start_date = Column(DateTime, nullable=False, index=True)
+    end_date = Column(DateTime, nullable=True, index=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+
+    # Стоимость
+    price = Column(Float, nullable=False)
+    tariff_id = Column(Integer, ForeignKey('tariffs.id'), nullable=True)
+
+    # Платежная информация (для месячных тарифов)
+    payment_status = Column(String(20), nullable=True)  # 'pending', 'paid', 'overdue'
+    last_payment_date = Column(DateTime, nullable=True)
+    next_payment_date = Column(DateTime, nullable=True, index=True)
+
+    # Напоминания (для месячных тарифов)
+    admin_reminder_enabled = Column(Boolean, default=False)
+    admin_reminder_days = Column(Integer, default=5)
+    tenant_reminder_enabled = Column(Boolean, default=False)
+    tenant_reminder_days = Column(Integer, default=5)
+
+    # Метаданные
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), onupdate=lambda: datetime.now(MOSCOW_TZ))
+    deactivated_at = Column(DateTime, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    # Связи
+    user = relationship("User", back_populates="openspace_rentals")
+    tariff = relationship("Tariff")
+    payment_history = relationship("OpenspacePaymentHistory", back_populates="rental", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('idx_user_active_rental', 'user_id', 'is_active'),
+        Index('idx_rental_type_active', 'rental_type', 'is_active'),
+    )
+
+    def __repr__(self):
+        return f"<UserOpenspaceRental(id={self.id}, user_id={self.user_id}, type={self.rental_type.value}, active={self.is_active})>"
+
+
+class OpenspacePaymentHistory(Base):
+    """История платежей по аренде опенспейса."""
+
+    __tablename__ = "openspace_payment_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rental_id = Column(Integer, ForeignKey('user_openspace_rentals.id', ondelete='CASCADE'), nullable=False, index=True)
+    payment_date = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    period_start = Column(DateTime, nullable=False)
+    period_end = Column(DateTime, nullable=False)
+    recorded_by_admin_id = Column(Integer, ForeignKey('admins.id'), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False)
+
+    rental = relationship("UserOpenspaceRental", back_populates="payment_history")
+    recorded_by = relationship("Admin")
+
+    __table_args__ = (
+        Index('idx_rental_payment_date', 'rental_id', 'payment_date'),
+    )
+
+    def __repr__(self):
+        return f"<OpenspacePaymentHistory(rental_id={self.rental_id}, amount={self.amount}, date={self.payment_date})>"
 
 
 class Booking(Base):

@@ -23,13 +23,18 @@ import {
   Image,
   Link,
   Icon,
-  Heading
+  Heading,
+  NumberInput,
+  NumberInputField,
+  NumberInputStepper,
+  NumberIncrementStepper,
+  NumberDecrementStepper
 } from '@chakra-ui/react';
 import { FiEdit, FiTrash2, FiUpload, FiExternalLink, FiUserX, FiUserCheck } from 'react-icons/fi';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { userUpdateSchema } from '../../utils/validationSchemas';
-import { userApi } from '../../utils/api';
+import { userApi, openspaceApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
 
 // Определяем базовый URL в зависимости от окружения
@@ -80,6 +85,24 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   const [referrer, setReferrer] = useState(null);  // Пригласивший
   const [invitedUsers, setInvitedUsers] = useState([]);  // Список приглашенных
   const [loadingReferrals, setLoadingReferrals] = useState(false);  // Загрузка реферальных данных
+
+  // Опенспейс аренда
+  const [openspaceInfo, setOpenspaceInfo] = useState(null);
+  const [isOpenspaceModalOpen, setOpenspaceModalOpen] = useState(false);
+  const [openspaceFormData, setOpenspaceFormData] = useState({
+    rental_type: 'one_day',
+    price: 0,
+    start_date: new Date().toISOString().split('T')[0],
+    duration_months: 1,
+    workplace_number: '',
+    admin_reminder_enabled: false,
+    admin_reminder_days: 5,
+    tenant_reminder_enabled: false,
+    tenant_reminder_days: 5,
+    notes: ''
+  });
+  const [activeTariffs, setActiveTariffs] = useState([]);
+
   const toast = useToast();
 
   // Инициализация react-hook-form с Zod валидацией
@@ -114,6 +137,10 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
       // Загружаем реферальные данные
       fetchReferralData(user.id);
+
+      // Загружаем информацию об аренде опенспейса
+      fetchOpenspaceInfo(user.id);
+      fetchActiveTariffs();
     }
   }, [user, reset]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -246,6 +273,55 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       });
     } finally {
       setLoadingReferrals(false);
+    }
+  };
+
+  // Функция загрузки информации об аренде опенспейса
+  const fetchOpenspaceInfo = async (userId) => {
+    if (!userId) return;
+
+    try {
+      const data = await openspaceApi.getUserInfo(userId);
+      setOpenspaceInfo(data);
+    } catch (error) {
+      console.error('Error fetching openspace info:', error);
+      // Устанавливаем fallback структуру, чтобы UI отображался
+      setOpenspaceInfo({
+        has_active_rental: false,
+        active_rental: null,
+        rental_history: []
+      });
+
+      // Показываем toast с предупреждением
+      toast({
+        title: 'Не удалось загрузить данные опенспейса',
+        description: 'Попробуйте обновить страницу или обратитесь к администратору',
+        status: 'warning',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  // Функция загрузки активных тарифов
+  const fetchActiveTariffs = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/tariffs/active`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Не удалось загрузить тарифы');
+      }
+
+      const data = await response.json();
+      setActiveTariffs(data.filter(t => t.purpose === 'openspace' || t.name.toLowerCase().includes('опенспейс')));
+    } catch (error) {
+      console.error('Error fetching active tariffs:', error);
+      // Устанавливаем пустой массив, чтобы форма работала
+      setActiveTariffs([]);
     }
   };
 
@@ -465,6 +541,127 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     } finally {
       setIsBanning(false);
     }
+  };
+
+  // Обработчики опенспейса
+  const handleCreateRental = async () => {
+    try {
+      // Подготавливаем данные для отправки
+      const dataToSend = {
+        rental_type: openspaceFormData.rental_type,
+        start_date: `${openspaceFormData.start_date}T00:00:00`, // Добавляем время
+        price: parseFloat(openspaceFormData.price),
+        notes: openspaceFormData.notes || null
+      };
+
+      // Добавляем tariff_id если есть
+      if (openspaceFormData.tariff_id) {
+        dataToSend.tariff_id = parseInt(openspaceFormData.tariff_id);
+      }
+
+      // Для monthly_fixed добавляем workplace_number
+      if (openspaceFormData.rental_type === 'monthly_fixed') {
+        dataToSend.workplace_number = openspaceFormData.workplace_number;
+      }
+
+      // Для месячных тарифов добавляем duration_months и напоминания
+      if (openspaceFormData.rental_type !== 'one_day') {
+        dataToSend.duration_months = parseInt(openspaceFormData.duration_months) || 1;
+        dataToSend.admin_reminder_enabled = openspaceFormData.admin_reminder_enabled;
+        dataToSend.admin_reminder_days = parseInt(openspaceFormData.admin_reminder_days) || 5;
+        dataToSend.tenant_reminder_enabled = openspaceFormData.tenant_reminder_enabled;
+        dataToSend.tenant_reminder_days = parseInt(openspaceFormData.tenant_reminder_days) || 5;
+      }
+
+      console.log('Отправка данных аренды опенспейса:', dataToSend);
+
+      await openspaceApi.create(currentUser.id, dataToSend);
+
+      toast({
+        title: 'Аренда создана',
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+
+      setOpenspaceModalOpen(false);
+      fetchOpenspaceInfo(currentUser.id);
+    } catch (error) {
+      console.error('Ошибка создания аренды:', error);
+      toast({
+        title: 'Ошибка',
+        description: error.response?.data?.detail || error.message,
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handlePayRental = async (rentalId) => {
+    try {
+      await openspaceApi.recordPayment(rentalId);
+
+      toast({
+        title: 'Платеж записан',
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+
+      fetchOpenspaceInfo(currentUser.id);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: error.response?.data?.detail || error.message,
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const handleDeactivateRental = async (rentalId) => {
+    if (!window.confirm('Вы уверены, что хотите завершить аренду?')) return;
+
+    try {
+      await openspaceApi.deactivate(rentalId);
+
+      toast({
+        title: 'Аренда завершена',
+        status: 'success',
+        duration: 3000,
+        isClosable: true
+      });
+
+      fetchOpenspaceInfo(currentUser.id);
+    } catch (error) {
+      toast({
+        title: 'Ошибка',
+        description: error.response?.data?.detail || error.message,
+        status: 'error',
+        duration: 5000,
+        isClosable: true
+      });
+    }
+  };
+
+  const getRentalTypeLabel = (type) => {
+    const labels = {
+      'one_day': 'Один день',
+      'monthly_fixed': 'Фикс месяц',
+      'monthly_floating': 'Нефикс месяц'
+    };
+    return labels[type] || type;
+  };
+
+  const getPaymentStatusColor = (status) => {
+    const colors = {
+      'pending': 'orange',
+      'paid': 'green',
+      'overdue': 'red'
+    };
+    return colors[status] || 'gray';
   };
 
   if (!currentUser) return null;
@@ -849,6 +1046,76 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                       </Box>
                     </VStack>
                   </Box>
+
+                  {/* Секция аренды опенспейса */}
+                  {openspaceInfo && (
+                    <Box mt={4}>
+                      <Heading size="sm" mb={3}>🪑 Аренда опенспейса</Heading>
+
+                      {openspaceInfo.has_active_rental && openspaceInfo.active_rental ? (
+                        <Box p={4} borderWidth="1px" borderRadius="lg" borderColor="blue.200" bg="blue.50">
+                          <VStack align="stretch" spacing={2}>
+                            <HStack justify="space-between">
+                              <Text fontWeight="bold">Активная аренда</Text>
+                              <Badge colorScheme="green">Активна</Badge>
+                            </HStack>
+                            <Text fontSize="sm">Тип: {getRentalTypeLabel(openspaceInfo.active_rental.rental_type)}</Text>
+                            {openspaceInfo.active_rental.workplace_number && (
+                              <Text fontSize="sm">Место: {openspaceInfo.active_rental.workplace_number}</Text>
+                            )}
+                            <Text fontSize="sm">Цена: {openspaceInfo.active_rental.price} ₽</Text>
+                            <Text fontSize="sm">
+                              Период: {new Date(openspaceInfo.active_rental.start_date).toLocaleDateString()} -
+                              {openspaceInfo.active_rental.end_date ? new Date(openspaceInfo.active_rental.end_date).toLocaleDateString() : 'Не указан'}
+                            </Text>
+                            {openspaceInfo.active_rental.payment_status && (
+                              <HStack>
+                                <Text fontSize="sm">Статус оплаты:</Text>
+                                <Badge colorScheme={getPaymentStatusColor(openspaceInfo.active_rental.payment_status)}>
+                                  {openspaceInfo.active_rental.payment_status}
+                                </Badge>
+                              </HStack>
+                            )}
+                            <HStack spacing={2} mt={2}>
+                              {openspaceInfo.active_rental.rental_type !== 'one_day' && openspaceInfo.active_rental.payment_status !== 'paid' && (
+                                <Button size="sm" colorScheme="green" onClick={() => handlePayRental(openspaceInfo.active_rental.id)}>
+                                  Оплачено
+                                </Button>
+                              )}
+                              <Button size="sm" colorScheme="red" variant="outline" onClick={() => handleDeactivateRental(openspaceInfo.active_rental.id)}>
+                                Завершить
+                              </Button>
+                            </HStack>
+                          </VStack>
+                        </Box>
+                      ) : (
+                        <Button size="sm" colorScheme="blue" onClick={() => setOpenspaceModalOpen(true)}>
+                          Добавить аренду
+                        </Button>
+                      )}
+
+                      {openspaceInfo.rental_history && openspaceInfo.rental_history.length > 0 && (
+                        <Box mt={4}>
+                          <Text fontWeight="bold" fontSize="sm" mb={2}>История аренд</Text>
+                          <VStack align="stretch" spacing={2} maxH="200px" overflowY="auto">
+                            {openspaceInfo.rental_history.slice(0, 10).map((rental) => (
+                              <Box key={rental.id} p={2} borderWidth="1px" borderRadius="md" fontSize="sm">
+                                <HStack justify="space-between">
+                                  <Text>{getRentalTypeLabel(rental.rental_type)}</Text>
+                                  <Badge colorScheme={rental.is_active ? 'green' : 'gray'}>
+                                    {rental.is_active ? 'Активна' : 'Завершена'}
+                                  </Badge>
+                                </HStack>
+                                <Text fontSize="xs" color="gray.600">
+                                  {new Date(rental.start_date).toLocaleDateString()} - {rental.price} ₽
+                                </Text>
+                              </Box>
+                            ))}
+                          </VStack>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
                 </VStack>
               )}
             </VStack>
@@ -1012,6 +1279,182 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 isDisabled={!banReason.trim()}
               >
                 Забанить
+              </Button>
+            </HStack>
+          </ModalFooter>
+        </ModalContent>
+      </ChakraModal>
+
+      {/* Модальное окно создания аренды опенспейса */}
+      <ChakraModal isOpen={isOpenspaceModalOpen} onClose={() => setOpenspaceModalOpen(false)} size="lg">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>Добавить аренду опенспейса</ModalHeader>
+          <ModalCloseButton />
+          <ModalBody>
+            <VStack spacing={4} align="stretch">
+              <FormControl isRequired>
+                <FormLabel>Тип аренды</FormLabel>
+                <select
+                  value={openspaceFormData.rental_type}
+                  onChange={(e) => {
+                    const newType = e.target.value;
+                    setOpenspaceFormData({
+                      ...openspaceFormData,
+                      rental_type: newType,
+                      workplace_number: newType === 'monthly_fixed' ? openspaceFormData.workplace_number : '',
+                      duration_months: newType === 'one_day' ? null : openspaceFormData.duration_months
+                    });
+
+                    // Автозаполнение цены
+                    const tariff = activeTariffs.find(t => {
+                      if (newType === 'one_day') return t.name.toLowerCase().includes('день');
+                      if (newType.includes('monthly')) return t.name.toLowerCase().includes('месяц');
+                      return false;
+                    });
+                    if (tariff) {
+                      setOpenspaceFormData(prev => ({ ...prev, price: tariff.price, tariff_id: tariff.id }));
+                    }
+                  }}
+                  style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}
+                >
+                  <option value="one_day">Один день</option>
+                  <option value="monthly_floating">Нефикс месяц</option>
+                  <option value="monthly_fixed">Фикс месяц</option>
+                </select>
+              </FormControl>
+
+              {openspaceFormData.rental_type === 'monthly_fixed' && (
+                <FormControl isRequired>
+                  <FormLabel>Номер рабочего места</FormLabel>
+                  <Input
+                    value={openspaceFormData.workplace_number}
+                    onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, workplace_number: e.target.value })}
+                    placeholder="Например: A-12"
+                  />
+                </FormControl>
+              )}
+
+              <FormControl isRequired>
+                <FormLabel>Дата начала</FormLabel>
+                <Input
+                  type="date"
+                  value={openspaceFormData.start_date}
+                  onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, start_date: e.target.value })}
+                />
+              </FormControl>
+
+              {openspaceFormData.rental_type !== 'one_day' && (
+                <FormControl isRequired>
+                  <FormLabel>Длительность (месяцев)</FormLabel>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="12"
+                    value={openspaceFormData.duration_months}
+                    onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, duration_months: parseInt(e.target.value) })}
+                  />
+                </FormControl>
+              )}
+
+              <FormControl isRequired>
+                <FormLabel>Цена (₽)</FormLabel>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={openspaceFormData.price}
+                  onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, price: parseFloat(e.target.value) })}
+                />
+              </FormControl>
+
+              {openspaceFormData.rental_type !== 'one_day' && (
+                <>
+                  <FormControl>
+                    <FormLabel>Напоминания администратору</FormLabel>
+                    <HStack>
+                      <input
+                        type="checkbox"
+                        checked={openspaceFormData.admin_reminder_enabled}
+                        onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, admin_reminder_enabled: e.target.checked })}
+                      />
+                      <Text fontSize="sm" ml={2}>Включить напоминания</Text>
+                    </HStack>
+                    {openspaceFormData.admin_reminder_enabled && (
+                      <HStack mt={2}>
+                        <Text fontSize="sm">За сколько дней напомнить:</Text>
+                        <NumberInput
+                          size="sm"
+                          maxW={20}
+                          min={1}
+                          max={30}
+                          value={openspaceFormData.admin_reminder_days}
+                          onChange={(valueString) => setOpenspaceFormData({
+                            ...openspaceFormData,
+                            admin_reminder_days: parseInt(valueString) || 5
+                          })}
+                        >
+                          <NumberInputField />
+                          <NumberInputStepper>
+                            <NumberIncrementStepper />
+                            <NumberDecrementStepper />
+                          </NumberInputStepper>
+                        </NumberInput>
+                      </HStack>
+                    )}
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel>Напоминания пользователю</FormLabel>
+                    <HStack>
+                      <input
+                        type="checkbox"
+                        checked={openspaceFormData.tenant_reminder_enabled}
+                        onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, tenant_reminder_enabled: e.target.checked })}
+                      />
+                      <Text fontSize="sm" ml={2}>Включить напоминания</Text>
+                    </HStack>
+                    {openspaceFormData.tenant_reminder_enabled && (
+                      <HStack mt={2}>
+                        <Text fontSize="sm">За сколько дней напомнить:</Text>
+                        <NumberInput
+                          size="sm"
+                          maxW={20}
+                          min={1}
+                          max={30}
+                          value={openspaceFormData.tenant_reminder_days}
+                          onChange={(valueString) => setOpenspaceFormData({
+                            ...openspaceFormData,
+                            tenant_reminder_days: parseInt(valueString) || 5
+                          })}
+                        >
+                          <NumberInputField />
+                          <NumberInputStepper>
+                            <NumberIncrementStepper />
+                            <NumberDecrementStepper />
+                          </NumberInputStepper>
+                        </NumberInput>
+                      </HStack>
+                    )}
+                  </FormControl>
+                </>
+              )}
+
+              <FormControl>
+                <FormLabel>Комментарий</FormLabel>
+                <Textarea
+                  value={openspaceFormData.notes}
+                  onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, notes: e.target.value })}
+                  placeholder="Дополнительная информация..."
+                />
+              </FormControl>
+            </VStack>
+          </ModalBody>
+          <ModalFooter>
+            <HStack spacing={3}>
+              <Button onClick={() => setOpenspaceModalOpen(false)}>Отмена</Button>
+              <Button colorScheme="blue" onClick={handleCreateRental}>
+                Создать
               </Button>
             </HStack>
           </ModalFooter>

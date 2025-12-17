@@ -1866,4 +1866,32 @@ export const ipBanApi = {
   }
 };
 
+// -------------------- API: Openspace аренда --------------------
+export const openspaceApi = {
+  getUserInfo: async (userId) => {
+    const res = await apiClient.get(`/openspace-rentals/user/${userId}/info`);
+    return res.data;
+  },
+
+  create: async (userId, rentalData) => {
+    const res = await apiClient.post(`/openspace-rentals/user/${userId}/create`, rentalData);
+    return res.data;
+  },
+
+  update: async (rentalId, updateData) => {
+    const res = await apiClient.put(`/openspace-rentals/${rentalId}`, updateData);
+    return res.data;
+  },
+
+  recordPayment: async (rentalId, paymentData = {}) => {
+    const res = await apiClient.post(`/openspace-rentals/${rentalId}/pay`, paymentData);
+    return res.data;
+  },
+
+  deactivate: async (rentalId) => {
+    const res = await apiClient.post(`/openspace-rentals/${rentalId}/deactivate`);
+    return res.data;
+  }
+};
+
 export default apiClient;
