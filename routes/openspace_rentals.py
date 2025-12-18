@@ -13,6 +13,7 @@ from models.models import (
     Tariff,
     RentalType,
     Permission,
+    Booking,
     MOSCOW_TZ
 )
 from dependencies import get_db, verify_token_with_permissions, CachedAdmin
@@ -115,17 +116,35 @@ async def create_openspace_rental(
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-        # Проверяем, что у пользователя нет активной аренды
+        # Проверяем наличие активной аренды
         existing_rental = db.query(UserOpenspaceRental).filter_by(
             user_id=user_id,
             is_active=True
         ).first()
 
         if existing_rental:
-            raise HTTPException(
-                status_code=400,
-                detail="У пользователя уже есть активная аренда опенспейса"
-            )
+            # Если есть активная месячная аренда - запрещаем создание любой новой аренды
+            if existing_rental.rental_type in [RentalType.MONTHLY_FIXED, RentalType.MONTHLY_FLOATING]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="У пользователя уже есть активная месячная аренда опенспейса"
+                )
+
+            # Если есть активная однодневная аренда
+            if existing_rental.rental_type == RentalType.ONE_DAY:
+                # Запрещаем создание еще одной однодневной аренды
+                if rental_data.rental_type == "one_day":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="У пользователя уже есть активное однодневное посещение"
+                    )
+
+                # Разрешаем создание месячной аренды - автоматически деактивируем однодневную
+                if rental_data.rental_type in ["monthly_fixed", "monthly_floating"]:
+                    logger.info(f"Деактивация однодневной аренды rental_id={existing_rental.id} перед созданием месячной")
+                    existing_rental.is_active = False
+                    existing_rental.deactivated_at = datetime.now(MOSCOW_TZ)
+                    existing_rental.updated_at = datetime.now(MOSCOW_TZ)
 
         # Вычисляем end_date в зависимости от типа аренды
         end_date = None
@@ -186,6 +205,31 @@ async def create_openspace_rental(
                 notes="Автоматическая оплата при создании разовой аренды"
             )
             db.add(payment_history)
+
+            # Создаем запись в таблице бронирований для отображения в календаре
+            # Проверяем наличие tariff_id
+            if not rental_data.tariff_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Для однодневной аренды необходимо указать tariff_id"
+                )
+
+            booking = Booking(
+                user_id=user_id,
+                tariff_id=rental_data.tariff_id,
+                visit_date=rental_data.start_date.date(),
+                visit_time=None,  # Время не указано для опенспейса
+                duration=None,  # Длительность не указана
+                promocode_id=None,
+                amount=rental_data.price,
+                payment_id=None,
+                paid=True,  # Автоматически оплачено
+                rubitime_id=None,
+                confirmed=True,  # Автоматически подтверждено
+                comment=f"Опенспейс: {rental_data.notes or 'Разовая аренда'}"
+            )
+            db.add(booking)
+            logger.info(f"Создана запись в bookings для опенспейс аренды rental_id={new_rental.id}")
 
         db.commit()
         db.refresh(new_rental)

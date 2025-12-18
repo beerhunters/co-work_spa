@@ -26,32 +26,50 @@ async def deactivate_expired_one_day_rentals():
             UserOpenspaceRental.end_date < now
         ).all()
 
-        deactivated_count = 0
+        deactivated_list = []
         for rental in expired_rentals:
             rental.is_active = False
             rental.deactivated_at = now
             rental.updated_at = now
-            deactivated_count += 1
+
+            # Собираем информацию о пользователе
+            user_info = {
+                'rental_id': rental.id,
+                'user_id': rental.user_id,
+                'user_name': rental.user.full_name if rental.user else 'Неизвестно',
+                'user_username': rental.user.username if rental.user else None,
+                'price': rental.price,
+                'start_date': rental.start_date
+            }
+            deactivated_list.append(user_info)
             logger.debug(f"Деактивирована однодневная аренда rental_id={rental.id} для user_id={rental.user_id}")
 
         session.commit()
-        return deactivated_count
+        return deactivated_list
 
     try:
-        count = DatabaseManager.safe_execute(_deactivate_expired_rentals)
+        deactivated_rentals = DatabaseManager.safe_execute(_deactivate_expired_rentals)
 
-        if count > 0:
-            logger.info(f"Деактивировано однодневных аренд: {count}")
+        if deactivated_rentals:
+            logger.info(f"Деактивировано однодневных аренд: {len(deactivated_rentals)}")
 
             # Отправляем уведомление администратору
             try:
                 bot = get_bot()
                 if bot:
-                    message = (
-                        f"🔄 Автоматическая деактивация аренд опенспейса\n\n"
-                        f"Деактивировано однодневных аренд: {count}\n"
-                        f"Дата: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}"
-                    )
+                    message = f"🔄 Автоматическая деактивация аренд опенспейса\n\n"
+                    message += f"Завершено однодневных посещений: {len(deactivated_rentals)}\n\n"
+
+                    # Добавляем информацию о каждом пользователе
+                    for info in deactivated_rentals:
+                        message += f"👤 {info['user_name']} (ID: {info['user_id']})\n"
+                        if info['user_username']:
+                            message += f"   📱 TG: @{info['user_username']}\n"
+                        message += f"   Цена: {info['price']} ₽\n"
+                        message += f"   Дата: {info['start_date'].strftime('%d.%m.%Y')}\n\n"
+
+                    message += f"Дата завершения: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}"
+
                     await bot.send_message(ADMIN_TELEGRAM_ID, message)
             except Exception as e:
                 logger.warning(f"Не удалось отправить уведомление администратору: {e}")
@@ -142,6 +160,12 @@ async def check_and_send_openspace_reminders():
                     message = (
                         f"🔔 Напоминание о платеже за опенспейс\n\n"
                         f"👤 Пользователь: {user.full_name or 'Нет имени'} (ID: {user.id})\n"
+                    )
+
+                    if user.username:
+                        message += f"📱 TG: @{user.username}\n"
+
+                    message += (
                         f"📋 Тип: {rental_type_label}\n"
                         f"💰 Сумма: {rental.price} ₽\n"
                         f"📅 Дата платежа: {rental.next_payment_date.strftime('%d.%m.%Y')}\n"
@@ -185,6 +209,119 @@ async def check_and_send_openspace_reminders():
         logger.error(f"Ошибка при проверке и отправке напоминаний по опенспейсу: {e}")
 
 
+async def reset_payment_status_before_next_payment():
+    """
+    Ежедневная проверка аренд опенспейса и изменение статуса оплаты.
+    За N дней до next_payment_date меняет payment_status с 'paid' на 'pending'.
+    Запускается в 00:10 каждый день.
+    """
+    logger.info("Запуск проверки статусов оплаты для опенспейса...")
+
+    def _reset_payment_statuses(session):
+        now = datetime.now(MOSCOW_TZ)
+
+        # Находим все активные месячные аренды со статусом 'paid'
+        rentals = session.query(UserOpenspaceRental).filter(
+            UserOpenspaceRental.is_active == True,
+            UserOpenspaceRental.rental_type.in_([RentalType.MONTHLY_FIXED, RentalType.MONTHLY_FLOATING]),
+            UserOpenspaceRental.payment_status == 'paid',
+            UserOpenspaceRental.next_payment_date.isnot(None)
+        ).all()
+
+        reset_list = []
+
+        for rental in rentals:
+            if not rental.next_payment_date:
+                continue
+
+            # Добавляем timezone если отсутствует
+            next_payment = rental.next_payment_date
+            if next_payment.tzinfo is None:
+                next_payment = next_payment.replace(tzinfo=MOSCOW_TZ)
+
+            # Вычисляем количество дней до следующего платежа
+            days_until_payment = (next_payment - now).days
+
+            # Используем admin_reminder_days или tenant_reminder_days как порог
+            # Берем максимальное значение между ними
+            threshold_days = max(
+                rental.admin_reminder_days if rental.admin_reminder_enabled else 0,
+                rental.tenant_reminder_days if rental.tenant_reminder_enabled else 0
+            )
+
+            # Если threshold = 0, используем 5 дней по умолчанию
+            if threshold_days == 0:
+                threshold_days = 5
+
+            # Если до платежа осталось threshold_days или меньше, меняем статус
+            if days_until_payment <= threshold_days:
+                logger.info(
+                    f"Изменение статуса оплаты для rental_id={rental.id}: "
+                    f"осталось {days_until_payment} дней до платежа (порог: {threshold_days})"
+                )
+                rental.payment_status = 'pending'
+                rental.updated_at = now
+
+                # Определяем название типа аренды
+                rental_type_label = {
+                    RentalType.MONTHLY_FIXED: "Опенспейс на месяц(фикс)",
+                    RentalType.MONTHLY_FLOATING: "Опенспейс на месяц"
+                }.get(rental.rental_type, rental.rental_type.value)
+
+                # Собираем информацию о пользователе
+                user_info = {
+                    'rental_id': rental.id,
+                    'user_id': rental.user_id,
+                    'user_name': rental.user.full_name if rental.user else 'Неизвестно',
+                    'user_username': rental.user.username if rental.user else None,
+                    'rental_type': rental_type_label,
+                    'price': rental.price,
+                    'next_payment_date': next_payment,
+                    'days_until_payment': days_until_payment,
+                    'workplace_number': rental.workplace_number
+                }
+                reset_list.append(user_info)
+
+        session.commit()
+        return reset_list
+
+    try:
+        reset_rentals = DatabaseManager.safe_execute(_reset_payment_statuses)
+
+        if reset_rentals:
+            logger.info(f"Изменен статус оплаты для {len(reset_rentals)} аренд опенспейса")
+
+            # Отправляем уведомление администратору
+            try:
+                bot = get_bot()
+                if bot:
+                    message = f"💳 Приближается срок оплаты опенспейса\n\n"
+                    message += f"Статус изменен на 'Требуется оплата': {len(reset_rentals)}\n\n"
+
+                    # Добавляем информацию о каждом пользователе
+                    for info in reset_rentals:
+                        message += f"👤 {info['user_name']} (ID: {info['user_id']})\n"
+                        if info['user_username']:
+                            message += f"   📱 TG: @{info['user_username']}\n"
+                        message += f"   Тип: {info['rental_type']}\n"
+                        message += f"   Цена: {info['price']} ₽\n"
+                        if info['workplace_number']:
+                            message += f"   Место: {info['workplace_number']}\n"
+                        message += f"   Дата платежа: {info['next_payment_date'].strftime('%d.%m.%Y')}\n"
+                        message += f"   Осталось дней: {info['days_until_payment']}\n\n"
+
+                    message += f"Дата проверки: {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}"
+
+                    await bot.send_message(ADMIN_TELEGRAM_ID, message)
+            except Exception as e:
+                logger.warning(f"Не удалось отправить уведомление администратору: {e}")
+        else:
+            logger.info("Нет аренд опенспейса, требующих изменения статуса оплаты.")
+
+    except Exception as e:
+        logger.error(f"Ошибка при изменении статусов оплаты: {e}")
+
+
 def start_openspace_scheduler():
     """Запускает планировщик для опенспейса."""
     scheduler = AsyncIOScheduler(timezone=MOSCOW_TZ)
@@ -196,6 +333,16 @@ def start_openspace_scheduler():
         hour=0,
         minute=5,
         id='deactivate_openspace_one_day',
+        replace_existing=True
+    )
+
+    # Изменение статуса оплаты - каждый день в 00:10
+    scheduler.add_job(
+        reset_payment_status_before_next_payment,
+        'cron',
+        hour=0,
+        minute=10,
+        id='reset_openspace_payment_status',
         replace_existing=True
     )
 
@@ -212,6 +359,7 @@ def start_openspace_scheduler():
     scheduler.start()
     logger.info("Планировщик опенспейса запущен:")
     logger.info("  - Деактивация однодневных аренд: ежедневно в 00:05")
+    logger.info("  - Изменение статуса оплаты: ежедневно в 00:10")
     logger.info("  - Напоминания о платежах: ежедневно в 10:00")
 
     return scheduler
