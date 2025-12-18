@@ -220,4 +220,4 @@ docker-compose*.yml
 
 # Scripts (may contain sensitive info or not needed in container)
 scripts/*.sh
-!scripts/entrypoint.sh
+scripts/entrypoint.sh

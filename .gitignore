@@ -178,3 +178,4 @@ avatars/
 /.env.bak
 /logs/
 /frontend/правки/
+tests/
