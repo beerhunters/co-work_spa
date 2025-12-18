@@ -25,6 +25,8 @@ from schemas.openspace_schemas import (
 )
 from utils.logger import get_logger
 from config import ADMIN_TELEGRAM_ID
+from utils.cache_invalidation import invalidate_user_cache
+from utils.cache_manager import cache_manager
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/openspace-rentals", tags=["openspace-rentals"])
@@ -163,13 +165,38 @@ async def create_openspace_rental(
             new_rental.payment_status = "pending"
             new_rental.next_payment_date = rental_data.start_date + relativedelta(months=1)
 
+        # Для разовой аренды автоматически создаем платеж
+        elif rental_data.rental_type == "one_day":
+            current_time = datetime.now(MOSCOW_TZ)
+            new_rental.payment_status = "paid"
+            new_rental.last_payment_date = current_time
+
         db.add(new_rental)
+        db.flush()  # Получаем new_rental.id до commit
+
+        # Создаем историю платежа для разовой аренды
+        if rental_data.rental_type == "one_day":
+            payment_history = OpenspacePaymentHistory(
+                rental_id=new_rental.id,
+                payment_date=new_rental.last_payment_date,
+                amount=rental_data.price,
+                period_start=rental_data.start_date,
+                period_end=end_date,
+                recorded_by_admin_id=current_admin.id,
+                notes="Автоматическая оплата при создании разовой аренды"
+            )
+            db.add(payment_history)
+
         db.commit()
         db.refresh(new_rental)
 
-        # Инвалидируем кэш пользователя (асинхронно в фоне)
-        # Кэш инвалидируется автоматически при следующем запросе
-        pass
+        # Инвалидируем кэш пользователя
+        await invalidate_user_cache(user_id)
+
+        # Инвалидируем кэш календаря для разовых бронирований
+        if rental_data.rental_type == "one_day":
+            await cache_manager.clear_pattern("dashboard:bookings_calendar:*")
+            logger.info(f"Инвалидирован кэш календаря для опенспейс аренды {new_rental.id}")
 
         # Отправляем уведомление администратору (опционально)
         try:
@@ -194,11 +221,17 @@ async def create_openspace_rental(
                 if rental_data.workplace_number:
                     message += f"\n🪑 Место: {rental_data.workplace_number}"
 
+                if rental_data.rental_type == "one_day":
+                    message += "\n✅ Оплата: Автоматически записана"
+
                 await bot.send_message(ADMIN_TELEGRAM_ID, message)
         except Exception as e:
             logger.warning(f"Не удалось отправить уведомление администратору: {e}")
 
-        logger.info(f"Создана аренда опенспейса для user_id={user_id}, rental_id={new_rental.id}")
+        log_message = f"Создана аренда опенспейса для user_id={user_id}, rental_id={new_rental.id}"
+        if rental_data.rental_type == "one_day":
+            log_message += f", payment auto-recorded, amount={rental_data.price}"
+        logger.info(log_message)
         return convert_rental(new_rental)
 
     except HTTPException:
@@ -236,9 +269,13 @@ async def update_openspace_rental(
         db.commit()
         db.refresh(rental)
 
-        # Инвалидируем кэш пользователя (асинхронно в фоне)
-        # Кэш инвалидируется автоматически при следующем запросе
-        pass
+        # Инвалидируем кэш пользователя
+        await invalidate_user_cache(rental.user_id)
+
+        # Инвалидируем кэш календаря для разовых бронирований
+        if rental.rental_type == RentalType.ONE_DAY:
+            await cache_manager.clear_pattern("dashboard:bookings_calendar:*")
+            logger.info(f"Инвалидирован кэш календаря при обновлении опенспейс аренды {rental_id}")
 
         logger.info(f"Обновлена аренда rental_id={rental_id}")
         return convert_rental(rental)
@@ -277,9 +314,13 @@ async def deactivate_openspace_rental(
 
         db.commit()
 
-        # Инвалидируем кэш пользователя (асинхронно в фоне)
-        # Кэш инвалидируется автоматически при следующем запросе
-        pass
+        # Инвалидируем кэш пользователя
+        await invalidate_user_cache(rental.user_id)
+
+        # Инвалидируем кэш календаря для разовых бронирований
+        if rental.rental_type == RentalType.ONE_DAY:
+            await cache_manager.clear_pattern("dashboard:bookings_calendar:*")
+            logger.info(f"Инвалидирован кэш календаря при деактивации опенспейс аренды {rental_id}")
 
         logger.info(f"Деактивирована аренда rental_id={rental_id}")
         return {"message": "Аренда успешно деактивирована", "rental_id": rental_id}

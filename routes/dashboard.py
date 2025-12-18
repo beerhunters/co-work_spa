@@ -547,7 +547,7 @@ async def get_bookings_calendar(
                 year_str = str(year).zfill(4)
                 month_str = str(month).zfill(2)
 
-                # Строим динамический запрос с фильтрами
+                # Строим динамический запрос с фильтрами (включая опенспейс)
                 query_parts = [
                     """
                     SELECT
@@ -563,7 +563,8 @@ async def get_bookings_calendar(
                         t.name as tariff_name,
                         b.tariff_id,
                         t.color as tariff_color,
-                        t.purpose as tariff_purpose
+                        t.purpose as tariff_purpose,
+                        'booking' as source_type
                     FROM bookings b
                     LEFT JOIN users u ON b.user_id = u.id
                     LEFT JOIN tariffs t ON b.tariff_id = t.id
@@ -574,26 +575,71 @@ async def get_bookings_calendar(
 
                 query_params = {"year": year_str, "month_str": month_str}
 
-                # Добавляем фильтр по тарифам
+                # Добавляем фильтр по тарифам для bookings
                 if tariff_id_list:
-                    placeholders = ','.join([f':tariff_{i}' for i in range(len(tariff_id_list))])
+                    placeholders = ','.join([f':tariff_b_{i}' for i in range(len(tariff_id_list))])
                     query_parts.append(f"AND b.tariff_id IN ({placeholders})")
                     for i, tid in enumerate(tariff_id_list):
-                        query_params[f'tariff_{i}'] = tid
+                        query_params[f'tariff_b_{i}'] = tid
 
-                # Добавляем фильтр по пользователю
+                # Добавляем фильтр по пользователю для bookings
+                user_search_condition = ""
                 if user_search:
-                    query_parts.append(
-                        """AND (
+                    user_search_condition = """AND (
                             LOWER(u.full_name) LIKE LOWER(:user_search)
                             OR CAST(u.telegram_id AS TEXT) LIKE :user_search
                         )"""
-                    )
+                    query_parts.append(user_search_condition)
                     query_params['user_search'] = f'%{user_search}%'
 
-                query_parts.append("ORDER BY b.visit_date, b.visit_time")
+                # Добавляем UNION для опенспейса
+                query_parts.append("""
+                    UNION ALL
 
-                bookings_query = text('\n'.join(query_parts))
+                    SELECT
+                        r.id,
+                        DATE(r.start_date) as visit_date,
+                        NULL as visit_time,
+                        NULL as duration,
+                        1 as confirmed,
+                        CASE WHEN r.payment_status = 'paid' THEN 1 ELSE 0 END as paid,
+                        r.price as amount,
+                        u.full_name as user_name,
+                        u.telegram_id,
+                        COALESCE(t.name, 'Опенспейс (разовая бронь)') as tariff_name,
+                        r.tariff_id,
+                        COALESCE(t.color, '#00B5AD') as tariff_color,
+                        'openspace' as tariff_purpose,
+                        'openspace' as source_type
+                    FROM user_openspace_rentals r
+                    LEFT JOIN users u ON r.user_id = u.id
+                    LEFT JOIN tariffs t ON r.tariff_id = t.id
+                    WHERE r.rental_type = 'one_day'
+                      AND strftime('%Y', r.start_date) = :year
+                      AND strftime('%m', r.start_date) = :month_str
+                """)
+
+                # Добавляем фильтр по тарифам для опенспейса
+                if tariff_id_list:
+                    placeholders = ','.join([f':tariff_o_{i}' for i in range(len(tariff_id_list))])
+                    query_parts.append(f"AND r.tariff_id IN ({placeholders})")
+                    for i, tid in enumerate(tariff_id_list):
+                        query_params[f'tariff_o_{i}'] = tid
+
+                # Добавляем фильтр по пользователю для опенспейса
+                if user_search:
+                    query_parts.append(user_search_condition)
+
+                # Оборачиваем UNION в подзапрос для ORDER BY
+                union_query = '\n'.join(query_parts)
+                final_query = f"""
+                SELECT * FROM (
+                    {union_query}
+                ) AS combined
+                ORDER BY visit_date, COALESCE(visit_time, '23:59:59')
+                """
+
+                bookings_query = text(final_query)
 
                 results = session.execute(bookings_query, query_params).fetchall()
 
@@ -620,7 +666,8 @@ async def get_bookings_calendar(
                         "tariff_name": row.tariff_name,
                         "tariff_id": row.tariff_id,
                         "tariff_color": row.tariff_color or "#3182CE",
-                        "tariff_purpose": row.tariff_purpose if hasattr(row, 'tariff_purpose') else None
+                        "tariff_purpose": row.tariff_purpose if hasattr(row, 'tariff_purpose') else None,
+                        "source_type": row.source_type
                     }
                     bookings.append(booking)
 
@@ -1104,7 +1151,22 @@ async def export_dashboard_excel(
                     (SELECT COUNT(*) FROM bookings WHERE created_at >= :period_start AND created_at < :period_end) as total_bookings,
                     (SELECT COUNT(*) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
                     (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
-                    (SELECT COALESCE(AVG(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as avg_booking_value,
+                    (
+                        SELECT COALESCE(
+                            CASE WHEN COUNT(*) > 0
+                            THEN CAST(SUM(amount) AS REAL) / COUNT(*)
+                            ELSE 0 END, 0)
+                        FROM (
+                            SELECT amount FROM bookings
+                            WHERE paid = 1
+                              AND created_at >= :period_start
+                              AND created_at < :period_end
+                            UNION ALL
+                            SELECT amount FROM openspace_payment_history
+                            WHERE payment_date >= :period_start
+                              AND payment_date < :period_end
+                        )
+                    ) as avg_booking_value,
                     (SELECT COUNT(*) FROM tickets WHERE created_at >= :period_start AND created_at < :period_end) as total_tickets,
                     (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN' AND created_at >= :period_start AND created_at < :period_end) as open_tickets
             """)

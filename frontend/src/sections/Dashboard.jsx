@@ -1987,6 +1987,21 @@ const Dashboard = ({
                                         const userName = booking.user_name || 'Без имени';
                                         const tariffName = booking.tariff_name || 'Без названия';
 
+                                        // Если это опенспейс
+                                        if (booking.source_type === 'openspace' || booking.tariff_purpose === 'openspace') {
+                                          return (
+                                            <>
+                                              <Text fontWeight="bold" color="teal.300">🏢 Опенспейс - весь день</Text>
+                                              <Text>Клиент: {userName}</Text>
+                                              <Text>Тип: {tariffName}</Text>
+                                              {booking.amount && <Text>Сумма: {booking.amount} ₽</Text>}
+                                              <Text fontSize="xs" color="gray.300">
+                                                {booking.paid ? '✓ Оплачено' : '⏳ Ожидает оплаты'}
+                                              </Text>
+                                            </>
+                                          );
+                                        }
+
                                         // Если это переговорная комната и есть время и длительность
                                         if (
                                           isMeetingRoom(booking.tariff_purpose) &&
@@ -2045,7 +2060,12 @@ const Dashboard = ({
                                     fontWeight="medium"
                                     border={booking.confirmed ? "none" : "2px dashed rgba(255,255,255,0.6)"}
                                   >
-                                    {booking.visit_time && booking.visit_time.substring(0, 5)} {booking.user_name}
+                                    {booking.source_type === 'openspace' || booking.tariff_purpose === 'openspace'
+                                      ? `🏢 ${booking.user_name || 'Опенспейс'}`
+                                      : booking.visit_time
+                                        ? `${booking.visit_time.substring(0, 5)} - ${booking.user_name || 'Без имени'}`
+                                        : booking.user_name || 'Без имени'
+                                    }
                                   </Box>
                                 </Tooltip>
                               ))}

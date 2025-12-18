@@ -97,17 +97,33 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
 
                 UNION ALL
 
-                -- Средний чек по дням
+                -- Средний чек по дням (включая опенспейс и офисы)
                 SELECT
-                    DATE(b.created_at) as date,
+                    DATE(payment_date) as date,
                     'avg_booking' as type,
                     0 as count,
-                    COALESCE(AVG(b.amount), 0) as avg_value
-                FROM bookings b
-                WHERE b.paid = 1
-                  AND b.created_at >= :start_date
-                  AND b.created_at <= :end_date
-                GROUP BY DATE(b.created_at)
+                    CASE
+                        WHEN COUNT(*) > 0 THEN CAST(SUM(amount) AS REAL) / COUNT(*)
+                        ELSE 0
+                    END as avg_value
+                FROM (
+                    SELECT b.created_at as payment_date, b.amount
+                    FROM bookings b
+                    WHERE b.paid = 1
+                      AND b.created_at >= :start_date
+                      AND b.created_at <= :end_date
+                    UNION ALL
+                    SELECT oph.payment_date, oph.amount
+                    FROM openspace_payment_history oph
+                    WHERE oph.payment_date >= :start_date
+                      AND oph.payment_date <= :end_date
+                    UNION ALL
+                    SELECT ooffph.payment_date, ooffph.amount
+                    FROM office_payment_history ooffph
+                    WHERE ooffph.payment_date >= :start_date
+                      AND ooffph.payment_date <= :end_date
+                ) combined_payments
+                GROUP BY DATE(payment_date)
             )
             SELECT
                 dr.date,
@@ -412,12 +428,30 @@ class SQLOptimizer:
                             AND b.created_at < :period_end
                             THEN b.amount ELSE 0 END), 0) as revenue,
 
-                        -- Средний чек за текущий период
-                        COALESCE(AVG(CASE
-                            WHEN b.paid = 1
-                            AND b.created_at >= :period_start
-                            AND b.created_at < :period_end
-                            THEN b.amount ELSE NULL END), 0) as avg_booking_value,
+                        -- Средний чек за текущий период (включая опенспейс и офисы)
+                        COALESCE((
+                            SELECT
+                                CASE WHEN COUNT(*) > 0
+                                THEN CAST(SUM(amount) AS REAL) / COUNT(*)
+                                ELSE 0 END
+                            FROM (
+                                SELECT b.amount
+                                FROM bookings b
+                                WHERE b.paid = 1
+                                  AND b.created_at >= :period_start
+                                  AND b.created_at < :period_end
+                                UNION ALL
+                                SELECT oph.amount
+                                FROM openspace_payment_history oph
+                                WHERE oph.payment_date >= :period_start
+                                  AND oph.payment_date < :period_end
+                                UNION ALL
+                                SELECT ooffph.amount
+                                FROM office_payment_history ooffph
+                                WHERE ooffph.payment_date >= :period_start
+                                  AND ooffph.payment_date < :period_end
+                            )
+                        ), 0) as avg_booking_value,
 
                         -- Пользователи с хотя бы одним бронированием (для конверсии)
                         COUNT(DISTINCT CASE
@@ -459,12 +493,30 @@ class SQLOptimizer:
                             AND b.created_at < :prev_period_end
                             THEN b.amount ELSE 0 END), 0) as revenue,
 
-                        -- Средний чек за предыдущий период
-                        COALESCE(AVG(CASE
-                            WHEN b.paid = 1
-                            AND b.created_at >= :prev_period_start
-                            AND b.created_at < :prev_period_end
-                            THEN b.amount ELSE NULL END), 0) as avg_booking_value,
+                        -- Средний чек за предыдущий период (включая опенспейс и офисы)
+                        COALESCE((
+                            SELECT
+                                CASE WHEN COUNT(*) > 0
+                                THEN CAST(SUM(amount) AS REAL) / COUNT(*)
+                                ELSE 0 END
+                            FROM (
+                                SELECT b.amount
+                                FROM bookings b
+                                WHERE b.paid = 1
+                                  AND b.created_at >= :prev_period_start
+                                  AND b.created_at < :prev_period_end
+                                UNION ALL
+                                SELECT oph.amount
+                                FROM openspace_payment_history oph
+                                WHERE oph.payment_date >= :prev_period_start
+                                  AND oph.payment_date < :prev_period_end
+                                UNION ALL
+                                SELECT ooffph.amount
+                                FROM office_payment_history ooffph
+                                WHERE ooffph.payment_date >= :prev_period_start
+                                  AND ooffph.payment_date < :prev_period_end
+                            )
+                        ), 0) as avg_booking_value,
 
                         -- Пользователи с хотя бы одним бронированием (для конверсии)
                         COUNT(DISTINCT CASE
