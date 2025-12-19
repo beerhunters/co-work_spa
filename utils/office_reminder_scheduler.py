@@ -1,12 +1,20 @@
 import asyncio
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from models.models import DatabaseManager, Office, OfficeTenantReminder, User, Admin, ReminderType
+from models.models import (
+    DatabaseManager,
+    Office,
+    OfficeTenantReminder,
+    User,
+    Admin,
+    ReminderType,
+)
 from utils.logger import get_logger
 from utils.bot_instance import get_bot
 from config import ADMIN_TELEGRAM_ID, MOSCOW_TZ
 
 logger = get_logger(__name__)
+
 
 async def check_and_send_office_reminders():
     """
@@ -17,12 +25,14 @@ async def check_and_send_office_reminders():
 
     def _get_offices_requiring_reminders(session):
         now = datetime.now(MOSCOW_TZ)
+        today = now.date()
 
         # Получаем активные офисы с датой окончания аренды
-        offices = session.query(Office).filter(
-            Office.is_active == True,
-            Office.rental_end_date.isnot(None)
-        ).all()
+        offices = (
+            session.query(Office)
+            .filter(Office.is_active == True, Office.rental_end_date.isnot(None))
+            .all()
+        )
 
         reminders_to_send = []
 
@@ -47,64 +57,89 @@ async def check_and_send_office_reminders():
                     f"next_payment_date, using rental_end_date as fallback"
                 )
 
-            # Вычисляем количество дней до следующего платежа
-            days_until_payment = (payment_date - now).days
+            # !!! ГЛАВНОЕ ИСПРАВЛЕНИЕ !!!
+            # Считаем разницу дат, игнорируя время.
+            # Если сегодня 19.12 (12:50), а платеж 20.12 (00:00),
+            # (20 - 19) даст ровно 1 день.
+            days_until_payment = (payment_date.date() - today).days
+
+            # Общие данные, чтобы не дублировать код
+            common_data = {
+                "office_number": office.office_number,
+                "floor": office.floor,
+                "price": office.price_per_month,
+                "days_until_payment": days_until_payment,
+                "payment_date": payment_date,
+                "is_monthly": office.payment_type == "monthly",
+            }
 
             # Проверяем админ-напоминания
             if office.admin_reminder_enabled:
-                should_send = False
+                should_send_admin = False
 
                 if office.admin_reminder_type == ReminderType.days_before:
                     # Напоминание за N дней до следующего платежа
-                    should_send = days_until_payment == office.admin_reminder_days
+                    should_send_admin = days_until_payment == office.admin_reminder_days
                 elif office.admin_reminder_type == ReminderType.specific_datetime:
                     # Напоминание в конкретную дату/время (проверяем с точностью до дня)
                     if office.admin_reminder_datetime:
                         reminder_datetime = office.admin_reminder_datetime
                         if reminder_datetime.tzinfo is None:
-                            reminder_datetime = reminder_datetime.replace(tzinfo=MOSCOW_TZ)
-                        should_send = reminder_datetime.date() == now.date()
+                            reminder_datetime = reminder_datetime.replace(
+                                tzinfo=MOSCOW_TZ
+                            )
 
-                if should_send:
-                    reminders_to_send.append({
-                        'type': 'admin',
-                        'office': office,
-                        'days_until_payment': days_until_payment,
-                        'payment_date': payment_date,
-                        'is_monthly': office.payment_type == 'monthly'
-                    })
+                        should_send_admin = reminder_datetime.date() == today
+
+                if should_send_admin:
+                    reminders_to_send.append({"type": "admin", **common_data})
 
             # Проверяем напоминания постояльцам
             if office.tenant_reminder_enabled:
-                should_send = False
+                should_send_tenant = False
 
                 if office.tenant_reminder_type == ReminderType.days_before:
                     # Напоминание за N дней до следующего платежа
-                    should_send = days_until_payment == office.tenant_reminder_days
+                    should_send_tenant = (
+                        days_until_payment == office.tenant_reminder_days
+                    )
                 elif office.tenant_reminder_type == ReminderType.specific_datetime:
                     # Напоминание в конкретную дату/время (проверяем с точностью до дня)
                     if office.tenant_reminder_datetime:
                         reminder_datetime = office.tenant_reminder_datetime
                         if reminder_datetime.tzinfo is None:
-                            reminder_datetime = reminder_datetime.replace(tzinfo=MOSCOW_TZ)
-                        should_send = reminder_datetime.date() == now.date()
+                            reminder_datetime = reminder_datetime.replace(
+                                tzinfo=MOSCOW_TZ
+                            )
 
-                if should_send:
+                        should_send_tenant = reminder_datetime.date() == today
+
+                if should_send_tenant:
                     # Получаем постояльцев с включенными напоминаниями
-                    tenant_reminders = session.query(OfficeTenantReminder).filter(
-                        OfficeTenantReminder.office_id == office.id,
-                        OfficeTenantReminder.is_enabled == True
-                    ).all()
+                    tenant_reminders = (
+                        session.query(OfficeTenantReminder)
+                        .filter(
+                            OfficeTenantReminder.office_id == office.id,
+                            OfficeTenantReminder.is_enabled == True,
+                        )
+                        .all()
+                    )
+
+                    # ВАЖНО: Добавим лог, чтобы понять, находит ли он кого-то вообще
+                    if not tenant_reminders:
+                        logger.warning(
+                            f"Офис {office.office_number}: нужно отправить напоминание, но нет активных подписчиков (OfficeTenantReminder)."
+                        )
 
                     for tr in tenant_reminders:
-                        reminders_to_send.append({
-                            'type': 'tenant',
-                            'office': office,
-                            'user': tr.user,
-                            'days_until_payment': days_until_payment,
-                            'payment_date': payment_date,
-                            'is_monthly': office.payment_type == 'monthly'
-                        })
+                        if tr.user:
+                            reminders_to_send.append(
+                                {
+                                    "type": "tenant",
+                                    "telegram_id": tr.user.telegram_id,  # Сохраняем ID пока сессия открыта
+                                    **common_data,
+                                }
+                            )
 
         return reminders_to_send
 
@@ -120,48 +155,40 @@ async def check_and_send_office_reminders():
     # Отправляем напоминания через Telegram бота
     bot = get_bot()
 
+    # Рассылка
     for reminder in reminders:
         try:
-            if reminder['type'] == 'admin':
-                office = reminder['office']
-                payment_date = reminder['payment_date']
-                is_monthly = reminder.get('is_monthly', False)
-                payment_type_str = "очередного платежа" if is_monthly else "окончания аренды"
+            payment_date = reminder["payment_date"]
+            is_monthly = reminder.get("is_monthly", False)
+            payment_type_str = "Очередной платеж" if is_monthly else "Окончание аренды"
+            days_left = reminder["days_until_payment"]
 
-                message = (
-                    f"🔔 Напоминание о {payment_type_str}\n\n"
-                    f"Офис: {office.office_number} (этаж {office.floor})\n"
-                    f"Сумма: {office.price_per_month} ₽\n"
-                    f"Дата платежа: {payment_date.strftime('%d.%m.%Y')}\n"
-                    f"Осталось дней: {reminder['days_until_payment']}\n\n"
-                    f"Не забудьте выставить счет!"
-                )
+            # Формируем текст
+            message = (
+                f"🔔 Напоминание - {payment_type_str}\n\n"
+                f"Офис: {reminder['office_number']} (этаж {reminder['floor']})\n"
+                f"Дата: {payment_date.strftime('%d.%m.%Y')}\n"
+                f"Сумма: {reminder['price']} ₽\n"
+                f"Осталось дней: {days_left}\n\n"
+            )
+
+            if reminder["type"] == "admin":
+                message += "Не забудьте выставить счет!"
                 await bot.send_message(ADMIN_TELEGRAM_ID, message)
-                logger.info(f"Отправлено напоминание админу для офиса {office.office_number}")
+                logger.info(f"Отправлено АДМИНУ по офису {reminder['office_number']}")
 
-            elif reminder['type'] == 'tenant':
-                office = reminder['office']
-                user = reminder['user']
-                payment_date = reminder['payment_date']
-                is_monthly = reminder.get('is_monthly', False)
-                payment_type_str = "очередного платежа" if is_monthly else "окончания аренды"
-
-                message = (
-                    f"🔔 Напоминание о {payment_type_str}\n\n"
-                    f"Офис: {office.office_number} (этаж {office.floor})\n"
-                    f"Дата платежа: {payment_date.strftime('%d.%m.%Y')}\n"
-                    f"Сумма: {office.price_per_month} ₽\n"
-                    f"Осталось дней: {reminder['days_until_payment']}\n\n"
-                    f"Пожалуйста, не забудьте внести оплату."
+            elif reminder["type"] == "tenant":
+                message += "Пожалуйста, не забудьте внести оплату."
+                target_chat_id = reminder["telegram_id"]
+                await bot.send_message(target_chat_id, message)
+                logger.info(
+                    f"Отправлено ПОЛЬЗОВАТЕЛЮ ({target_chat_id}) по офису {reminder['office_number']}"
                 )
-                await bot.send_message(user.telegram_id, message)
-                logger.info(f"Отправлено напоминание пользователю {user.telegram_id} для офиса {office.office_number}")
 
-            # Небольшая пауза между отправками
             await asyncio.sleep(0.5)
 
         except Exception as e:
-            logger.error(f"Ошибка отправки напоминания: {e}")
+            logger.error(f"Ошибка при отправке сообщения: {e}")
 
     logger.info(f"Отправка напоминаний завершена. Всего отправлено: {len(reminders)}")
 
@@ -173,11 +200,11 @@ def start_office_reminder_scheduler():
     # Запускать каждый день в 10:00
     scheduler.add_job(
         check_and_send_office_reminders,
-        'cron',
+        "cron",
         hour=10,
-        minute=0,
-        id='office_reminders',
-        replace_existing=True
+        minute=00,
+        id="office_reminders",
+        replace_existing=True,
     )
 
     scheduler.start()
