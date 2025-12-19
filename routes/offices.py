@@ -871,10 +871,23 @@ async def record_office_payment(
             office.next_payment_date = office.rental_end_date
         else:  # monthly
             office.next_payment_date = period_end
-            
+
             # Проверяем, не выходит ли следующий платеж за рамки аренды
-            if office.rental_end_date and office.next_payment_date > office.rental_end_date:
-                office.next_payment_date = office.rental_end_date
+            if office.rental_end_date:
+                # Приводим даты к aware (с часовым поясом) для корректного сравнения
+                # Если next_payment_date не имеет таймзоны, добавляем её
+                check_next_date = office.next_payment_date
+                if check_next_date.tzinfo is None:
+                    check_next_date = check_next_date.replace(tzinfo=MOSCOW_TZ)
+
+                # Если rental_end_date не имеет таймзоны, добавляем её
+                check_end_date = office.rental_end_date
+                if check_end_date.tzinfo is None:
+                    check_end_date = check_end_date.replace(tzinfo=MOSCOW_TZ)
+
+                # Сравниваем даты с одинаковыми настройками таймзоны
+                if check_next_date > check_end_date:
+                    office.next_payment_date = office.rental_end_date
         
         db.commit()
         db.refresh(office)

@@ -1338,29 +1338,40 @@ const OfficeDetailModal = ({ isOpen, onClose, office, users = [], offices = [], 
             </AlertDialogBody>
 
             <AlertDialogFooter>
-              <Button ref={cancelRef} onClick={onPaymentConfirmClose}>
-                Отмена
-              </Button>
+              {/* Используем VStack для вертикального выравнивания */}
+              <VStack width="100%" spacing={3}>
 
-              {paymentDateMismatch && (
+                {/* Кнопка обновления даты (если есть несовпадение) */}
+                {paymentDateMismatch && (
+                  <Button
+                    width="100%"
+                    colorScheme="blue"
+                    onClick={() => handleConfirmPayment(true)}
+                    isLoading={isPaymentLoading}
+                  >
+                    Обновить дату начала аренды
+                  </Button>
+                )}
+
+                {/* Кнопка подтверждения */}
                 <Button
-                  colorScheme="blue"
-                  onClick={() => handleConfirmPayment(true)}
-                  ml={3}
+                  width="100%"
+                  colorScheme="green"
+                  onClick={() => handleConfirmPayment(false)}
                   isLoading={isPaymentLoading}
                 >
-                  Обновить дату начала аренды
+                  Подтвердить оплату
                 </Button>
-              )}
 
-              <Button
-                colorScheme="green"
-                onClick={() => handleConfirmPayment(false)}
-                ml={3}
-                isLoading={isPaymentLoading}
-              >
-                Подтвердить оплату
-              </Button>
+                {/* Кнопка отмены */}
+                <Button
+                  width="100%"
+                  ref={cancelRef}
+                  onClick={onPaymentConfirmClose}
+                >
+                  Отмена
+                </Button>
+              </VStack>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialogOverlay>
