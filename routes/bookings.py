@@ -551,7 +551,13 @@ async def create_booking_admin(
                                 pass
 
                         duration_str = ""
-                        if result.get("duration"):
+                        # Для дневных тарифов показываем "целый день" вместо часов
+                        tariff_name_lower = tariff.name.lower()
+                        is_daily_tariff = 'тестовый день' in tariff_name_lower or 'опенспейс на день' in tariff_name_lower
+
+                        if is_daily_tariff:
+                            duration_str = " (целый день)"
+                        elif result.get("duration"):
                             duration_str = f" ({result['duration']}ч)"
 
                         # Форматирование даты
@@ -586,10 +592,46 @@ async def create_booking_admin(
         # Инвалидируем связанные кэши после успешного создания
         await cache_invalidator.invalidate_booking_related_cache()
 
-        # Планируем отложенное уведомление о завершении бронирования (только для почасовых тарифов)
-        if result.get("visit_time") and result.get("duration"):
-            try:
-                # Вычисляем время окончания бронирования
+        # Планируем отложенное уведомление о завершении бронирования
+        # Проверяем тип тарифа
+        def _get_tariff_name(session):
+            tariff = session.query(Tariff).filter_by(id=result["tariff_id"]).first()
+            return tariff.name if tariff else ""
+
+        try:
+            tariff_name = DatabaseManager.safe_execute(_get_tariff_name).lower()
+            is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
+
+            if is_daily_tariff:
+                # Дневные тарифы - уведомление в 00:05 следующего дня
+                notification_datetime = datetime.combine(
+                    result["visit_date"] + timedelta(days=1),
+                    time_type(0, 5)  # 00:05
+                )
+                notification_datetime = MOSCOW_TZ.localize(notification_datetime)
+                now = datetime.now(MOSCOW_TZ)
+
+                if notification_datetime <= now:
+                    # Если время уже прошло (маловероятно для дневных тарифов), отправляем сразу
+                    logger.info(
+                        f"⚡ [ADMIN] Дневное бронирование #{result['id']} уже завершилось, "
+                        f"отправляем уведомление немедленно"
+                    )
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"], True]  # is_daily_tariff=True
+                    )
+                else:
+                    # Планируем задачу на 00:05 следующего дня
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"], True],  # is_daily_tariff=True
+                        eta=notification_datetime
+                    )
+                    logger.info(
+                        f"📅 [ADMIN] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
+                        f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
+                    )
+            elif result.get("visit_time") and result.get("duration"):
+                # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
                     result["visit_date"],
                     result["visit_time"] if isinstance(result["visit_time"], time_type) else
@@ -599,28 +641,26 @@ async def create_booking_admin(
                 end_datetime = visit_datetime + timedelta(hours=result["duration"])
                 now = datetime.now(MOSCOW_TZ)
 
-                # Если время окончания уже прошло, отправляем уведомление сразу
                 if end_datetime <= now:
                     logger.info(
                         f"⚡ [ADMIN] Бронирование #{result['id']} уже завершилось "
                         f"({end_datetime.strftime('%Y-%m-%d %H:%M:%S')}), отправляем уведомление немедленно"
                     )
                     task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"]]
+                        args=[result["id"], False]  # is_daily_tariff=False
                     )
                 else:
-                    # Планируем задачу на точное время окончания бронирования
                     task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"]],
+                        args=[result["id"], False],  # is_daily_tariff=False
                         eta=end_datetime
                     )
                     logger.info(
                         f"📅 [ADMIN] Запланировано уведомление о завершении бронирования #{result['id']} "
                         f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
-            except Exception as e:
-                # Ошибка планирования не должна блокировать создание брони
-                logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
+        except Exception as e:
+            # Ошибка планирования не должна блокировать создание брони
+            logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
 
         return result
     except HTTPException:
@@ -761,10 +801,44 @@ async def create_booking(booking_data: BookingCreate):
         # Инвалидируем связанные кэши после успешного создания
         await cache_invalidator.invalidate_booking_related_cache()
 
-        # Планируем отложенное уведомление о завершении бронирования (только для почасовых тарифов)
-        if result.get("visit_time") and result.get("duration"):
-            try:
-                # Вычисляем время окончания бронирования
+        # Планируем отложенное уведомление о завершении бронирования
+        # Проверяем тип тарифа
+        def _get_tariff_name(session):
+            tariff = session.query(Tariff).filter_by(id=result["tariff_id"]).first()
+            return tariff.name if tariff else ""
+
+        try:
+            tariff_name = DatabaseManager.safe_execute(_get_tariff_name).lower()
+            is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
+
+            if is_daily_tariff:
+                # Дневные тарифы - уведомление в 00:05 следующего дня
+                notification_datetime = datetime.combine(
+                    result["visit_date"] + timedelta(days=1),
+                    time_type(0, 5)  # 00:05
+                )
+                notification_datetime = MOSCOW_TZ.localize(notification_datetime)
+                now = datetime.now(MOSCOW_TZ)
+
+                if notification_datetime <= now:
+                    logger.info(
+                        f"⚡ [BOT] Дневное бронирование #{result['id']} уже завершилось, "
+                        f"отправляем уведомление немедленно"
+                    )
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"], True]  # is_daily_tariff=True
+                    )
+                else:
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"], True],  # is_daily_tariff=True
+                        eta=notification_datetime
+                    )
+                    logger.info(
+                        f"📅 [BOT] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
+                        f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
+                    )
+            elif result.get("visit_time") and result.get("duration"):
+                # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
                     result["visit_date"],
                     result["visit_time"] if isinstance(result["visit_time"], time_type) else
@@ -774,28 +848,26 @@ async def create_booking(booking_data: BookingCreate):
                 end_datetime = visit_datetime + timedelta(hours=result["duration"])
                 now = datetime.now(MOSCOW_TZ)
 
-                # Если время окончания уже прошло, отправляем уведомление сразу
                 if end_datetime <= now:
                     logger.info(
                         f"⚡ [BOT] Бронирование #{result['id']} уже завершилось "
                         f"({end_datetime.strftime('%Y-%m-%d %H:%M:%S')}), отправляем уведомление немедленно"
                     )
                     task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"]]
+                        args=[result["id"], False]  # is_daily_tariff=False
                     )
                 else:
-                    # Планируем задачу на точное время окончания бронирования
                     task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"]],
+                        args=[result["id"], False],  # is_daily_tariff=False
                         eta=end_datetime
                     )
                     logger.info(
                         f"📅 [BOT] Запланировано уведомление о завершении бронирования #{result['id']} "
                         f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
-            except Exception as e:
-                # Ошибка планирования не должна блокировать создание брони
-                logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
+        except Exception as e:
+            # Ошибка планирования не должна блокировать создание брони
+            logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
 
         return result
     except HTTPException:

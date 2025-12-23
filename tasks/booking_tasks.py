@@ -39,12 +39,13 @@ class BookingTask(Task):
     max_retries=3,
     default_retry_delay=300  # 5 minutes
 )
-def send_booking_expiration_notification(self, booking_id: int):
+def send_booking_expiration_notification(self, booking_id: int, is_daily_tariff: bool = False):
     """
     Celery task for sending booking expiration notification.
 
     Args:
         booking_id: ID of the booking that has expired
+        is_daily_tariff: True for daily tariffs (Тестовый день, Опенспейс на день)
 
     Returns:
         Dict with result: {
@@ -108,7 +109,7 @@ def send_booking_expiration_notification(self, booking_id: int):
 
         # Send notifications
         result = loop.run_until_complete(
-            _send_notifications_async(booking_data)
+            _send_notifications_async(booking_data, is_daily_tariff)
         )
 
         # Mark notification as sent in database
@@ -132,12 +133,13 @@ def send_booking_expiration_notification(self, booking_id: int):
         raise self.retry(exc=e)
 
 
-async def _send_notifications_async(booking_data: Dict) -> Dict:
+async def _send_notifications_async(booking_data: Dict, is_daily_tariff: bool = False) -> Dict:
     """
     Send notifications to user and admin about booking expiration.
 
     Args:
         booking_data: Dict with booking details
+        is_daily_tariff: True for daily tariffs
 
     Returns:
         Dict with sent_count
@@ -149,52 +151,68 @@ async def _send_notifications_async(booking_data: Dict) -> Dict:
 
     sent_count = 0
 
-    # Calculate end time for display
-    from datetime import datetime, timedelta
-    visit_datetime_naive = datetime.combine(
-        booking_data['visit_date'],
-        booking_data['visit_time']
-    )
-    visit_datetime = MOSCOW_TZ.localize(visit_datetime_naive)
-    end_datetime = visit_datetime + timedelta(hours=booking_data['duration'])
-    end_time = end_datetime.time()
+    # Формируем строку с username если есть
+    username_str = f" (@{booking_data['user_username']})" if booking_data['user_username'] else ""
 
-    # Send notification to user
-    if booking_data['user_telegram_id']:
+    if is_daily_tariff:
+        # Дневные тарифы - уведомление только администратору
         try:
-            user_message = (
-                f"⏰ Время вашего бронирования истекло\n\n"
+            admin_message = (
+                f"🔔 День аренды истёк\n\n"
+                f"👤 Пользователь: {booking_data['user_name']}{username_str} (ID: {booking_data['user_id']})\n"
+                f"📋 Тариф: {booking_data['tariff_name']}\n"
+                f"📅 Дата: {booking_data['visit_date'].strftime('%d.%m.%Y')}\n\n"
+                f"⚠️ Необходимо отключить пропуск"
+            )
+            await bot.send_message(ADMIN_TELEGRAM_ID, admin_message)
+            sent_count += 1
+            logger.info(f"Уведомление администратору о дневном тарифе отправлено (booking #{booking_data['booking_id']})")
+        except Exception as e:
+            logger.error(f"Failed to send daily tariff notification to admin: {e}")
+    else:
+        # Почасовые тарифы - уведомление пользователю и администратору
+        from datetime import datetime, timedelta
+        visit_datetime_naive = datetime.combine(
+            booking_data['visit_date'],
+            booking_data['visit_time']
+        )
+        visit_datetime = MOSCOW_TZ.localize(visit_datetime_naive)
+        end_datetime = visit_datetime + timedelta(hours=booking_data['duration'])
+        end_time = end_datetime.time()
+
+        # Send notification to user
+        if booking_data['user_telegram_id']:
+            try:
+                user_message = (
+                    f"⏰ Время вашего бронирования истекло\n\n"
+                    f"📋 Тариф: {booking_data['tariff_name']}\n"
+                    f"📅 Дата: {booking_data['visit_date'].strftime('%d.%m.%Y')}\n"
+                    f"🕐 Время: {booking_data['visit_time'].strftime('%H:%M')} - "
+                    f"{end_time.strftime('%H:%M')}\n"
+                    f"⏱ Длительность: {booking_data['duration']} ч.\n\n"
+                    f"Спасибо за посещение!"
+                )
+                await bot.send_message(booking_data['user_telegram_id'], user_message)
+                sent_count += 1
+                logger.info(f"Уведомление пользователю {booking_data['user_telegram_id']} отправлено")
+            except Exception as e:
+                logger.error(f"Failed to send notification to user {booking_data['user_telegram_id']}: {e}")
+
+        # Send notification to admin
+        try:
+            admin_message = (
+                f"⏰ Истекло время бронирования\n\n"
+                f"👤 Пользователь: {booking_data['user_name']}{username_str} (ID: {booking_data['user_id']})\n"
                 f"📋 Тариф: {booking_data['tariff_name']}\n"
                 f"📅 Дата: {booking_data['visit_date'].strftime('%d.%m.%Y')}\n"
                 f"🕐 Время: {booking_data['visit_time'].strftime('%H:%M')} - "
                 f"{end_time.strftime('%H:%M')}\n"
-                f"⏱ Длительность: {booking_data['duration']} ч.\n\n"
-                f"Спасибо за посещение!"
+                f"⏱ Длительность: {booking_data['duration']} ч."
             )
-            await bot.send_message(booking_data['user_telegram_id'], user_message)
+            await bot.send_message(ADMIN_TELEGRAM_ID, admin_message)
             sent_count += 1
-            logger.info(f"Уведомление пользователю {booking_data['user_telegram_id']} отправлено")
+            logger.info(f"Уведомление администратору отправлено")
         except Exception as e:
-            logger.error(f"Failed to send notification to user {booking_data['user_telegram_id']}: {e}")
-
-    # Send notification to admin
-    try:
-        # Формируем строку с username если есть
-        username_str = f" (@{booking_data['user_username']})" if booking_data['user_username'] else ""
-
-        admin_message = (
-            f"⏰ Истекло время бронирования\n\n"
-            f"👤 Пользователь: {booking_data['user_name']}{username_str} (ID: {booking_data['user_id']})\n"
-            f"📋 Тариф: {booking_data['tariff_name']}\n"
-            f"📅 Дата: {booking_data['visit_date'].strftime('%d.%m.%Y')}\n"
-            f"🕐 Время: {booking_data['visit_time'].strftime('%H:%M')} - "
-            f"{end_time.strftime('%H:%M')}\n"
-            f"⏱ Длительность: {booking_data['duration']} ч."
-        )
-        await bot.send_message(ADMIN_TELEGRAM_ID, admin_message)
-        sent_count += 1
-        logger.info(f"Уведомление администратору отправлено")
-    except Exception as e:
-        logger.error(f"Failed to send notification to admin: {e}")
+            logger.error(f"Failed to send notification to admin: {e}")
 
     return {'sent_count': sent_count}

@@ -814,8 +814,11 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                   bg="gray.50"
                   fontWeight="bold"
                 />
-                {/* Кнопка "Пересчитать" не показываем для тарифа "3 часа" */}
-                {selectedTariff && !selectedTariff.name.toLowerCase().includes('3 час') && (
+                {/* Кнопка "Пересчитать" не показываем для тарифов "3 часа", "Тестовый день", "Опенспейс на день" */}
+                {selectedTariff &&
+                 !selectedTariff.name.toLowerCase().includes('3 час') &&
+                 !selectedTariff.name.toLowerCase().includes('тестовый день') &&
+                 !selectedTariff.name.toLowerCase().includes('опенспейс на день') && (
                   <Button
                     size="sm"
                     onClick={handleRecalculate}
@@ -844,8 +847,11 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                         }
                       </Text>
                     </HStack>
-                    {/* Скидку не показываем для тарифа "3 часа" */}
-                    {getDiscountPercent() > 0 && !selectedTariff.name.toLowerCase().includes('3 час') && (
+                    {/* Скидку не показываем для тарифов "3 часа", "Тестовый день", "Опенспейс на день" */}
+                    {getDiscountPercent() > 0 &&
+                     !selectedTariff.name.toLowerCase().includes('3 час') &&
+                     !selectedTariff.name.toLowerCase().includes('тестовый день') &&
+                     !selectedTariff.name.toLowerCase().includes('опенспейс на день') && (
                       <HStack justify="space-between" color="green.500">
                         <Text>Скидка ({getDiscountPercent()}%):</Text>
                         <Text>
