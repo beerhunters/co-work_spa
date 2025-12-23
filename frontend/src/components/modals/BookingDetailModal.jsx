@@ -692,7 +692,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                         />
                       </FormControl>
 
-                      {tariff.purpose === 'meeting_room' && (
+                      {(tariff.purpose === 'meeting_room' || tariff.name?.toLowerCase().includes('3 час')) && (
                         <>
                           <FormControl>
                             <FormLabel fontSize="sm">Время</FormLabel>
@@ -705,18 +705,45 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
 
                           <FormControl>
                             <FormLabel fontSize="sm">Длительность (часов)</FormLabel>
-                            <NumberInput
-                              min={1}
-                              max={24}
-                              value={editData.duration}
-                              onChange={(val) => setEditData({ ...editData, duration: val })}
-                            >
-                              <NumberInputField />
-                              <NumberInputStepper>
-                                <NumberIncrementStepper />
-                                <NumberDecrementStepper />
-                              </NumberInputStepper>
-                            </NumberInput>
+                            <HStack>
+                              <NumberInput
+                                min={tariff.name?.toLowerCase().includes('3 час') ? 3 : 1}
+                                max={24}
+                                value={editData.duration}
+                                onChange={(val) => setEditData({ ...editData, duration: val })}
+                                flex={1}
+                              >
+                                <NumberInputField />
+                                <NumberInputStepper>
+                                  <NumberIncrementStepper />
+                                  <NumberDecrementStepper />
+                                </NumberInputStepper>
+                              </NumberInput>
+                              {tariff.name?.toLowerCase().includes('3 час') && (
+                                <Button
+                                  size="sm"
+                                  colorScheme="blue"
+                                  onClick={() => {
+                                    const newDuration = parseInt(editData.duration || 3) + 1;
+                                    setEditData({ ...editData, duration: newDuration });
+                                    toast({
+                                      title: 'Добавлен 1 час',
+                                      description: `Длительность: ${newDuration} ч. (+${(newDuration - 3) * 200} ₽)`,
+                                      status: 'info',
+                                      duration: 2000,
+                                      isClosable: true,
+                                    });
+                                  }}
+                                >
+                                  +1 час
+                                </Button>
+                              )}
+                            </HStack>
+                            {tariff.name?.toLowerCase().includes('3 час') && (
+                              <Text fontSize="xs" color="gray.600" mt={1}>
+                                Базовый тариф: 3 часа = {tariff.price} ₽, каждый дополнительный час +200 ₽
+                              </Text>
+                            )}
                           </FormControl>
                         </>
                       )}

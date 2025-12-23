@@ -194,7 +194,7 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
 
       // Определяем тип тарифа и рассчитываем стоимость
       if (tariffName.includes('3 час')) {
-        // Тариф "3 часа" - фиксированная стоимость 600₽
+        // Тариф "3 часа" - фиксированная стоимость
         finalAmount = selectedTariff.price;
 
       } else if (tariffName.includes('тестовый день') || tariffName.includes('опенспейс на день')) {
@@ -239,12 +239,19 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     }
   }, [formData.tariff_id, formData.duration, formData.months]);
 
-  // Автоматическая установка длительности для тарифа "3 часа"
+  // Автоматическая установка начальной длительности для тарифа "3 часа"
   useEffect(() => {
     if (selectedTariff && selectedTariff.name.toLowerCase().includes('3 час')) {
-      setFormData(prev => ({ ...prev, duration: 3 }));
+      // Устанавливаем только если длительность еще не была изменена пользователем
+      setFormData(prev => {
+        // Сбрасываем на 3 часа только при смене тарифа
+        if (prev.tariff_id !== selectedTariff.id) {
+          return { ...prev, duration: 3 };
+        }
+        return prev;
+      });
     }
-  }, [selectedTariff]);
+  }, [selectedTariff?.id]);
 
   // Закрытие dropdown при клике вне области
   useEffect(() => {
@@ -807,14 +814,17 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                   bg="gray.50"
                   fontWeight="bold"
                 />
-                <Button
-                  size="sm"
-                  onClick={handleRecalculate}
-                  isLoading={isCalculating}
-                  leftIcon={<FiDollarSign />}
-                >
-                  Пересчитать
-                </Button>
+                {/* Кнопка "Пересчитать" не показываем для тарифа "3 часа" */}
+                {selectedTariff && !selectedTariff.name.toLowerCase().includes('3 час') && (
+                  <Button
+                    size="sm"
+                    onClick={handleRecalculate}
+                    isLoading={isCalculating}
+                    leftIcon={<FiDollarSign />}
+                  >
+                    Пересчитать
+                  </Button>
+                )}
               </HStack>
 
               {/* Breakdown суммы */}
@@ -826,14 +836,16 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                       <Text>
                         {selectedTariff.price} ₽
                         {((selectedTariff.purpose === 'meeting_room' ||
-                           selectedTariff.purpose === 'coworking' ||
-                           selectedTariff.name.toLowerCase().includes('час')) && formData.duration > 1)
+                           selectedTariff.purpose === 'coworking') &&
+                           !selectedTariff.name.toLowerCase().includes('3 час') &&
+                           formData.duration > 1)
                           ? ` × ${formData.duration} ч = ${(selectedTariff.price * formData.duration).toFixed(2)} ₽`
                           : ''
                         }
                       </Text>
                     </HStack>
-                    {getDiscountPercent() > 0 && (
+                    {/* Скидку не показываем для тарифа "3 часа" */}
+                    {getDiscountPercent() > 0 && !selectedTariff.name.toLowerCase().includes('3 час') && (
                       <HStack justify="space-between" color="green.500">
                         <Text>Скидка ({getDiscountPercent()}%):</Text>
                         <Text>

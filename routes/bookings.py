@@ -1616,8 +1616,16 @@ async def recalculate_booking_amount(
         # Получить параметры (используем новые значения или текущие)
         duration = data.get("duration", booking.duration)
 
-        # Базовая сумма
-        if duration:
+        # Базовая сумма - специальная логика для тарифа "3 часа"
+        is_three_hour_tariff = '3 час' in tariff.name.lower()
+
+        if is_three_hour_tariff:
+            # Тариф "3 часа": базовая цена 600₽ за 3 часа + 200₽ за каждый дополнительный час
+            base_amount = tariff.price  # 600₽ за 3 часа
+            if duration and duration > 3:
+                extra_hours = duration - 3
+                base_amount += extra_hours * 200
+        elif duration:
             base_amount = tariff.price * duration
         else:
             base_amount = tariff.price
@@ -1633,8 +1641,8 @@ async def recalculate_booking_amount(
             if promocode:
                 total_discount += promocode.discount
 
-        # Скидка за длительность (3+ часов)
-        if duration and duration >= 3:
+        # Скидка за длительность (3+ часов) - НЕ применяется для тарифа "3 часа"
+        if not is_three_hour_tariff and duration and duration >= 3:
             total_discount += 10
 
         # Максимум 100%
