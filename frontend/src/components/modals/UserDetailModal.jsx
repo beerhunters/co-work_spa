@@ -34,7 +34,7 @@ import { FiEdit, FiTrash2, FiUpload, FiExternalLink, FiUserX, FiUserCheck } from
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { userUpdateSchema } from '../../utils/validationSchemas';
-import { userApi, openspaceApi } from '../../utils/api';
+import { userApi, openspaceApi, bookingApi } from '../../utils/api';
 import { getStatusColor } from '../../styles/styles';
 
 // Определяем базовый URL в зависимости от окружения
@@ -88,6 +88,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
 
   // Опенспейс аренда
   const [openspaceInfo, setOpenspaceInfo] = useState(null);
+  const [bookingHistory, setBookingHistory] = useState([]);
   const [isOpenspaceModalOpen, setOpenspaceModalOpen] = useState(false);
   const [openspaceFormData, setOpenspaceFormData] = useState({
     rental_type: 'one_day',
@@ -99,7 +100,10 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     admin_reminder_days: 5,
     tenant_reminder_enabled: false,
     tenant_reminder_days: 5,
-    notes: ''
+    notes: '',
+    // Поля для почасовых бронирований
+    visit_time: '',
+    duration: 1
   });
   const [activeTariffs, setActiveTariffs] = useState([]);
 
@@ -135,14 +139,46 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
       // Обновляем версию при изменении пользователя
       setAvatarVersion(Date.now());
 
-      // Загружаем реферальные данные
-      fetchReferralData(user.id);
-
-      // Загружаем информацию об аренде опенспейса
+      // Загружаем данные параллельно
       fetchOpenspaceInfo(user.id);
+      fetchBookingHistory(user.id);
+      fetchReferralData(user.id);
       fetchActiveTariffs();
     }
   }, [user, reset]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Автоматический выбор первого тарифа при открытии модального окна аренды
+  useEffect(() => {
+    if (isOpenspaceModalOpen && activeTariffs && activeTariffs.length > 0) {
+      const firstTariff = activeTariffs[0];
+      const rentalType = getTariffRentalType(firstTariff);
+
+      // Определяем длительность по названию тарифа для почасовых
+      let duration = 1;
+      if (rentalType === 'hourly') {
+        const match = firstTariff.name.match(/(\d+)\s*час/i);
+        if (match) {
+          duration = parseInt(match[1]);
+        }
+      }
+
+      setOpenspaceFormData({
+        rental_type: `tariff_${firstTariff.id}`,
+        tariff_id: firstTariff.id,
+        price: firstTariff.price,
+        start_date: new Date().toISOString().split('T')[0],
+        duration_months: 1,
+        workplace_number: rentalType === 'monthly_fixed' ? '' : '',
+        admin_reminder_enabled: false,
+        admin_reminder_days: 5,
+        tenant_reminder_enabled: false,
+        tenant_reminder_days: 5,
+        notes: '',
+        visit_time: '',
+        duration: duration
+      });
+    }
+  }, [isOpenspaceModalOpen, activeTariffs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ИСПРАВЛЕНИЕ: Проверяем локальное состояние пользователя
   const isPlaceholderAvatar = !currentUser?.avatar || currentUser.avatar === 'placeholder_avatar.png' || currentUser.avatar === null;
@@ -303,6 +339,26 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     }
   };
 
+  // Функция загрузки истории бронирований
+  const fetchBookingHistory = async (userId) => {
+    if (!userId) return;
+
+    try {
+      // Получаем все бронирования пользователя
+      const response = await bookingApi.getAllDetailed({ per_page: 100 });
+
+      // Фильтруем бронирования по user_id
+      const userBookings = (response.bookings || []).filter(
+        booking => booking.user_id === userId
+      );
+
+      setBookingHistory(userBookings);
+    } catch (error) {
+      console.error('Error fetching booking history:', error);
+      setBookingHistory([]);
+    }
+  };
+
   // Функция загрузки активных тарифов
   const fetchActiveTariffs = async () => {
     try {
@@ -357,6 +413,50 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
     });
 
     return grouped;
+  };
+
+  // Определяет тип аренды по тарифу
+  const getTariffRentalType = (tariff) => {
+    if (!tariff) return 'one_day';
+
+    const nameLower = tariff.name.toLowerCase();
+
+    // Почасовые тарифы (3 часа и т.д.)
+    if (nameLower.includes('час')) {
+      return 'hourly';
+    }
+
+    // Месячные тарифы
+    if (nameLower.includes('месяц')) {
+      if (nameLower.includes('фикс') && !nameLower.includes('нефикс')) {
+        return 'monthly_fixed';
+      }
+      return 'monthly_floating';
+    }
+
+    // По умолчанию однодневный
+    return 'one_day';
+  };
+
+  // Получает тип аренды текущего выбранного тарифа
+  const getCurrentRentalType = () => {
+    const rentalType = openspaceFormData.rental_type;
+
+    // Если формат tariff_ID
+    if (rentalType && rentalType.startsWith('tariff_')) {
+      const tariffId = parseInt(rentalType.replace('tariff_', ''));
+      const selectedTariff = activeTariffs.find(t => t.id === tariffId);
+      if (selectedTariff) {
+        return getTariffRentalType(selectedTariff);
+      }
+    }
+
+    // Старый формат
+    if (rentalType === 'monthly_fixed') return 'monthly_fixed';
+    if (rentalType === 'monthly_floating') return 'monthly_floating';
+    if (rentalType && rentalType.includes('one_day')) return 'one_day';
+
+    return 'one_day';
   };
 
   // Функция навигации к профилю пользователя
@@ -580,12 +680,65 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
   // Обработчики опенспейса
   const handleCreateRental = async () => {
     try {
+      const currentType = getCurrentRentalType();
+
+      // Почасовые тарифы создаём через Booking API
+      if (currentType === 'hourly') {
+        // Валидация обязательных полей для почасовых тарифов
+        if (!openspaceFormData.visit_time) {
+          toast({
+            title: 'Ошибка',
+            description: 'Укажите время начала для почасового тарифа',
+            status: 'error',
+            duration: 5000,
+            isClosable: true
+          });
+          return;
+        }
+
+        const bookingData = {
+          user_id: currentUser.id,
+          tariff_id: parseInt(openspaceFormData.tariff_id),
+          visit_date: openspaceFormData.start_date,
+          visit_time: openspaceFormData.visit_time,
+          duration: parseInt(openspaceFormData.duration) || 1,
+          amount: parseFloat(openspaceFormData.price),
+          paid: true,
+          confirmed: true
+        };
+
+        console.log('Создание почасового бронирования:', bookingData);
+
+        await bookingApi.create(bookingData);
+
+        toast({
+          title: 'Бронирование создано',
+          description: 'Почасовое бронирование успешно создано',
+          status: 'success',
+          duration: 3000,
+          isClosable: true
+        });
+
+        setOpenspaceModalOpen(false);
+        // Обновляем данные пользователя
+        if (onUpdate) {
+          await onUpdate();
+        }
+        return;
+      }
+
+      // Остальные тарифы создаём через Openspace API
       // Определяем реальный rental_type для backend
       let backendRentalType = openspaceFormData.rental_type;
 
-      // Конвертируем one_day_* в one_day для backend
-      if (openspaceFormData.rental_type.startsWith('one_day')) {
-        backendRentalType = 'one_day';
+      // Если формат tariff_ID, определяем тип по тарифу
+      if (openspaceFormData.rental_type.startsWith('tariff_')) {
+        backendRentalType = currentType;
+      } else {
+        // Старая логика: конвертируем one_day_* в one_day для backend
+        if (openspaceFormData.rental_type.startsWith('one_day')) {
+          backendRentalType = 'one_day';
+        }
       }
 
       const dataToSend = {
@@ -1134,30 +1287,34 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                         </Box>
                       )}
 
-                      {/* Кнопка "Добавить аренду" доступна если:
-                          - Нет активной аренды ИЛИ
-                          - Есть активная однодневная аренда (можно купить месячный тариф) */}
-                      {(!openspaceInfo.has_active_rental ||
-                        (openspaceInfo.active_rental && openspaceInfo.active_rental.rental_type === 'one_day')) && (
-                        <Button size="sm" colorScheme="blue" onClick={() => setOpenspaceModalOpen(true)}>
-                          Добавить аренду
-                        </Button>
-                      )}
+                      {/* УБРАНО: Кнопка создания аренды согласно новым требованиям */}
+                      {/* Теперь все бронирования создаются только через раздел Бронирования */}
 
-                      {openspaceInfo.rental_history && openspaceInfo.rental_history.length > 0 && (
+                      {/* История бронирований */}
+                      {bookingHistory && bookingHistory.length > 0 && (
                         <Box mt={4}>
-                          <Text fontWeight="bold" fontSize="sm" mb={2}>История аренд</Text>
-                          <VStack align="stretch" spacing={2} maxH="200px" overflowY="auto">
-                            {openspaceInfo.rental_history.slice(0, 10).map((rental) => (
-                              <Box key={rental.id} p={2} borderWidth="1px" borderRadius="md" fontSize="sm">
+                          <Text fontWeight="bold" fontSize="sm" mb={2}>История бронирований</Text>
+                          <VStack align="stretch" spacing={2} maxH="300px" overflowY="auto">
+                            {bookingHistory.slice(0, 20).map((booking) => (
+                              <Box key={booking.id} p={2} borderWidth="1px" borderRadius="md" fontSize="sm" bg={booking.confirmed ? 'green.50' : 'gray.50'}>
                                 <HStack justify="space-between">
-                                  <Text>{getRentalTypeLabel(rental.rental_type)}</Text>
-                                  <Badge colorScheme={rental.is_active ? 'green' : 'gray'}>
-                                    {rental.is_active ? 'Активна' : 'Завершена'}
-                                  </Badge>
+                                  <Text fontWeight="medium">{booking.tariff?.name || 'Неизвестный тариф'}</Text>
+                                  <HStack spacing={1}>
+                                    <Badge colorScheme={booking.paid ? 'green' : 'yellow'}>
+                                      {booking.paid ? 'Оплачено' : 'Не оплачено'}
+                                    </Badge>
+                                    <Badge colorScheme={booking.confirmed ? 'blue' : 'gray'}>
+                                      {booking.confirmed ? 'Подтверждено' : 'Не подтверждено'}
+                                    </Badge>
+                                  </HStack>
                                 </HStack>
                                 <Text fontSize="xs" color="gray.600">
-                                  {new Date(rental.start_date).toLocaleDateString()} - {rental.price} ₽
+                                  📅 {new Date(booking.visit_date).toLocaleDateString()}
+                                  {booking.visit_time && ` в ${booking.visit_time.slice(0, 5)}`}
+                                  {booking.duration && ` (${booking.duration} ч.)`}
+                                </Text>
+                                <Text fontSize="xs" color="gray.600">
+                                  💰 {booking.amount} ₽
                                 </Text>
                               </Box>
                             ))}
@@ -1348,92 +1505,150 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 <select
                   value={openspaceFormData.rental_type}
                   onChange={(e) => {
-                    const newType = e.target.value;
-                    const grouped = groupTariffsByType();
+                    const newValue = e.target.value;
 
-                    setOpenspaceFormData({
-                      ...openspaceFormData,
-                      rental_type: newType,
-                      workplace_number: newType === 'monthly_fixed' ? openspaceFormData.workplace_number : '',
-                      duration_months: newType.includes('one_day') ? null : (openspaceFormData.duration_months || 1)
-                    });
+                    // Если выбран тариф (формат: tariff_ID)
+                    if (newValue.startsWith('tariff_')) {
+                      const tariffId = parseInt(newValue.replace('tariff_', ''));
+                      const selectedTariff = activeTariffs.find(t => t.id === tariffId);
 
-                    // Автозаполнение цены и tariff_id
-                    let selectedTariff = null;
-                    if (newType === 'one_day_openspace') {
-                      selectedTariff = grouped.one_day_openspace;
-                    } else if (newType === 'one_day_test') {
-                      selectedTariff = grouped.one_day_test;
-                    } else if (newType === 'monthly_floating') {
-                      selectedTariff = grouped.monthly_floating;
-                    } else if (newType === 'monthly_fixed') {
-                      selectedTariff = grouped.monthly_fixed;
-                    }
+                      if (selectedTariff) {
+                        const rentalType = getTariffRentalType(selectedTariff);
 
-                    if (selectedTariff) {
-                      setOpenspaceFormData(prev => ({
-                        ...prev,
-                        price: selectedTariff.price,
-                        tariff_id: selectedTariff.id
-                      }));
+                        // Определяем длительность по названию тарифа для почасовых
+                        let duration = 1;
+                        if (rentalType === 'hourly') {
+                          const match = selectedTariff.name.match(/(\d+)\s*час/i);
+                          if (match) {
+                            duration = parseInt(match[1]);
+                          }
+                        }
+
+                        setOpenspaceFormData({
+                          ...openspaceFormData,
+                          rental_type: newValue,
+                          tariff_id: selectedTariff.id,
+                          price: selectedTariff.price,
+                          workplace_number: rentalType === 'monthly_fixed' ? openspaceFormData.workplace_number : '',
+                          duration_months: (rentalType === 'one_day' || rentalType === 'hourly') ? null : (openspaceFormData.duration_months || 1),
+                          visit_time: '',
+                          duration: duration
+                        });
+                      }
+                    } else {
+                      // Старая логика для обратной совместимости
+                      const grouped = groupTariffsByType();
+
+                      setOpenspaceFormData({
+                        ...openspaceFormData,
+                        rental_type: newValue,
+                        workplace_number: newValue === 'monthly_fixed' ? openspaceFormData.workplace_number : '',
+                        duration_months: newValue.includes('one_day') ? null : (openspaceFormData.duration_months || 1)
+                      });
+
+                      // Автозаполнение цены и tariff_id
+                      let selectedTariff = null;
+                      if (newValue === 'one_day_openspace') {
+                        selectedTariff = grouped.one_day_openspace;
+                      } else if (newValue === 'one_day_test') {
+                        selectedTariff = grouped.one_day_test;
+                      } else if (newValue === 'monthly_floating') {
+                        selectedTariff = grouped.monthly_floating;
+                      } else if (newValue === 'monthly_fixed') {
+                        selectedTariff = grouped.monthly_fixed;
+                      }
+
+                      if (selectedTariff) {
+                        setOpenspaceFormData(prev => ({
+                          ...prev,
+                          price: selectedTariff.price,
+                          tariff_id: selectedTariff.id
+                        }));
+                      }
                     }
                   }}
                   style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #E2E8F0' }}
                 >
-                  {/* Однодневные тарифы */}
                   {(() => {
-                    const grouped = groupTariffsByType();
-                    const options = [];
-
-                    if (grouped.one_day_openspace) {
-                      options.push(
-                        <option key="one_day_openspace" value="one_day_openspace">
-                          Опенспейс на день ({grouped.one_day_openspace.price} ₽)
-                        </option>
+                    if (activeTariffs && activeTariffs.length > 0) {
+                      // Группируем тарифы по типу для удобства отображения
+                      const hourlyTariffs = activeTariffs.filter(t => t.name.toLowerCase().includes('час'));
+                      const dailyTariffs = activeTariffs.filter(t =>
+                        (t.name.toLowerCase().includes('день') || t.name.toLowerCase().includes('тест')) &&
+                        !t.name.toLowerCase().includes('час')
                       );
-                    }
-
-                    if (grouped.one_day_test) {
-                      options.push(
-                        <option key="one_day_test" value="one_day_test">
-                          Тестовый день ({grouped.one_day_test.price} ₽)
-                        </option>
+                      const monthlyTariffs = activeTariffs.filter(t =>
+                        t.name.toLowerCase().includes('месяц') &&
+                        !t.name.toLowerCase().includes('час')
                       );
-                    }
-
-                    if (grouped.monthly_floating) {
-                      options.push(
-                        <option key="monthly_floating" value="monthly_floating">
-                          Опенспейс на месяц ({grouped.monthly_floating.price} ₽)
-                        </option>
+                      const otherTariffs = activeTariffs.filter(t =>
+                        !hourlyTariffs.includes(t) &&
+                        !dailyTariffs.includes(t) &&
+                        !monthlyTariffs.includes(t)
                       );
-                    }
 
-                    if (grouped.monthly_fixed) {
-                      options.push(
-                        <option key="monthly_fixed" value="monthly_fixed">
-                          Опенспейс на месяц(фикс) ({grouped.monthly_fixed.price} ₽)
-                        </option>
-                      );
-                    }
-
-                    // Если нет тарифов, показываем старые hardcoded опции
-                    if (options.length === 0) {
                       return (
                         <>
-                          <option value="one_day">Один день</option>
-                          <option value="monthly_floating">Нефикс месяц</option>
-                          <option value="monthly_fixed">Фикс месяц</option>
+                          {/* Почасовые тарифы */}
+                          {hourlyTariffs.length > 0 && (
+                            <optgroup label="Почасовые тарифы">
+                              {hourlyTariffs.map(tariff => (
+                                <option key={`tariff_${tariff.id}`} value={`tariff_${tariff.id}`}>
+                                  {tariff.name} ({tariff.price} ₽)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+
+                          {/* Однодневные тарифы */}
+                          {dailyTariffs.length > 0 && (
+                            <optgroup label="Однодневные тарифы">
+                              {dailyTariffs.map(tariff => (
+                                <option key={`tariff_${tariff.id}`} value={`tariff_${tariff.id}`}>
+                                  {tariff.name} ({tariff.price} ₽)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+
+                          {/* Месячные тарифы */}
+                          {monthlyTariffs.length > 0 && (
+                            <optgroup label="Месячные тарифы">
+                              {monthlyTariffs.map(tariff => (
+                                <option key={`tariff_${tariff.id}`} value={`tariff_${tariff.id}`}>
+                                  {tariff.name} ({tariff.price} ₽)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+
+                          {/* Прочие тарифы */}
+                          {otherTariffs.length > 0 && (
+                            <optgroup label="Другие тарифы">
+                              {otherTariffs.map(tariff => (
+                                <option key={`tariff_${tariff.id}`} value={`tariff_${tariff.id}`}>
+                                  {tariff.name} ({tariff.price} ₽)
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                         </>
                       );
                     }
 
-                    return options;
+                    // Fallback если нет тарифов
+                    return (
+                      <>
+                        <option value="one_day">Один день</option>
+                        <option value="monthly_floating">Нефикс месяц</option>
+                        <option value="monthly_fixed">Фикс месяц</option>
+                      </>
+                    );
                   })()}
                 </select>
               </FormControl>
 
-              {openspaceFormData.rental_type === 'monthly_fixed' && (
+              {getCurrentRentalType() === 'monthly_fixed' && (
                 <FormControl isRequired>
                   <FormLabel>Номер рабочего места</FormLabel>
                   <Input
@@ -1453,7 +1668,10 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 />
               </FormControl>
 
-              {!openspaceFormData.rental_type.includes('one_day') && (
+              {(() => {
+                const currentType = getCurrentRentalType();
+                return (currentType === 'monthly_fixed' || currentType === 'monthly_floating');
+              })() && (
                 <FormControl isRequired>
                   <FormLabel>Длительность (месяцев)</FormLabel>
                   <Input
@@ -1477,7 +1695,49 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                 />
               </FormControl>
 
-              {!openspaceFormData.rental_type.includes('one_day') && (
+              {/* Поля для почасовых тарифов */}
+              {getCurrentRentalType() === 'hourly' && (
+                <>
+                  <FormControl isRequired>
+                    <FormLabel>Время начала</FormLabel>
+                    <Input
+                      type="time"
+                      value={openspaceFormData.visit_time}
+                      onChange={(e) => setOpenspaceFormData({ ...openspaceFormData, visit_time: e.target.value })}
+                    />
+                    <FormHelperText>
+                      Укажите время начала аренды
+                    </FormHelperText>
+                  </FormControl>
+
+                  <FormControl>
+                    <FormLabel>Длительность (часов)</FormLabel>
+                    <NumberInput
+                      min={1}
+                      max={24}
+                      value={openspaceFormData.duration}
+                      onChange={(valueString) => setOpenspaceFormData({
+                        ...openspaceFormData,
+                        duration: parseInt(valueString) || 1
+                      })}
+                    >
+                      <NumberInputField />
+                      <NumberInputStepper>
+                        <NumberIncrementStepper />
+                        <NumberDecrementStepper />
+                      </NumberInputStepper>
+                    </NumberInput>
+                    <FormHelperText>
+                      Длительность аренды в часах
+                    </FormHelperText>
+                  </FormControl>
+                </>
+              )}
+
+              {(() => {
+                const currentType = getCurrentRentalType();
+                return (currentType === 'monthly_fixed' || currentType === 'monthly_floating');
+              })() && (
                 <>
                   <FormControl>
                     <FormLabel>Напоминания администратору</FormLabel>

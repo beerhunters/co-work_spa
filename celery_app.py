@@ -12,7 +12,7 @@ celery_app = Celery(
     'coworking',
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=['tasks.newsletter_tasks', 'tasks.email_tasks']
+    include=['tasks.newsletter_tasks', 'tasks.email_tasks', 'tasks.booking_tasks']
 )
 
 # Configure Celery
@@ -52,6 +52,7 @@ celery_app.conf.update(
     task_routes={
         'tasks.newsletter_tasks.*': {'queue': 'newsletters'},
         'tasks.email_tasks.*': {'queue': 'newsletters'},  # Email campaigns также в newsletters очередь
+        'tasks.booking_tasks.*': {'queue': 'bookings'},  # Booking notifications в отдельную очередь
     },
 
     # Beat schedule (for periodic tasks)

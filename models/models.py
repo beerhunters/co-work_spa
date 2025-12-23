@@ -1031,6 +1031,7 @@ class Booking(Base):
         DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True
     )
     comment = Column(String, nullable=True, default=None)
+    notification_sent = Column(Boolean, default=False, index=True)
 
     # Связи
     user = relationship("User", back_populates="bookings")

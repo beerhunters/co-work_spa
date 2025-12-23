@@ -14,7 +14,8 @@ from models.models import (
     RentalType,
     Permission,
     Booking,
-    MOSCOW_TZ
+    MOSCOW_TZ,
+    DatabaseManager
 )
 from dependencies import get_db, verify_token_with_permissions, CachedAdmin
 from schemas.openspace_schemas import (
@@ -65,24 +66,24 @@ def convert_rental(rental):
 @router.get("/user/{user_id}/info", response_model=UserOpenspaceInfo)
 async def get_user_openspace_info(
     user_id: int,
-    db: Session = Depends(get_db),
     current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS]))
 ):
     """Получение информации об аренде опенспейса для пользователя."""
-    try:
+
+    def _get_openspace_info(session):
         # Проверяем существование пользователя
-        user = db.query(User).filter_by(id=user_id).first()
+        user = session.query(User).filter_by(id=user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
 
         # Получаем активную аренду
-        active_rental = db.query(UserOpenspaceRental).filter_by(
+        active_rental = session.query(UserOpenspaceRental).filter_by(
             user_id=user_id,
             is_active=True
         ).first()
 
         # Получаем всю историю аренд (последние 20)
-        rental_history = db.query(UserOpenspaceRental).filter_by(
+        rental_history = session.query(UserOpenspaceRental).filter_by(
             user_id=user_id
         ).order_by(UserOpenspaceRental.created_at.desc()).limit(20).all()
 
@@ -92,6 +93,8 @@ async def get_user_openspace_info(
             "rental_history": [convert_rental(r) for r in rental_history]
         }
 
+    try:
+        return DatabaseManager.safe_execute(_get_openspace_info)
     except HTTPException:
         raise
     except SQLAlchemyError as e:

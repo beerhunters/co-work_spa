@@ -318,7 +318,7 @@ services:
       dockerfile: Dockerfile.web
       target: ${BUILD_TARGET:-production}
     user: "1000:1000"
-    command: celery -A celery_app worker --loglevel=info --concurrency=2 --queues=newsletters
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 --queues=newsletters,bookings
     secrets:
       - secret_key
       - secret_key_jwt

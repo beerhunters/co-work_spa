@@ -1,4 +1,4 @@
-from datetime import date, time as time_type, datetime
+from datetime import date, time as time_type, datetime, timedelta
 from typing import List, Optional
 import csv
 import io
@@ -41,6 +41,7 @@ from utils.cache_invalidation import cache_invalidator
 from utils.notifications import send_booking_update_notification
 # from utils.bot_instance import get_bot_instance
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from tasks.booking_tasks import send_booking_expiration_notification
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -584,6 +585,43 @@ async def create_booking_admin(
 
         # Инвалидируем связанные кэши после успешного создания
         await cache_invalidator.invalidate_booking_related_cache()
+
+        # Планируем отложенное уведомление о завершении бронирования (только для почасовых тарифов)
+        if result.get("visit_time") and result.get("duration"):
+            try:
+                # Вычисляем время окончания бронирования
+                visit_datetime_naive = datetime.combine(
+                    result["visit_date"],
+                    result["visit_time"] if isinstance(result["visit_time"], time_type) else
+                    datetime.strptime(result["visit_time"], "%H:%M").time()
+                )
+                visit_datetime = MOSCOW_TZ.localize(visit_datetime_naive)
+                end_datetime = visit_datetime + timedelta(hours=result["duration"])
+                now = datetime.now(MOSCOW_TZ)
+
+                # Если время окончания уже прошло, отправляем уведомление сразу
+                if end_datetime <= now:
+                    logger.info(
+                        f"⚡ [ADMIN] Бронирование #{result['id']} уже завершилось "
+                        f"({end_datetime.strftime('%Y-%m-%d %H:%M:%S')}), отправляем уведомление немедленно"
+                    )
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"]]
+                    )
+                else:
+                    # Планируем задачу на точное время окончания бронирования
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"]],
+                        eta=end_datetime
+                    )
+                    logger.info(
+                        f"📅 [ADMIN] Запланировано уведомление о завершении бронирования #{result['id']} "
+                        f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
+                    )
+            except Exception as e:
+                # Ошибка планирования не должна блокировать создание брони
+                logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
+
         return result
     except HTTPException:
         raise
@@ -722,6 +760,43 @@ async def create_booking(booking_data: BookingCreate):
         result = DatabaseManager.safe_execute(_create_booking)
         # Инвалидируем связанные кэши после успешного создания
         await cache_invalidator.invalidate_booking_related_cache()
+
+        # Планируем отложенное уведомление о завершении бронирования (только для почасовых тарифов)
+        if result.get("visit_time") and result.get("duration"):
+            try:
+                # Вычисляем время окончания бронирования
+                visit_datetime_naive = datetime.combine(
+                    result["visit_date"],
+                    result["visit_time"] if isinstance(result["visit_time"], time_type) else
+                    datetime.strptime(result["visit_time"], "%H:%M").time()
+                )
+                visit_datetime = MOSCOW_TZ.localize(visit_datetime_naive)
+                end_datetime = visit_datetime + timedelta(hours=result["duration"])
+                now = datetime.now(MOSCOW_TZ)
+
+                # Если время окончания уже прошло, отправляем уведомление сразу
+                if end_datetime <= now:
+                    logger.info(
+                        f"⚡ [BOT] Бронирование #{result['id']} уже завершилось "
+                        f"({end_datetime.strftime('%Y-%m-%d %H:%M:%S')}), отправляем уведомление немедленно"
+                    )
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"]]
+                    )
+                else:
+                    # Планируем задачу на точное время окончания бронирования
+                    task_result = send_booking_expiration_notification.apply_async(
+                        args=[result["id"]],
+                        eta=end_datetime
+                    )
+                    logger.info(
+                        f"📅 [BOT] Запланировано уведомление о завершении бронирования #{result['id']} "
+                        f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
+                    )
+            except Exception as e:
+                # Ошибка планирования не должна блокировать создание брони
+                logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
+
         return result
     except HTTPException:
         raise

@@ -43,10 +43,11 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     visit_date: '',
     visit_time: '',
     duration: 1,
+    months: 1, // Для месячных тарифов
     promocode_id: null,
     amount: 0,
-    paid: false,
-    confirmed: false
+    paid: true,  // По умолчанию оплачено для бронирований администратора
+    confirmed: true  // По умолчанию подтверждено для бронирований администратора
   });
 
   const [selectedTariff, setSelectedTariff] = useState(null);
@@ -70,10 +71,11 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
       visit_date: '',
       visit_time: '',
       duration: 1,
+      months: 1,
       promocode_id: null,
       amount: 0,
-      paid: false,
-      confirmed: false
+      paid: true,  // По умолчанию оплачено для бронирований администратора
+      confirmed: true  // По умолчанию подтверждено для бронирований администратора
     });
     setSelectedTariff(null);
     setCalculatedAmount(0);
@@ -110,8 +112,14 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     setSelectedTariff(tariff);
     handleFieldChange('tariff_id', tariffId);
 
-    // Сбросить время и длительность если не meeting_room
-    if (tariff && tariff.purpose !== 'meeting_room') {
+    // Сбросить время и длительность если не meeting_room и не почасовой тариф
+    const isHourlyTariff = tariff && (
+      tariff.purpose === 'meeting_room' ||
+      tariff.purpose === 'coworking' ||
+      tariff.name.toLowerCase().includes('час')
+    );
+
+    if (tariff && !isHourlyTariff) {
       setFormData(prev => ({
         ...prev,
         tariff_id: tariffId,
@@ -180,21 +188,40 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     setIsCalculating(true);
 
     try {
-      let baseAmount = selectedTariff.price;
-
-      // Для meeting_room учитываем duration
-      if (selectedTariff.purpose === 'meeting_room' && formData.duration) {
-        baseAmount = selectedTariff.price * formData.duration;
-      }
-
-      // Скидка 10% для meeting_room от 3 часов
+      const tariffName = selectedTariff.name.toLowerCase();
+      let finalAmount = selectedTariff.price;
       let discount = 0;
-      if (selectedTariff.purpose === 'meeting_room' && formData.duration >= 3) {
-        discount = 10;
-      }
 
-      // Применяем скидку
-      const finalAmount = baseAmount * (1 - discount / 100);
+      // Определяем тип тарифа и рассчитываем стоимость
+      if (tariffName.includes('3 час')) {
+        // Тариф "3 часа" - фиксированная стоимость 600₽
+        finalAmount = selectedTariff.price;
+
+      } else if (tariffName.includes('тестовый день') || tariffName.includes('опенспейс на день')) {
+        // Дневные тарифы - фиксированная стоимость
+        finalAmount = selectedTariff.price;
+
+      } else if (tariffName.includes('месяц')) {
+        // Месячные тарифы - расчет с учетом количества месяцев и скидок
+        const months = parseInt(formData.months) || 1;
+        finalAmount = selectedTariff.price * months;
+
+        // Применяем скидки
+        if (months >= 12) {
+          discount = 15; // Скидка 15% с 12 месяцев
+        } else if (months >= 6) {
+          discount = 10; // Скидка 10% с 6 месяцев
+        }
+
+        if (discount > 0) {
+          finalAmount = finalAmount * (1 - discount / 100);
+        }
+
+      } else if (selectedTariff.purpose === 'meeting_room') {
+        // Переговорные - умножаем на duration (часы)
+        const duration = parseInt(formData.duration) || 1;
+        finalAmount = selectedTariff.price * duration;
+      }
 
       setCalculatedAmount(finalAmount);
       setFormData(prev => ({ ...prev, amount: finalAmount }));
@@ -205,12 +232,19 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     }
   };
 
-  // Вызывать расчет при изменении tariff_id или duration
+  // Вызывать расчет при изменении tariff_id, duration или months
   useEffect(() => {
     if (formData.tariff_id) {
       calculateAmount();
     }
-  }, [formData.tariff_id, formData.duration]);
+  }, [formData.tariff_id, formData.duration, formData.months]);
+
+  // Автоматическая установка длительности для тарифа "3 часа"
+  useEffect(() => {
+    if (selectedTariff && selectedTariff.name.toLowerCase().includes('3 час')) {
+      setFormData(prev => ({ ...prev, duration: 3 }));
+    }
+  }, [selectedTariff]);
 
   // Закрытие dropdown при клике вне области
   useEffect(() => {
@@ -246,14 +280,17 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
       newErrors.visit_date = 'Укажите дату посещения';
     }
 
-    // Для meeting_room требуется время и длительность
-    if (selectedTariff?.purpose === 'meeting_room') {
-      if (!formData.visit_time) {
-        newErrors.visit_time = 'Укажите время для переговорной';
-      }
-      if (!formData.duration || formData.duration < 1) {
-        newErrors.duration = 'Укажите длительность (минимум 1 час)';
-      }
+    // Для почасовых тарифов и переговорных требуется время
+    const tariffName = selectedTariff?.name.toLowerCase() || '';
+    const requiresTime = selectedTariff?.purpose === 'meeting_room' || tariffName.includes('час');
+    const requiresDuration = selectedTariff?.purpose === 'meeting_room';
+
+    if (requiresTime && !formData.visit_time) {
+      newErrors.visit_time = 'Укажите время начала';
+    }
+
+    if (requiresDuration && (!formData.duration || formData.duration < 1)) {
+      newErrors.duration = 'Укажите длительность (минимум 1 час)';
     }
 
     if (formData.amount <= 0) {
@@ -359,10 +396,14 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
       newErrors.visit_date = 'Укажите дату посещения';
     }
 
-    // Для meeting_room требуется время и длительность
-    if (selectedTariff?.purpose === 'meeting_room') {
+    // Для почасовых тарифов требуется время и длительность
+    const isHourlyTariff = selectedTariff?.purpose === 'meeting_room' ||
+                           selectedTariff?.purpose === 'coworking' ||
+                           selectedTariff?.name.toLowerCase().includes('час');
+
+    if (isHourlyTariff) {
       if (!formData.visit_time) {
-        newErrors.visit_time = 'Укажите время для переговорной';
+        newErrors.visit_time = 'Укажите время начала';
       }
       if (!formData.duration || formData.duration < 1) {
         newErrors.duration = 'Укажите длительность (минимум 1 час)';
@@ -448,7 +489,11 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
 
   // Расчет процента скидки
   const getDiscountPercent = () => {
-    if (selectedTariff?.purpose === 'meeting_room' && formData.duration >= 3) {
+    const isHourlyTariff = selectedTariff?.purpose === 'meeting_room' ||
+                           selectedTariff?.purpose === 'coworking' ||
+                           selectedTariff?.name.toLowerCase().includes('час');
+
+    if (isHourlyTariff && formData.duration >= 3) {
       return 10;
     }
     return 0;
@@ -589,11 +634,69 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                 value={formData.tariff_id}
                 onChange={(e) => handleTariffChange(e.target.value)}
               >
-                {tariffs && tariffs.filter(t => t.is_active).map(tariff => (
-                  <option key={tariff.id} value={tariff.id}>
-                    {tariff.name} - {tariff.price} ₽
-                  </option>
-                ))}
+                {(() => {
+                  if (!tariffs) return null;
+
+                  const activeTariffs = tariffs.filter(t => t.is_active);
+
+                  // Группируем тарифы по категориям
+                  const hourlyTariffs = activeTariffs.filter(t =>
+                    t.name.toLowerCase().includes('час') && !t.name.toLowerCase().includes('месяц')
+                  );
+                  const dailyTariffs = activeTariffs.filter(t =>
+                    t.name.toLowerCase().includes('день') || t.name.toLowerCase().includes('тестовый')
+                  );
+                  const monthlyTariffs = activeTariffs.filter(t =>
+                    t.name.toLowerCase().includes('месяц')
+                  );
+                  const meetingRoomTariffs = activeTariffs.filter(t =>
+                    t.purpose === 'meeting_room'
+                  );
+
+                  return (
+                    <>
+                      {hourlyTariffs.length > 0 && (
+                        <optgroup label="Почасовые тарифы">
+                          {hourlyTariffs.map(tariff => (
+                            <option key={tariff.id} value={tariff.id}>
+                              {tariff.name} - {tariff.price} ₽
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {dailyTariffs.length > 0 && (
+                        <optgroup label="Дневные тарифы">
+                          {dailyTariffs.map(tariff => (
+                            <option key={tariff.id} value={tariff.id}>
+                              {tariff.name} - {tariff.price} ₽
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {monthlyTariffs.length > 0 && (
+                        <optgroup label="Месячные тарифы">
+                          {monthlyTariffs.map(tariff => (
+                            <option key={tariff.id} value={tariff.id}>
+                              {tariff.name} - {tariff.price} ₽/мес
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {meetingRoomTariffs.length > 0 && (
+                        <optgroup label="Переговорные">
+                          {meetingRoomTariffs.map(tariff => (
+                            <option key={tariff.id} value={tariff.id}>
+                              {tariff.name} - {tariff.price} ₽/час
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  );
+                })()}
               </Select>
               {errors.tariff_id && (
                 <FormHelperText color="red.500">{errors.tariff_id}</FormHelperText>
@@ -602,7 +705,11 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
 
             {/* Дата посещения */}
             <FormControl isRequired isInvalid={errors.visit_date}>
-              <FormLabel>Дата посещения</FormLabel>
+              <FormLabel>
+                {selectedTariff?.name.toLowerCase().includes('месяц')
+                  ? 'Дата начала аренды'
+                  : 'Дата посещения'}
+              </FormLabel>
               <Input
                 type="date"
                 value={formData.visit_date}
@@ -614,22 +721,58 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
               )}
             </FormControl>
 
-            {/* Время посещения - только для meeting_room */}
-            {selectedTariff?.purpose === 'meeting_room' && (
+            {/* Количество месяцев - для месячных тарифов */}
+            {selectedTariff?.name.toLowerCase().includes('месяц') && (
+              <FormControl isRequired>
+                <FormLabel>Срок аренды (месяцев)</FormLabel>
+                <NumberInput
+                  min={1}
+                  max={24}
+                  value={formData.months}
+                  onChange={(valueString) => handleFieldChange('months', parseInt(valueString) || 1)}
+                >
+                  <NumberInputField />
+                  <NumberInputStepper>
+                    <NumberIncrementStepper />
+                    <NumberDecrementStepper />
+                  </NumberInputStepper>
+                </NumberInput>
+                <FormHelperText>
+                  {formData.months >= 12 && (
+                    <Text color="green.500">✓ Применяется скидка 15% (от 12 месяцев)</Text>
+                  )}
+                  {formData.months >= 6 && formData.months < 12 && (
+                    <Text color="green.500">✓ Применяется скидка 10% (от 6 месяцев)</Text>
+                  )}
+                  {formData.months < 6 && (
+                    <Text color="gray.500">Скидка 10% с 6 месяцев, 15% с 12 месяцев</Text>
+                  )}
+                </FormHelperText>
+              </FormControl>
+            )}
+
+            {/* Время посещения - для почасовых тарифов и переговорных */}
+            {(selectedTariff?.purpose === 'meeting_room' ||
+              selectedTariff?.name.toLowerCase().includes('3 час')) && (
               <FormControl isRequired isInvalid={errors.visit_time}>
-                <FormLabel>Время посещения</FormLabel>
+                <FormLabel>Время начала</FormLabel>
                 <Input
                   type="time"
                   value={formData.visit_time}
                   onChange={(e) => handleFieldChange('visit_time', e.target.value)}
                 />
+                <FormHelperText>
+                  {selectedTariff?.name.includes('3 час')
+                    ? 'Автоматически бронируется на 3 часа'
+                    : 'Укажите время начала посещения'}
+                </FormHelperText>
                 {errors.visit_time && (
                   <FormHelperText color="red.500">{errors.visit_time}</FormHelperText>
                 )}
               </FormControl>
             )}
 
-            {/* Длительность - только для meeting_room */}
+            {/* Длительность - только для переговорных (meeting_room) */}
             {selectedTariff?.purpose === 'meeting_room' && (
               <FormControl isRequired isInvalid={errors.duration}>
                 <FormLabel>Длительность (часов)</FormLabel>
@@ -645,11 +788,9 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                     <NumberDecrementStepper />
                   </NumberInputStepper>
                 </NumberInput>
-                {formData.duration >= 3 && (
-                  <FormHelperText color="green.500">
-                    ✓ Применяется скидка 10% (от 3 часов)
-                  </FormHelperText>
-                )}
+                <FormHelperText>
+                  Укажите количество часов бронирования
+                </FormHelperText>
                 {errors.duration && (
                   <FormHelperText color="red.500">{errors.duration}</FormHelperText>
                 )}
@@ -684,7 +825,9 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                       <Text>Базовая цена:</Text>
                       <Text>
                         {selectedTariff.price} ₽
-                        {selectedTariff.purpose === 'meeting_room' && formData.duration > 1
+                        {((selectedTariff.purpose === 'meeting_room' ||
+                           selectedTariff.purpose === 'coworking' ||
+                           selectedTariff.name.toLowerCase().includes('час')) && formData.duration > 1)
                           ? ` × ${formData.duration} ч = ${(selectedTariff.price * formData.duration).toFixed(2)} ₽`
                           : ''
                         }

@@ -32,6 +32,7 @@ from utils.database_maintenance import start_maintenance_tasks
 from utils.backup_manager import start_backup_scheduler, stop_backup_scheduler
 from utils.office_reminder_scheduler import start_office_reminder_scheduler
 from utils.openspace_scheduler import start_openspace_scheduler
+from utils.booking_reminder_scheduler import start_booking_reminder_scheduler
 
 # Импорты всех роутеров
 from routes.auth import router as auth_router
@@ -280,6 +281,13 @@ async def lifespan(app: FastAPI):
         logger.info("🪑 Планировщик опенспейса запущен")
     except Exception as e:
         logger.error(f"Ошибка запуска планировщика опенспейса: {e}")
+
+    # Запускаем планировщик бронирований
+    try:
+        start_booking_reminder_scheduler()
+        logger.info("📅 Планировщик напоминаний о бронированиях запущен")
+    except Exception as e:
+        logger.error(f"Ошибка запуска планировщика бронирований: {e}")
 
     yield
 

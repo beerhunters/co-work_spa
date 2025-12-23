@@ -330,6 +330,8 @@ async def create_tariff_keyboard(
         # Скрываем "Тестовый день" (service_id 47890) если есть успешные бронирования
         if service_id == 47890 and successful_bookings > 0:
             continue
+        if tariff_name == "3 часа":
+            continue
 
         button_text = f"{tariff_name} - {tariff_price}₽"
         keyboard.row(
@@ -386,7 +388,9 @@ def create_date_keyboard(lang: str = "ru") -> InlineKeyboardMarkup:
     return keyboard.as_markup()
 
 
-def create_duration_keyboard(lang: str = "ru", show_discount: bool = True) -> InlineKeyboardMarkup:
+def create_duration_keyboard(
+    lang: str = "ru", show_discount: bool = True
+) -> InlineKeyboardMarkup:
     """Создаёт клавиатуру выбора длительности от 1 до 8 часов."""
     keyboard = InlineKeyboardBuilder()
 
@@ -394,7 +398,9 @@ def create_duration_keyboard(lang: str = "ru", show_discount: bool = True) -> In
     buttons = []
     for i in range(1, 9):  # От 1 до 8 часов
         discount_text = (
-            f" {get_text(lang, 'booking.discount_10_percent')}" if (i > 2 and show_discount) else ""
+            f" {get_text(lang, 'booking.discount_10_percent')}"
+            if (i > 2 and show_discount)
+            else ""
         )
         buttons.append(
             InlineKeyboardButton(
@@ -690,9 +696,13 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
             # Получаем пользователя и создаем бронь
             api_client = await get_api_client()
             try:
-                user = await api_client.get_user_by_telegram_id(callback_query.from_user.id)
+                user = await api_client.get_user_by_telegram_id(
+                    callback_query.from_user.id
+                )
                 if not user:
-                    logger.error(f"Пользователь {callback_query.from_user.id} не найден в БД")
+                    logger.error(
+                        f"Пользователь {callback_query.from_user.id} не найден в БД"
+                    )
                     await callback_query.message.edit_text(
                         get_text(lang, "errors.user_not_found"),
                         reply_markup=None,
@@ -705,7 +715,9 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
                     "user_id": callback_query.from_user.id,
                     "tariff_id": data["tariff_id"],
                     "visit_date": visit_date.strftime("%Y-%m-%d"),
-                    "visit_time": visit_time.strftime("%H:%M:%S") if visit_time else None,
+                    "visit_time": (
+                        visit_time.strftime("%H:%M:%S") if visit_time else None
+                    ),
                     "duration": duration,
                     "promocode_id": None,
                     "amount": 0,
@@ -747,7 +759,9 @@ async def select_duration(callback_query: CallbackQuery, state: FSMContext) -> N
                             text=admin_notification,
                             parse_mode="HTML",
                         )
-                        logger.info("Уведомление админу о детской комнате отправлено успешно")
+                        logger.info(
+                            "Уведомление админу о детской комнате отправлено успешно"
+                        )
                 except Exception as notif_error:
                     logger.error(f"Ошибка отправки уведомления админу: {notif_error}")
 
