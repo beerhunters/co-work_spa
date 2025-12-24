@@ -657,6 +657,9 @@ async def create_booking_admin(
             is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
             is_monthly_tariff = 'месяц' in tariff_name
 
+            # Определяем тарифы-исключения (Переговорная, Амфитеатр)
+            is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name
+
             if is_daily_tariff:
                 # Дневные тарифы - уведомление в 00:05 следующего дня
                 notification_datetime = datetime.combine(
@@ -685,7 +688,7 @@ async def create_booking_admin(
                         f"📅 [ADMIN] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
                         f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
-            elif result.get("visit_time") and result.get("duration"):
+            elif result.get("visit_time") and result.get("duration") and not is_excluded_from_timer:
                 # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
                     result["visit_date"],
@@ -713,6 +716,8 @@ async def create_booking_admin(
                         f"📅 [ADMIN] Запланировано уведомление о завершении бронирования #{result['id']} "
                         f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+            elif is_excluded_from_timer:
+                logger.info(f"ℹ️ [ADMIN] Бронирование #{result['id']} ({tariff_name}) - уведомление об окончании времени отключено.")
         except Exception as e:
             # Ошибка планирования не должна блокировать создание брони
             logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
@@ -897,6 +902,9 @@ async def create_booking(booking_data: BookingCreate):
             is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
             is_monthly_tariff = 'месяц' in tariff_name
 
+            # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
+            is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name
+
             if is_daily_tariff:
                 # Дневные тарифы - уведомление в 00:05 следующего дня
                 notification_datetime = datetime.combine(
@@ -923,7 +931,7 @@ async def create_booking(booking_data: BookingCreate):
                         f"📅 [BOT] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
                         f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
-            elif result.get("visit_time") and result.get("duration"):
+            elif result.get("visit_time") and result.get("duration") and not is_excluded_from_timer:
                 # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
                     result["visit_date"],
@@ -951,6 +959,8 @@ async def create_booking(booking_data: BookingCreate):
                         f"📅 [BOT] Запланировано уведомление о завершении бронирования #{result['id']} "
                         f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+            elif is_excluded_from_timer:
+                logger.info(f"ℹ️ [BOT] Бронирование #{result['id']} ({tariff_name}) - уведомление об окончании времени отключено.")
         except Exception as e:
             # Ошибка планирования не должна блокировать создание брони
             logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
