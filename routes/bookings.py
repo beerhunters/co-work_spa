@@ -1870,7 +1870,13 @@ async def update_booking_full(
                 # Конвертировать строку в time если нужно
                 if isinstance(update_data["visit_time"], str):
                     from datetime import datetime
-                    booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M:%S").time()
+                    # booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M:%S").time()
+                    try:
+                        # Пытаемся распарсить с секундами (17:30:00)
+                        booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M:%S").time()
+                    except ValueError:
+                        # Если не вышло, пробуем без секунд (17:30)
+                        booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M").time()
                 else:
                     booking.visit_time = update_data["visit_time"]
 
