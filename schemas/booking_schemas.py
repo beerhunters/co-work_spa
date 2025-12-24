@@ -38,6 +38,7 @@ class BookingCreate(BaseModel):
     paid: bool = False
     confirmed: bool = False
     rubitime_id: Optional[str] = None
+    reminder_days: Optional[int] = None  # За сколько дней до окончания напомнить
 
 
 class BookingUpdate(BaseModel):

@@ -47,7 +47,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     promocode_id: null,
     amount: 0,
     paid: true,  // По умолчанию оплачено для бронирований администратора
-    confirmed: true  // По умолчанию подтверждено для бронирований администратора
+    confirmed: true,  // По умолчанию подтверждено для бронирований администратора
+    reminder_days: null  // Напоминание за N дней до окончания аренды
   });
 
   const [selectedTariff, setSelectedTariff] = useState(null);
@@ -350,7 +351,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
         amount: parseFloat(formData.amount),
         paid: formData.paid,
         confirmed: formData.confirmed,
-        promocode_id: formData.promocode_id || null
+        promocode_id: formData.promocode_id || null,
+        reminder_days: formData.reminder_days || null
       };
 
       console.log('Создание бронирования с данными:', bookingData);
@@ -447,7 +449,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
         amount: 0,  // Бесплатно
         paid: true,  // Считается оплаченным
         confirmed: true,  // Подтверждено
-        promocode_id: null
+        promocode_id: null,
+        reminder_days: formData.reminder_days || null
       };
 
       console.log('Создание бесплатного бронирования:', bookingData);
@@ -764,6 +767,26 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
               </FormControl>
             )}
 
+            {/* Напоминание о завершении аренды - для месячных тарифов */}
+            {selectedTariff?.name.toLowerCase().includes('месяц') && (
+              <FormControl>
+                <FormLabel>Напоминание о завершении аренды</FormLabel>
+                <Select
+                  value={formData.reminder_days || ''}
+                  onChange={(e) => handleFieldChange('reminder_days', e.target.value ? parseInt(e.target.value) : null)}
+                  placeholder="Не напоминать"
+                >
+                  <option value="3">За 3 дня</option>
+                  <option value="7">За 7 дней</option>
+                  <option value="14">За 14 дней</option>
+                  <option value="30">За 30 дней</option>
+                </Select>
+                <FormHelperText>
+                  Вы и пользователь получите уведомление за указанное количество дней до окончания аренды
+                </FormHelperText>
+              </FormControl>
+            )}
+
             {/* Время посещения - для почасовых тарифов и переговорных */}
             {(selectedTariff?.purpose === 'meeting_room' ||
               selectedTariff?.name.toLowerCase().includes('3 час')) && (
@@ -820,11 +843,12 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                   bg="gray.50"
                   fontWeight="bold"
                 />
-                {/* Кнопка "Пересчитать" не показываем для тарифов "3 часа", "Тестовый день", "Опенспейс на день" */}
+                {/* Кнопка "Пересчитать" не показываем для тарифов "3 часа", "Тестовый день", "Опенспейс на день", месячных */}
                 {selectedTariff &&
                  !selectedTariff.name.toLowerCase().includes('3 час') &&
                  !selectedTariff.name.toLowerCase().includes('тестовый день') &&
-                 !selectedTariff.name.toLowerCase().includes('опенспейс на день') && (
+                 !selectedTariff.name.toLowerCase().includes('опенспейс на день') &&
+                 !selectedTariff.name.toLowerCase().includes('месяц') && (
                   <Button
                     size="sm"
                     onClick={handleRecalculate}
@@ -844,6 +868,7 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                       <Text>Базовая цена:</Text>
                       <Text>
                         {selectedTariff.price} ₽
+                        {/* Для переговорных/коворкинга (почасовые) */}
                         {((selectedTariff.purpose === 'meeting_room' ||
                            selectedTariff.purpose === 'coworking') &&
                            !selectedTariff.name.toLowerCase().includes('3 час') &&
@@ -851,20 +876,47 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                           ? ` × ${formData.duration} ч = ${(selectedTariff.price * formData.duration).toFixed(2)} ₽`
                           : ''
                         }
+                        {/* Для месячных тарифов */}
+                        {selectedTariff.name.toLowerCase().includes('месяц') && formData.months > 1
+                          ? ` × ${formData.months} мес = ${(selectedTariff.price * formData.months).toFixed(2)} ₽`
+                          : ''
+                        }
                       </Text>
                     </HStack>
                     {/* Скидку не показываем для тарифов "3 часа", "Тестовый день", "Опенспейс на день" */}
-                    {getDiscountPercent() > 0 &&
-                     !selectedTariff.name.toLowerCase().includes('3 час') &&
-                     !selectedTariff.name.toLowerCase().includes('тестовый день') &&
-                     !selectedTariff.name.toLowerCase().includes('опенспейс на день') && (
-                      <HStack justify="space-between" color="green.500">
-                        <Text>Скидка ({getDiscountPercent()}%):</Text>
-                        <Text>
-                          -{((selectedTariff.price * formData.duration * getDiscountPercent()) / 100).toFixed(2)} ₽
-                        </Text>
-                      </HStack>
-                    )}
+                    {(() => {
+                      const tariffName = selectedTariff.name.toLowerCase();
+                      const isMonthly = tariffName.includes('месяц');
+                      const months = parseInt(formData.months) || 1;
+                      const duration = parseInt(formData.duration) || 1;
+
+                      let discountPercent = 0;
+                      let baseAmount = 0;
+
+                      if (isMonthly) {
+                        baseAmount = selectedTariff.price * months;
+                        if (months >= 12) discountPercent = 15;
+                        else if (months >= 6) discountPercent = 10;
+                      } else if (getDiscountPercent() > 0) {
+                        discountPercent = getDiscountPercent();
+                        baseAmount = selectedTariff.price * duration;
+                      }
+
+                      if (discountPercent > 0 &&
+                          !tariffName.includes('3 час') &&
+                          !tariffName.includes('тестовый день') &&
+                          !tariffName.includes('опенспейс на день')) {
+                        return (
+                          <HStack justify="space-between" color="green.500">
+                            <Text>Скидка ({discountPercent}%):</Text>
+                            <Text>
+                              -{((baseAmount * discountPercent) / 100).toFixed(2)} ₽
+                            </Text>
+                          </HStack>
+                        );
+                      }
+                      return null;
+                    })()}
                     <Divider />
                     <HStack justify="space-between" fontWeight="bold">
                       <Text>Итого:</Text>

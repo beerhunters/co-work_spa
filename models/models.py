@@ -1033,6 +1033,10 @@ class Booking(Base):
     comment = Column(String, nullable=True, default=None)
     notification_sent = Column(Boolean, default=False, index=True)
 
+    # Поля для напоминаний о завершении аренды (для месячных тарифов)
+    reminder_days = Column(Integer, nullable=True)  # За сколько дней до окончания напомнить
+    reminder_sent = Column(Boolean, default=False, index=True)  # Флаг отправки напоминания
+
     # Связи
     user = relationship("User", back_populates="bookings")
     tariff = relationship("Tariff", backref="bookings")

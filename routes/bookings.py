@@ -31,7 +31,7 @@ from schemas.booking_schemas import (
     BookingStats,
     BookingDetailed,
 )
-from config import MOSCOW_TZ
+from config import MOSCOW_TZ, ADMIN_TELEGRAM_ID
 from utils.logger import get_logger
 from utils.external_api import rubitime, update_rubitime_booking, create_yookassa_payment
 from utils.helpers import format_phone_for_rubitime
@@ -337,6 +337,7 @@ async def create_booking_admin(
             paid=booking_data.paid,
             confirmed=booking_data.confirmed,
             rubitime_id=booking_data.rubitime_id,
+            reminder_days=booking_data.reminder_days,
         )
 
         session.add(booking)
@@ -554,9 +555,13 @@ async def create_booking_admin(
                         # Для дневных тарифов показываем "целый день" вместо часов
                         tariff_name_lower = tariff.name.lower()
                         is_daily_tariff = 'тестовый день' in tariff_name_lower or 'опенспейс на день' in tariff_name_lower
+                        is_monthly_tariff = 'месяц' in tariff_name_lower
 
                         if is_daily_tariff:
                             duration_str = " (целый день)"
+                        elif is_monthly_tariff:
+                            # Для месячных тарифов не показываем длительность
+                            duration_str = ""
                         elif result.get("duration"):
                             duration_str = f" ({result['duration']}ч)"
 
@@ -565,8 +570,18 @@ async def create_booking_admin(
                         if hasattr(result["visit_date"], "strftime"):
                             visit_date_str = result["visit_date"].strftime('%d.%m.%Y')
 
-                        # Формирование сообщения
-                        message = f"""Ваша бронь подтверждена!
+                        # Формирование сообщения (объединяем подтверждение и оплату)
+                        if booking_data.paid:
+                            message = f"""✅ Ваша бронь подтверждена!
+💳 Оплата зачислена!
+
+Тариф: {tariff.name}
+Дата: {visit_date_str}{visit_time_str}{duration_str}
+Сумма: {result['amount']:.2f} ₽
+
+Спасибо за оплату! Ждем вас в назначенное время!"""
+                        else:
+                            message = f"""Ваша бронь подтверждена!
 
 Тариф: {tariff.name}
 Дата: {visit_date_str}{visit_time_str}{duration_str}
@@ -589,6 +604,45 @@ async def create_booking_admin(
                 # Ошибка отправки уведомления не должна блокировать создание брони
                 logger.error(f"❌ [ADMIN BOOKING] Ошибка отправки уведомления о созд брони: {e}", exc_info=True)
 
+        # Отправка уведомления об оплате администратору если бронирование оплачено
+        if booking_data.paid:
+            try:
+                from utils.bot_instance import get_bot
+
+                logger.info(f"[ADMIN BOOKING] Отправка уведомления об оплате администратору для брони #{result['id']}")
+
+                bot = get_bot()
+
+                if bot:
+                    # Получаем данные для уведомления
+                    def _get_user_and_tariff_for_payment(session):
+                        user = session.query(User).filter(User.telegram_id == booking_data.user_id).first()
+                        tariff = session.query(Tariff).filter(Tariff.id == booking_data.tariff_id).first()
+                        return user, tariff
+
+                    user, tariff = DatabaseManager.safe_execute(_get_user_and_tariff_for_payment)
+
+                    if user and tariff:
+                        # Форматирование даты
+                        visit_date_str = result["visit_date"]
+                        if hasattr(result["visit_date"], "strftime"):
+                            visit_date_str = result["visit_date"].strftime('%d.%m.%Y')
+
+                        # Уведомление администратору об оплате
+                        username_str = f" (@{user.username})" if user.username else ""
+                        admin_payment_message = f"""💳 Оплата получена
+
+👤 Пользователь: {user.full_name or 'Неизвестно'}{username_str} (ID: {user.id})
+📋 Тариф: {tariff.name}
+📅 Дата: {visit_date_str}
+💰 Сумма: {result['amount']:.2f} ₽"""
+
+                        await bot.send_message(ADMIN_TELEGRAM_ID, admin_payment_message)
+                        logger.info(f"✅ Уведомление об оплате отправлено администратору")
+
+            except Exception as e:
+                logger.error(f"❌ Ошибка отправки уведомления об оплате администратору: {e}", exc_info=True)
+
         # Инвалидируем связанные кэши после успешного создания
         await cache_invalidator.invalidate_booking_related_cache()
 
@@ -601,6 +655,7 @@ async def create_booking_admin(
         try:
             tariff_name = DatabaseManager.safe_execute(_get_tariff_name).lower()
             is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
+            is_monthly_tariff = 'месяц' in tariff_name
 
             if is_daily_tariff:
                 # Дневные тарифы - уведомление в 00:05 следующего дня
@@ -661,6 +716,35 @@ async def create_booking_admin(
         except Exception as e:
             # Ошибка планирования не должна блокировать создание брони
             logger.error(f"Ошибка планирования уведомления для бронирования #{result.get('id')}: {e}", exc_info=True)
+
+        # Планируем напоминание о завершении аренды (для месячных тарифов)
+        if booking_data.reminder_days and is_monthly_tariff:
+            try:
+                from tasks.booking_tasks import send_rental_reminder
+                from dateutil.relativedelta import relativedelta
+
+                # Вычисляем дату напоминания
+                end_date = result["visit_date"] + relativedelta(months=result.get("duration", 1))
+                reminder_date = end_date - timedelta(days=booking_data.reminder_days)
+                reminder_datetime = datetime.combine(reminder_date, time_type(10, 0))  # 10:00 утра
+                reminder_datetime = MOSCOW_TZ.localize(reminder_datetime)
+                now = datetime.now(MOSCOW_TZ)
+
+                if reminder_datetime > now:
+                    task_result = send_rental_reminder.apply_async(
+                        args=[result["id"]],
+                        eta=reminder_datetime
+                    )
+                    logger.info(
+                        f"📅 [ADMIN] Запланировано напоминание о завершении аренды #{result['id']} "
+                        f"на {reminder_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
+                    )
+                else:
+                    logger.warning(
+                        f"⚠️  [ADMIN] Дата напоминания уже прошла для бронирования #{result['id']}, напоминание не запланировано"
+                    )
+            except Exception as e:
+                logger.error(f"Ошибка планирования напоминания для бронирования #{result.get('id')}: {e}", exc_info=True)
 
         return result
     except HTTPException:
@@ -751,6 +835,7 @@ async def create_booking(booking_data: BookingCreate):
             paid=booking_data.paid,
             confirmed=booking_data.confirmed,
             rubitime_id=booking_data.rubitime_id,
+            reminder_days=booking_data.reminder_days,
         )
 
         session.add(booking)
@@ -810,6 +895,7 @@ async def create_booking(booking_data: BookingCreate):
         try:
             tariff_name = DatabaseManager.safe_execute(_get_tariff_name).lower()
             is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
+            is_monthly_tariff = 'месяц' in tariff_name
 
             if is_daily_tariff:
                 # Дневные тарифы - уведомление в 00:05 следующего дня
