@@ -221,6 +221,12 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
         // Переговорные - умножаем на duration (часы)
         const duration = parseInt(formData.duration) || 1;
         finalAmount = selectedTariff.price * duration;
+
+        // Скидка 10% при бронировании от 3 часов
+        if (duration >= 3) {
+          discount = 10;
+          finalAmount = finalAmount * (1 - discount / 100);
+        }
       }
 
       setCalculatedAmount(finalAmount);
