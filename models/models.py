@@ -1037,6 +1037,10 @@ class Booking(Base):
     reminder_days = Column(Integer, nullable=True)  # За сколько дней до окончания напомнить
     reminder_sent = Column(Boolean, default=False, index=True)  # Флаг отправки напоминания
 
+    # ID Celery задач для отмены при удалении/изменении
+    expiration_task_id = Column(String(255), nullable=True)  # ID задачи уведомления о завершении
+    reminder_task_id = Column(String(255), nullable=True)  # ID задачи напоминания об аренде
+
     # Связи
     user = relationship("User", back_populates="bookings")
     tariff = relationship("Tariff", backref="bookings")

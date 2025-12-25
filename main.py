@@ -59,6 +59,7 @@ from routes.logging import router as logging_router
 from routes.ip_bans import router as ip_bans_router
 from routes.emails import router as emails_router
 from routes.openspace_rentals import router as openspace_rentals_router
+from routes.celery_tasks import router as celery_tasks_router
 
 logger = get_logger(__name__)
 
@@ -439,6 +440,7 @@ routers = [
     (cache_router, "cache"),
     (logging_router, "logging"),
     (ip_bans_router, "ip_bans"),
+    (celery_tasks_router, "celery_tasks"),
 ]
 
 for router, name in routers:

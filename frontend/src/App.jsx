@@ -35,6 +35,7 @@ const Backups = lazy(() => import('./sections/Backups'));
 const SystemMonitoring = lazy(() => import('./sections/SystemMonitoring'));
 const Logging = lazy(() => import('./sections/Logging'));
 const IPBans = lazy(() => import('./sections/IPBans'));
+const CeleryTasks = lazy(() => import('./sections/CeleryTasks'));
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -1071,14 +1072,15 @@ function AppContent() {
       emails: 'view_email_campaigns',
       admins: 'manage_admins',
       logging: 'view_logs',
-      backups: 'manage_backups'
+      backups: 'manage_backups',
+      'celery-tasks': 'manage_system_settings'
     };
 
     const requiredPermission = sectionPermissions[section];
     const hasAccess = !requiredPermission || hasPermission(requiredPermission);
 
-    // Для админов и бэкапов дополнительная проверка на супер админа
-    if ((section === 'admins' || section === 'backups') && currentAdmin?.role !== 'super_admin') {
+    // Для админов, бэкапов и celery-tasks дополнительная проверка на супер админа
+    if ((section === 'admins' || section === 'backups' || section === 'celery-tasks') && currentAdmin?.role !== 'super_admin') {
       return (
         <div style={{ padding: '2rem', textAlign: 'center' }}>
           <h2 style={{ color: '#e53e3e', fontSize: '1.5rem', marginBottom: '1rem' }}>
@@ -1208,6 +1210,8 @@ function AppContent() {
         return <IPBans currentAdmin={currentAdmin} />;
       case 'backups':
         return <Backups currentAdmin={currentAdmin} />;
+      case 'celery-tasks':
+        return <CeleryTasks currentAdmin={currentAdmin} />;
       default:
         return (
           <Dashboard

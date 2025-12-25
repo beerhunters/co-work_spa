@@ -39,6 +39,7 @@ from utils.cache_manager import cache_manager
 from utils.sql_optimization import SQLOptimizer
 from utils.cache_invalidation import cache_invalidator
 from utils.notifications import send_booking_update_notification
+from utils.task_manager import revoke_booking_tasks, bulk_revoke_booking_tasks
 # from utils.bot_instance import get_bot_instance
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from tasks.booking_tasks import send_booking_expiration_notification
@@ -688,6 +689,16 @@ async def create_booking_admin(
                         f"📅 [ADMIN] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
                         f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+
+                    # Сохранение expiration_task_id в БД
+                    def _save_expiration_task_id(session):
+                        booking = session.query(Booking).filter(Booking.id == result["id"]).first()
+                        if booking:
+                            booking.expiration_task_id = task_result.id
+                            session.commit()
+                            logger.info(f"Saved expiration task ID {task_result.id} for booking #{result['id']}")
+
+                    DatabaseManager.safe_execute(_save_expiration_task_id)
             elif result.get("visit_time") and result.get("duration") and not is_excluded_from_timer:
                 # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
@@ -716,6 +727,16 @@ async def create_booking_admin(
                         f"📅 [ADMIN] Запланировано уведомление о завершении бронирования #{result['id']} "
                         f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+
+                # Сохранение expiration_task_id в БД (для почасовых тарифов)
+                def _save_expiration_task_id_hourly(session):
+                    booking = session.query(Booking).filter(Booking.id == result["id"]).first()
+                    if booking:
+                        booking.expiration_task_id = task_result.id
+                        session.commit()
+                        logger.info(f"Saved expiration task ID {task_result.id} for booking #{result['id']}")
+
+                DatabaseManager.safe_execute(_save_expiration_task_id_hourly)
             elif is_excluded_from_timer:
                 logger.info(f"ℹ️ [ADMIN] Бронирование #{result['id']} ({tariff_name}) - уведомление об окончании времени отключено.")
         except Exception as e:
@@ -744,6 +765,16 @@ async def create_booking_admin(
                         f"📅 [ADMIN] Запланировано напоминание о завершении аренды #{result['id']} "
                         f"на {reminder_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+
+                    # Сохранение reminder_task_id в БД
+                    def _save_reminder_task_id(session):
+                        booking = session.query(Booking).filter(Booking.id == result["id"]).first()
+                        if booking:
+                            booking.reminder_task_id = task_result.id
+                            session.commit()
+                            logger.info(f"Saved reminder task ID {task_result.id} for booking #{result['id']}")
+
+                    DatabaseManager.safe_execute(_save_reminder_task_id)
                 else:
                     logger.warning(
                         f"⚠️  [ADMIN] Дата напоминания уже прошла для бронирования #{result['id']}, напоминание не запланировано"
@@ -931,6 +962,16 @@ async def create_booking(booking_data: BookingCreate):
                         f"📅 [BOT] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
                         f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+
+                # Сохранение expiration_task_id в БД (для дневных тарифов из бота)
+                def _save_expiration_task_id_daily_bot(session):
+                    booking = session.query(Booking).filter(Booking.id == result["id"]).first()
+                    if booking:
+                        booking.expiration_task_id = task_result.id
+                        session.commit()
+                        logger.info(f"[BOT] Saved expiration task ID {task_result.id} for booking #{result['id']}")
+
+                DatabaseManager.safe_execute(_save_expiration_task_id_daily_bot)
             elif result.get("visit_time") and result.get("duration") and not is_excluded_from_timer:
                 # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
@@ -959,6 +1000,16 @@ async def create_booking(booking_data: BookingCreate):
                         f"📅 [BOT] Запланировано уведомление о завершении бронирования #{result['id']} "
                         f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
                     )
+
+                # Сохранение expiration_task_id в БД (для почасовых тарифов из бота)
+                def _save_expiration_task_id_hourly_bot(session):
+                    booking = session.query(Booking).filter(Booking.id == result["id"]).first()
+                    if booking:
+                        booking.expiration_task_id = task_result.id
+                        session.commit()
+                        logger.info(f"[BOT] Saved expiration task ID {task_result.id} for booking #{result['id']}")
+
+                DatabaseManager.safe_execute(_save_expiration_task_id_hourly_bot)
             elif is_excluded_from_timer:
                 logger.info(f"ℹ️ [BOT] Бронирование #{result['id']} ({tariff_name}) - уведомление об окончании времени отключено.")
         except Exception as e:
@@ -1191,6 +1242,26 @@ async def update_booking(
             f"Обновление бронирования #{booking_id} администратором {current_admin.login}: {update_data}"
         )
 
+        # Проверяем отмену бронирования (confirmed: true -> false)
+        if "confirmed" in update_data and not update_data["confirmed"] and old_confirmed:
+            # Отменяем связанные Celery задачи при отмене бронирования
+            if booking.expiration_task_id or booking.reminder_task_id:
+                try:
+                    revoke_results = revoke_booking_tasks(
+                        expiration_task_id=booking.expiration_task_id,
+                        reminder_task_id=booking.reminder_task_id,
+                        booking_id=booking.id
+                    )
+                    logger.info(
+                        f"Revoked tasks for cancelled booking #{booking.id}: "
+                        f"{revoke_results['total_revoked']} tasks"
+                    )
+                    # Очищаем task IDs после отмены
+                    booking.expiration_task_id = None
+                    booking.reminder_task_id = None
+                except Exception as e:
+                    logger.error(f"Error revoking tasks for cancelled booking #{booking.id}: {e}", exc_info=True)
+
         if "confirmed" in update_data:
             booking.confirmed = update_data["confirmed"]
 
@@ -1202,6 +1273,128 @@ async def update_booking(
 
         if "comment" in update_data:
             booking.comment = update_data["comment"]
+
+        # Обработка изменения даты/времени/продолжительности
+        date_time_changed = False
+        old_expiration_task_id = booking.expiration_task_id
+        old_reminder_task_id = booking.reminder_task_id
+        tasks_recreated = False
+
+        # Проверяем, изменились ли параметры, влияющие на время задач
+        if any(key in update_data for key in ["visit_date", "visit_time", "duration", "reminder_days"]):
+            date_time_changed = True
+
+            # Сохраняем старые значения для логирования
+            old_visit_date = booking.visit_date
+            old_visit_time = booking.visit_time
+            old_duration = booking.duration
+
+            # Применяем изменения
+            if "visit_date" in update_data:
+                booking.visit_date = update_data["visit_date"]
+            if "visit_time" in update_data:
+                booking.visit_time = update_data["visit_time"]
+            if "duration" in update_data:
+                booking.duration = update_data["duration"]
+            if "reminder_days" in update_data:
+                booking.reminder_days = update_data["reminder_days"]
+
+            db.commit()  # Сохраняем изменения перед пересозданием задач
+
+            logger.info(
+                f"Изменены параметры времени для бронирования #{booking_id}: "
+                f"date {old_visit_date} -> {booking.visit_date}, "
+                f"time {old_visit_time} -> {booking.visit_time}, "
+                f"duration {old_duration} -> {booking.duration}"
+            )
+
+            # Отменяем старые задачи
+            if old_expiration_task_id or old_reminder_task_id:
+                try:
+                    revoke_results = revoke_booking_tasks(
+                        expiration_task_id=old_expiration_task_id,
+                        reminder_task_id=old_reminder_task_id,
+                        booking_id=booking.id
+                    )
+                    logger.info(
+                        f"Revoked old tasks for booking #{booking.id} due to date/time change: "
+                        f"{revoke_results['total_revoked']} tasks"
+                    )
+
+                    # Очищаем старые task IDs
+                    booking.expiration_task_id = None
+                    booking.reminder_task_id = None
+                    db.commit()
+
+                except Exception as e:
+                    logger.error(f"Error revoking tasks during update: {e}", exc_info=True)
+
+            # Пересоздаем задачи с новыми параметрами
+            try:
+                from tasks.booking_tasks import send_booking_expiration_notification, send_rental_reminder
+                from dateutil.relativedelta import relativedelta
+
+                tariff_name = tariff.name.lower()
+                is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
+                is_monthly_tariff = 'месяц' in tariff_name
+                is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name
+
+                # Создаем expiration notification
+                if is_daily_tariff:
+                    # Дневные тарифы - уведомление в 00:05 следующего дня
+                    notification_datetime = datetime.combine(
+                        booking.visit_date + timedelta(days=1),
+                        time_type(0, 5)
+                    )
+                    notification_datetime = MOSCOW_TZ.localize(notification_datetime)
+                    now = datetime.now(MOSCOW_TZ)
+
+                    if notification_datetime > now:
+                        task_result = send_booking_expiration_notification.apply_async(
+                            args=[booking.id, True],
+                            eta=notification_datetime
+                        )
+                        booking.expiration_task_id = task_result.id
+                        logger.info(f"Recreated expiration task (daily) for booking #{booking.id}: {task_result.id}")
+                        tasks_recreated = True
+
+                elif booking.visit_time and booking.duration and not is_excluded_from_timer:
+                    # Почасовые тарифы
+                    visit_datetime_naive = datetime.combine(booking.visit_date, booking.visit_time)
+                    visit_datetime = MOSCOW_TZ.localize(visit_datetime_naive)
+                    end_datetime = visit_datetime + timedelta(hours=booking.duration)
+                    now = datetime.now(MOSCOW_TZ)
+
+                    if end_datetime > now:
+                        task_result = send_booking_expiration_notification.apply_async(
+                            args=[booking.id, False],
+                            eta=end_datetime
+                        )
+                        booking.expiration_task_id = task_result.id
+                        logger.info(f"Recreated expiration task (hourly) for booking #{booking.id}: {task_result.id}")
+                        tasks_recreated = True
+
+                # Создаем rental reminder (для месячных тарифов)
+                if booking.reminder_days and is_monthly_tariff:
+                    end_date = booking.visit_date + relativedelta(months=booking.duration or 1)
+                    reminder_date = end_date - timedelta(days=booking.reminder_days)
+                    reminder_datetime = datetime.combine(reminder_date, time_type(10, 0))
+                    reminder_datetime = MOSCOW_TZ.localize(reminder_datetime)
+                    now = datetime.now(MOSCOW_TZ)
+
+                    if reminder_datetime > now:
+                        task_result = send_rental_reminder.apply_async(
+                            args=[booking.id],
+                            eta=reminder_datetime
+                        )
+                        booking.reminder_task_id = task_result.id
+                        logger.info(f"Recreated reminder task for booking #{booking.id}: {task_result.id}")
+                        tasks_recreated = True
+
+                db.commit()
+
+            except Exception as e:
+                logger.error(f"Error recreating tasks for booking #{booking.id}: {e}", exc_info=True)
 
         # Создание записи в Rubitime при подтверждении
         if (
@@ -1430,7 +1623,7 @@ async def update_booking(
         # Инвалидируем связанные кэши после успешного обновления
         await cache_invalidator.invalidate_booking_related_cache()
 
-        return {
+        response = {
             "id": booking.id,
             "user_id": booking.user_id,
             "tariff_id": booking.tariff_id,
@@ -1447,6 +1640,15 @@ async def update_booking(
             "confirmed": bool(booking.confirmed),
             "created_at": booking.created_at.isoformat(),
         }
+
+        # Добавляем информацию о пересозданных задачах
+        if date_time_changed:
+            response["date_time_changed"] = True
+            response["tasks_recreated"] = tasks_recreated
+            response["new_expiration_task_id"] = booking.expiration_task_id
+            response["new_reminder_task_id"] = booking.reminder_task_id
+
+        return response
 
     except HTTPException:
         raise
@@ -1469,6 +1671,31 @@ async def delete_booking(
         booking = db.query(Booking).filter(Booking.id == booking_id).first()
         if not booking:
             raise HTTPException(status_code=404, detail=f"Бронирование #{booking_id} не найдено в системе")
+
+        # Отменяем запланированные Celery задачи
+        task_revoke_results = None
+        if booking.expiration_task_id or booking.reminder_task_id:
+            try:
+                task_revoke_results = revoke_booking_tasks(
+                    expiration_task_id=booking.expiration_task_id,
+                    reminder_task_id=booking.reminder_task_id,
+                    booking_id=booking.id
+                )
+                logger.info(
+                    f"Task revocation for booking #{booking.id}: "
+                    f"{task_revoke_results['total_revoked']} tasks revoked"
+                )
+
+                # ВАЖНО: Очищаем task_id ПЕРЕД удалением booking
+                # Иначе задача будет дублироваться в scheduled и revoked списках
+                booking.expiration_task_id = None
+                booking.reminder_task_id = None
+                db.commit()
+                logger.info(f"Cleared task_ids from booking #{booking.id} before deletion")
+
+            except Exception as e:
+                # Ошибка не блокирует удаление бронирования
+                logger.error(f"Error revoking tasks for booking #{booking.id}: {e}", exc_info=True)
 
         # Получаем информацию о пользователе и тарифе для логирования
         user = db.query(User).filter(User.id == booking.user_id).first()
@@ -1562,6 +1789,14 @@ async def delete_booking(
             response["rubitime_status"] = rubitime_delete_status
             response["rubitime_id"] = booking_info["rubitime_id"]
 
+        # Добавляем информацию об отмененных задачах
+        if task_revoke_results and task_revoke_results['total_revoked'] > 0:
+            response["tasks_revoked"] = task_revoke_results['total_revoked']
+            response["task_details"] = {
+                'expiration': task_revoke_results['expiration_task']['status'],
+                'reminder': task_revoke_results['reminder_task']['status']
+            }
+
         return response
 
     except HTTPException:
@@ -1593,6 +1828,53 @@ async def bulk_delete_bookings(
         if not bookings:
             raise HTTPException(status_code=404, detail="Бронирования не найдены")
 
+        # Собираем данные о задачах для массовой отмены
+        bookings_task_data = []
+        for booking in bookings:
+            if booking.expiration_task_id or booking.reminder_task_id:
+                bookings_task_data.append({
+                    'id': booking.id,
+                    'expiration_task_id': booking.expiration_task_id,
+                    'reminder_task_id': booking.reminder_task_id
+                })
+
+        # Массово отменяем задачи
+        bulk_revoke_summary = None
+        if bookings_task_data:
+            try:
+                bulk_revoke_summary = bulk_revoke_booking_tasks(bookings_task_data)
+                logger.info(
+                    f"Bulk task revocation: {bulk_revoke_summary['total_tasks_revoked']} "
+                    f"tasks revoked for {len(bookings_task_data)} bookings"
+                )
+
+                # Очищаем task_id в бронированиях после успешной отмены, ПЕРЕД удалением
+                for task_data in bookings_task_data:
+                    booking = db.query(Booking).filter(Booking.id == task_data['id']).first()
+                    if booking:
+                        if task_data.get('expiration_task_id'):
+                            booking.expiration_task_id = None
+                        if task_data.get('reminder_task_id'):
+                            booking.reminder_task_id = None
+                logger.info(f"Cleared task_ids from {len(bookings_task_data)} bookings before deletion")
+                db.commit()  # Коммитим очистку task_id
+
+                # Telegram уведомление при массовой отмене (>5 задач)
+                if bulk_revoke_summary['total_tasks_revoked'] > 5:
+                    try:
+                        from utils.bot_instance import send_admin_notification
+                        await send_admin_notification(
+                            f"🔕 Массовая отмена задач Celery\n\n"
+                            f"Отменено задач: {bulk_revoke_summary['total_tasks_revoked']}\n"
+                            f"Бронирований: {len(bookings_task_data)}\n"
+                            f"Операция: bulk_delete_bookings"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send Telegram notification: {e}")
+
+            except Exception as e:
+                logger.error(f"Error in bulk task revocation: {e}", exc_info=True)
+
         deleted_count = 0
         notifications_deleted = 0
 
@@ -1616,11 +1898,17 @@ async def bulk_delete_bookings(
 
         logger.info(f"Массово удалено {deleted_count} бронирований и {notifications_deleted} уведомлений")
 
-        return {
+        response = {
             "message": f"Успешно удалено {deleted_count} бронирований",
             "deleted_count": deleted_count,
             "deleted_notifications": notifications_deleted
         }
+
+        # Добавляем информацию об отмененных задачах
+        if bulk_revoke_summary:
+            response["tasks_revoked"] = bulk_revoke_summary['total_tasks_revoked']
+
+        return response
 
     except HTTPException:
         raise
@@ -1651,6 +1939,52 @@ async def bulk_cancel_bookings(
         if not bookings:
             raise HTTPException(status_code=404, detail="Бронирования не найдены")
 
+        # Собираем задачи ТОЛЬКО для подтвержденных бронирований
+        bookings_task_data = []
+        for booking in bookings:
+            if booking.confirmed and (booking.expiration_task_id or booking.reminder_task_id):
+                bookings_task_data.append({
+                    'id': booking.id,
+                    'expiration_task_id': booking.expiration_task_id,
+                    'reminder_task_id': booking.reminder_task_id
+                })
+
+        # Массово отменяем задачи
+        bulk_revoke_summary = None
+        if bookings_task_data:
+            try:
+                bulk_revoke_summary = bulk_revoke_booking_tasks(bookings_task_data)
+                logger.info(
+                    f"Bulk task revocation (cancel): {bulk_revoke_summary['total_tasks_revoked']} "
+                    f"tasks revoked for {len(bookings_task_data)} bookings"
+                )
+
+                # Очищаем task_id в бронированиях после успешной отмены
+                for task_data in bookings_task_data:
+                    booking = db.query(Booking).filter(Booking.id == task_data['id']).first()
+                    if booking:
+                        if task_data.get('expiration_task_id'):
+                            booking.expiration_task_id = None
+                        if task_data.get('reminder_task_id'):
+                            booking.reminder_task_id = None
+                logger.info(f"Cleared task_ids from {len(bookings_task_data)} bookings")
+
+                # Telegram уведомление при массовой отмене (>5 задач)
+                if bulk_revoke_summary['total_tasks_revoked'] > 5:
+                    try:
+                        from utils.bot_instance import send_admin_notification
+                        await send_admin_notification(
+                            f"🔕 Массовая отмена задач Celery\n\n"
+                            f"Отменено задач: {bulk_revoke_summary['total_tasks_revoked']}\n"
+                            f"Бронирований: {len(bookings_task_data)}\n"
+                            f"Операция: bulk_cancel_bookings"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send Telegram notification: {e}")
+
+            except Exception as e:
+                logger.error(f"Error in bulk task revocation (cancel): {e}", exc_info=True)
+
         cancelled_count = 0
 
         for booking in bookings:
@@ -1666,10 +2000,16 @@ async def bulk_cancel_bookings(
 
         logger.info(f"Массово отменено {cancelled_count} бронирований")
 
-        return {
+        response = {
             "message": f"Успешно отменено {cancelled_count} бронирований",
             "cancelled_count": cancelled_count
         }
+
+        # Добавляем информацию об отмененных задачах
+        if bulk_revoke_summary:
+            response["tasks_revoked"] = bulk_revoke_summary['total_tasks_revoked']
+
+        return response
 
     except HTTPException:
         raise

@@ -33,6 +33,7 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin, isCollapsed,
   // Административные функции для super_admin
   const adminMenuItems = [
     { icon: FiActivity, label: 'Мониторинг системы', section: 'system-monitoring', color: 'purple' },
+    { icon: FiCpu, label: 'Celery задачи', section: 'celery-tasks', color: 'cyan' },
     { icon: FiFileText, label: 'Логирование', section: 'logging', color: 'gray' },
     { icon: FiShield, label: 'IP Баны', section: 'ip-bans', color: 'red' },
     { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple' },
