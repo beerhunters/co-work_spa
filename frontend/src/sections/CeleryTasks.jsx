@@ -254,11 +254,13 @@ const CeleryTasks = () => {
   const handleRevokeAll = async () => {
     // Подтверждение от пользователя
     const confirmed = window.confirm(
-      '⚠️ Вы уверены, что хотите ОТМЕНИТЬ ВСЕ активные и запланированные задачи?\n\n' +
+      '⚠️ Вы уверены, что хотите ПОЛНОСТЬЮ УДАЛИТЬ ВСЕ задачи?\n\n' +
       'Это действие:\n' +
-      '• Отменит все задачи в Celery\n' +
+      '• ПОЛНОСТЬЮ удалит все задачи из очередей Celery (НАВСЕГДА)\n' +
+      '• Отменит активные задачи\n' +
       '• Очистит task_id в таблице бронирований\n' +
       '• Отправит уведомление администратору\n\n' +
+      'ВНИМАНИЕ: Это необратимая операция!\n\n' +
       'Продолжить?'
     );
 
@@ -268,9 +270,12 @@ const CeleryTasks = () => {
       const response = await api.post('/celery-tasks/revoke-all');
 
       if (response.data.success) {
+        const totalRemoved = response.data.total_removed || 0;
+        const bookingsCleared = response.data.bookings_cleared || 0;
+
         toast({
-          title: 'Все задачи отменены',
-          description: `Отменено задач: ${response.data.tasks_revoked}, очищено бронирований: ${response.data.bookings_cleared}`,
+          title: 'Все задачи удалены',
+          description: `Полностью удалено: ${totalRemoved} задач, очищено бронирований: ${bookingsCleared}`,
           status: 'success',
           duration: 5000,
         });

@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
 _bot: Optional[Bot] = None
 
@@ -63,3 +64,25 @@ async def close_bot():
             logger.error(f"Ошибка при закрытии bot session: {e}")
         finally:
             _bot = None
+
+
+async def send_admin_notification(message: str):
+    """
+    Отправляет уведомление администратору в Telegram.
+
+    Args:
+        message: Текст сообщения для отправки
+
+    Raises:
+        ValueError: Если ADMIN_TELEGRAM_ID не настроен
+    """
+    if not ADMIN_TELEGRAM_ID:
+        logger.warning("ADMIN_TELEGRAM_ID не настроен, уведомление не отправлено")
+        return
+
+    try:
+        bot = get_bot()
+        await bot.send_message(ADMIN_TELEGRAM_ID, message)
+        logger.info(f"Уведомление отправлено администратору: {message[:50]}...")
+    except Exception as e:
+        logger.error(f"Ошибка отправки уведомления администратору: {e}", exc_info=True)

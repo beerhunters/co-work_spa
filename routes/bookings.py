@@ -1242,6 +1242,10 @@ async def update_booking(
             f"Обновление бронирования #{booking_id} администратором {current_admin.login}: {update_data}"
         )
 
+        # Сохраняем старые task_id ДО любых изменений
+        old_expiration_task_id = booking.expiration_task_id
+        old_reminder_task_id = booking.reminder_task_id
+
         # Проверяем отмену бронирования (confirmed: true -> false)
         if "confirmed" in update_data and not update_data["confirmed"] and old_confirmed:
             # Отменяем связанные Celery задачи при отмене бронирования
@@ -1259,6 +1263,7 @@ async def update_booking(
                     # Очищаем task IDs после отмены
                     booking.expiration_task_id = None
                     booking.reminder_task_id = None
+                    db.commit()  # Коммитим очистку task_id
                 except Exception as e:
                     logger.error(f"Error revoking tasks for cancelled booking #{booking.id}: {e}", exc_info=True)
 
@@ -1276,8 +1281,6 @@ async def update_booking(
 
         # Обработка изменения даты/времени/продолжительности
         date_time_changed = False
-        old_expiration_task_id = booking.expiration_task_id
-        old_reminder_task_id = booking.reminder_task_id
         tasks_recreated = False
 
         # Проверяем, изменились ли параметры, влияющие на время задач
@@ -1967,6 +1970,7 @@ async def bulk_cancel_bookings(
                             booking.expiration_task_id = None
                         if task_data.get('reminder_task_id'):
                             booking.reminder_task_id = None
+                db.commit()  # Коммитим очистку task_id
                 logger.info(f"Cleared task_ids from {len(bookings_task_data)} bookings")
 
                 # Telegram уведомление при массовой отмене (>5 задач)

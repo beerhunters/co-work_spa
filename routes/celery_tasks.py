@@ -32,73 +32,117 @@ async def get_celery_tasks(
     try:
         logger.info(f"Получение списка Celery задач администратором {current_admin.login}")
 
-        # Получаем информацию из Celery inspect
-        inspect = celery_app.control.inspect()
+        # Получаем информацию из Celery inspect с коротким timeout
+        inspect = celery_app.control.inspect(timeout=1.0)
 
-        # Активные задачи (выполняются прямо сейчас)
-        active_tasks = []
-        active_raw = inspect.active()
-        if active_raw:
-            for worker, tasks in active_raw.items():
-                for task in tasks:
-                    active_tasks.append({
-                        'task_id': task.get('id'),
-                        'name': task.get('name'),
-                        'args': str(task.get('args', [])),
-                        'kwargs': str(task.get('kwargs', {})),
-                        'worker': worker,
-                        'status': 'ACTIVE',
-                        'time_start': task.get('time_start'),
-                    })
+        # Параллельно выполняем все inspect вызовы для ускорения
+        import concurrent.futures
 
-        # Запланированные задачи (в очереди, будут выполнены позже)
-        scheduled_tasks = []
-        scheduled_raw = inspect.scheduled()
-        if scheduled_raw:
-            for worker, tasks in scheduled_raw.items():
-                for task in tasks:
-                    # task - это dict с информацией о запланированной задаче
-                    request = task.get('request', {})
-                    eta_timestamp = task.get('eta')
+        def get_revoked():
+            return inspect.revoked()
 
-                    scheduled_tasks.append({
-                        'task_id': request.get('id'),
-                        'name': request.get('name'),
-                        'args': str(request.get('args', [])),
-                        'kwargs': str(request.get('kwargs', {})),
-                        'worker': worker,
-                        'status': 'SCHEDULED',
-                        'eta': eta_timestamp,
-                        'priority': task.get('priority', 0),
-                    })
+        def get_active():
+            return inspect.active()
 
-        # Reserved задачи (получены worker, но еще не выполняются)
-        reserved_tasks = []
-        reserved_raw = inspect.reserved()
-        if reserved_raw:
-            for worker, tasks in reserved_raw.items():
-                for task in tasks:
-                    reserved_tasks.append({
-                        'task_id': task.get('id'),
-                        'name': task.get('name'),
-                        'args': str(task.get('args', [])),
-                        'kwargs': str(task.get('kwargs', {})),
-                        'worker': worker,
-                        'status': 'RESERVED',
-                    })
+        def get_scheduled():
+            return inspect.scheduled()
 
-        # Revoked задачи
+        def get_reserved():
+            return inspect.reserved()
+
+        # Выполняем все вызовы параллельно
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                'revoked': executor.submit(get_revoked),
+                'active': executor.submit(get_active),
+                'scheduled': executor.submit(get_scheduled),
+                'reserved': executor.submit(get_reserved),
+            }
+
+            # Получаем результаты с timeout
+            try:
+                revoked_raw = futures['revoked'].result(timeout=2.0)
+                active_raw = futures['active'].result(timeout=2.0)
+                scheduled_raw = futures['scheduled'].result(timeout=2.0)
+                reserved_raw = futures['reserved'].result(timeout=2.0)
+            except concurrent.futures.TimeoutError:
+                logger.warning("Timeout при получении данных из Celery inspect")
+                revoked_raw = None
+                active_raw = None
+                scheduled_raw = None
+                reserved_raw = None
+
+        # Revoked задачи (получаем первыми для фильтрации)
+        revoked_task_ids = set()
         revoked_tasks = []
-        revoked_raw = inspect.revoked()
         if revoked_raw:
             for worker, task_ids in revoked_raw.items():
                 for task_id in task_ids:
+                    revoked_task_ids.add(task_id)
                     revoked_tasks.append({
                         'task_id': task_id,
                         'name': 'Unknown',
                         'worker': worker,
                         'status': 'REVOKED',
                     })
+
+        # Активные задачи (выполняются прямо сейчас)
+        active_tasks = []
+        if active_raw:
+            for worker, tasks in active_raw.items():
+                for task in tasks:
+                    task_id = task.get('id')
+                    # Исключаем отмененные задачи
+                    if task_id not in revoked_task_ids:
+                        active_tasks.append({
+                            'task_id': task_id,
+                            'name': task.get('name'),
+                            'args': str(task.get('args', [])),
+                            'kwargs': str(task.get('kwargs', {})),
+                            'worker': worker,
+                            'status': 'ACTIVE',
+                            'time_start': task.get('time_start'),
+                        })
+
+        # Запланированные задачи (в очереди, будут выполнены позже)
+        scheduled_tasks = []
+        if scheduled_raw:
+            for worker, tasks in scheduled_raw.items():
+                for task in tasks:
+                    # task - это dict с информацией о запланированной задаче
+                    request = task.get('request', {})
+                    task_id = request.get('id')
+                    eta_timestamp = task.get('eta')
+
+                    # Исключаем отмененные задачи
+                    if task_id not in revoked_task_ids:
+                        scheduled_tasks.append({
+                            'task_id': task_id,
+                            'name': request.get('name'),
+                            'args': str(request.get('args', [])),
+                            'kwargs': str(request.get('kwargs', {})),
+                            'worker': worker,
+                            'status': 'SCHEDULED',
+                            'eta': eta_timestamp,
+                            'priority': task.get('priority', 0),
+                        })
+
+        # Reserved задачи (получены worker, но еще не выполняются)
+        reserved_tasks = []
+        if reserved_raw:
+            for worker, tasks in reserved_raw.items():
+                for task in tasks:
+                    task_id = task.get('id')
+                    # Исключаем отмененные задачи
+                    if task_id not in revoked_task_ids:
+                        reserved_tasks.append({
+                            'task_id': task_id,
+                            'name': task.get('name'),
+                            'args': str(task.get('args', [])),
+                            'kwargs': str(task.get('kwargs', {})),
+                            'worker': worker,
+                            'status': 'RESERVED',
+                        })
 
         # Получаем информацию о задачах из БД (связанные с бронированиями)
         def _get_booking_tasks(session):
@@ -199,12 +243,38 @@ async def get_celery_stats(
     try:
         logger.info(f"Получение статистики Celery администратором {current_admin.login}")
 
-        inspect = celery_app.control.inspect()
+        inspect = celery_app.control.inspect(timeout=1.0)
 
-        # Информация о workers
-        stats = inspect.stats()
-        active_queues = inspect.active_queues()
-        registered_tasks = inspect.registered()
+        # Параллельно выполняем все inspect вызовы для ускорения
+        import concurrent.futures
+
+        def get_stats():
+            return inspect.stats()
+
+        def get_active_queues():
+            return inspect.active_queues()
+
+        def get_registered():
+            return inspect.registered()
+
+        # Выполняем все вызовы параллельно
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                'stats': executor.submit(get_stats),
+                'active_queues': executor.submit(get_active_queues),
+                'registered': executor.submit(get_registered),
+            }
+
+            # Получаем результаты с timeout
+            try:
+                stats = futures['stats'].result(timeout=2.0)
+                active_queues = futures['active_queues'].result(timeout=2.0)
+                registered_tasks = futures['registered'].result(timeout=2.0)
+            except concurrent.futures.TimeoutError:
+                logger.warning("Timeout при получении статистики Celery")
+                stats = None
+                active_queues = None
+                registered_tasks = None
 
         workers_info = []
         if stats:
@@ -389,30 +459,61 @@ async def revoke_all_tasks(
     current_admin: CachedAdmin = Depends(require_super_admin)
 ):
     """
-    Отменить ВСЕ активные и запланированные задачи Celery (только для Суперадмина).
+    Полностью удалить ВСЕ задачи Celery (только для Суперадмина).
 
-    Отменяет все задачи в статусах: active, scheduled, reserved.
-    Также очищает task_id в таблице bookings для всех затронутых бронирований.
+    Использует purge() для полной очистки всех очередей.
+    Также очищает task_id в таблице bookings для всех бронирований.
     """
     try:
         logger.warning(
-            f"Администратор {current_admin.login} инициировал массовую отмену ВСЕХ Celery задач"
+            f"Администратор {current_admin.login} инициировал ПОЛНУЮ ОЧИСТКУ всех Celery задач"
         )
 
-        inspect = celery_app.control.inspect()
+        inspect = celery_app.control.inspect(timeout=1.0)
 
-        # Собираем все task IDs из разных статусов
+        # Параллельно получаем информацию о задачах для статистики
+        import concurrent.futures
+
+        def get_active():
+            return inspect.active()
+
+        def get_scheduled():
+            return inspect.scheduled()
+
+        def get_reserved():
+            return inspect.reserved()
+
+        # Выполняем все вызовы параллельно
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                'active': executor.submit(get_active),
+                'scheduled': executor.submit(get_scheduled),
+                'reserved': executor.submit(get_reserved),
+            }
+
+            # Получаем результаты с timeout
+            try:
+                active_raw = futures['active'].result(timeout=2.0)
+                scheduled_raw = futures['scheduled'].result(timeout=2.0)
+                reserved_raw = futures['reserved'].result(timeout=2.0)
+            except concurrent.futures.TimeoutError:
+                logger.warning("Timeout при получении данных для revoke-all")
+                active_raw = None
+                scheduled_raw = None
+                reserved_raw = None
+
+        # Сначала подсчитываем количество задач для статистики
         all_task_ids = []
 
         # Активные задачи
-        active_raw = inspect.active()
         if active_raw:
             for worker, tasks in active_raw.items():
                 for task in tasks:
-                    all_task_ids.append(task.get('id'))
+                    task_id = task.get('id')
+                    if task_id:
+                        all_task_ids.append(task_id)
 
         # Запланированные задачи
-        scheduled_raw = inspect.scheduled()
         if scheduled_raw:
             for worker, tasks in scheduled_raw.items():
                 for task in tasks:
@@ -422,27 +523,42 @@ async def revoke_all_tasks(
                         all_task_ids.append(task_id)
 
         # Зарезервированные задачи
-        reserved_raw = inspect.reserved()
         if reserved_raw:
             for worker, tasks in reserved_raw.items():
                 for task in tasks:
-                    all_task_ids.append(task.get('id'))
+                    task_id = task.get('id')
+                    if task_id:
+                        all_task_ids.append(task_id)
 
         # Удаляем дубликаты
         all_task_ids = list(set(filter(None, all_task_ids)))
+        tasks_count_before = len(all_task_ids)
 
-        logger.info(f"Найдено {len(all_task_ids)} задач для отмены")
+        logger.info(f"Найдено {tasks_count_before} задач перед очисткой")
 
-        # Отменяем все задачи
-        revoked_count = 0
-        for task_id in all_task_ids:
-            try:
-                celery_app.control.revoke(task_id, terminate=False)
-                revoked_count += 1
-            except Exception as e:
-                logger.error(f"Failed to revoke task {task_id}: {e}")
+        # ПОЛНАЯ ОЧИСТКА: Используем purge для удаления всех задач из очередей
+        # Это удаляет задачи НАВСЕГДА, а не просто отменяет их
+        try:
+            purged = celery_app.control.purge()
+            logger.info(f"Purge выполнен, удалено {purged} задач из очередей")
+        except Exception as e:
+            logger.error(f"Ошибка при purge: {e}")
+            purged = 0
 
-        logger.info(f"Отменено {revoked_count} задач через Celery")
+        # Дополнительно отменяем активные задачи (которые уже выполняются)
+        revoked_active = 0
+        if active_raw:
+            for worker, tasks in active_raw.items():
+                for task in tasks:
+                    task_id = task.get('id')
+                    if task_id:
+                        try:
+                            celery_app.control.revoke(task_id, terminate=False)
+                            revoked_active += 1
+                        except Exception as e:
+                            logger.error(f"Failed to revoke active task {task_id}: {e}")
+
+        logger.info(f"Дополнительно отменено {revoked_active} активных задач")
 
         # Очищаем все task_id в таблице bookings
         def _clear_all_task_ids(session):
@@ -465,12 +581,15 @@ async def revoke_all_tasks(
         logger.info(f"Очищены task_ids у {cleared_bookings} бронирований")
 
         # Отправляем Telegram уведомление администратору
+        total_removed = purged + revoked_active
         try:
             from utils.bot_instance import send_admin_notification
             await send_admin_notification(
-                f"🔴 МАССОВАЯ ОТМЕНА ВСЕХ ЗАДАЧ\n\n"
+                f"🔴 ПОЛНАЯ ОЧИСТКА ЗАДАЧ CELERY\n\n"
                 f"Администратор: {current_admin.login}\n"
-                f"Отменено задач: {revoked_count}\n"
+                f"Удалено из очередей (purge): {purged}\n"
+                f"Отменено активных: {revoked_active}\n"
+                f"Всего удалено: {total_removed}\n"
                 f"Очищено бронирований: {cleared_bookings}"
             )
         except Exception as e:
@@ -478,8 +597,10 @@ async def revoke_all_tasks(
 
         return {
             'success': True,
-            'total_tasks_found': len(all_task_ids),
-            'tasks_revoked': revoked_count,
+            'total_tasks_found': tasks_count_before,
+            'tasks_purged': purged,
+            'active_tasks_revoked': revoked_active,
+            'total_removed': total_removed,
             'bookings_cleared': cleared_bookings,
             'timestamp': datetime.now(MOSCOW_TZ).isoformat(),
         }
