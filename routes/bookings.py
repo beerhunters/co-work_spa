@@ -2,7 +2,7 @@ from datetime import date, time as time_type, datetime, timedelta
 from typing import List, Optional
 import csv
 import io
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import text, or_, func
@@ -158,6 +158,7 @@ async def get_bookings_detailed(
                     "paid": booking.paid,
                     "rubitime_id": booking.rubitime_id,
                     "confirmed": booking.confirmed,
+                    "cancelled": bool(booking.cancelled) if booking.cancelled is not None else False,
                     "created_at": booking.created_at,
                     "user": {
                         "id": booking.user.id,
@@ -1109,6 +1110,7 @@ async def get_booking_detailed(
             "paid": bool(booking.paid),
             "rubitime_id": booking.rubitime_id,
             "confirmed": bool(booking.confirmed),
+            "cancelled": bool(booking.cancelled) if booking.cancelled is not None else False,
             "created_at": booking.created_at.isoformat(),
             "user": (
                 {
@@ -1215,7 +1217,7 @@ async def get_booking(
 @router.put("/{booking_id}")
 async def update_booking(
     booking_id: int,
-    update_data: dict,
+    update_data: dict = Body(...),
     db: Session = Depends(get_db),
     current_admin: CachedAdmin = Depends(
         verify_token_with_permissions([Permission.EDIT_BOOKINGS])
@@ -1242,12 +1244,35 @@ async def update_booking(
             f"Обновление бронирования #{booking_id} администратором {current_admin.login}: {update_data}"
         )
 
+        update_dict = update_data
+
         # Сохраняем старые task_id ДО любых изменений
         old_expiration_task_id = booking.expiration_task_id
         old_reminder_task_id = booking.reminder_task_id
 
-        # Проверяем отмену бронирования (confirmed: true -> false)
-        if "confirmed" in update_data and not update_data["confirmed"] and old_confirmed:
+        # Проверяем отмену бронирования через поле cancelled
+        if "cancelled" in update_dict and update_dict["cancelled"]:
+            # Проверяем, не было ли бронирование уже отменено
+            was_already_cancelled = booking.cancelled
+
+            # Устанавливаем статус отмены
+            booking.cancelled = True
+            booking.confirmed = False  # Снимаем подтверждение
+
+            # Удаляем запись из Rubitime если она существует
+            if booking.rubitime_id:
+                try:
+                    from utils.external_api import rubitime
+                    logger.info(f"Deleting Rubitime record #{booking.rubitime_id} for cancelled booking #{booking.id}")
+                    result = await rubitime("delete_record", {"record_id": booking.rubitime_id})
+                    if result:
+                        logger.info(f"Rubitime record #{booking.rubitime_id} successfully deleted")
+                        booking.rubitime_id = None
+                    else:
+                        logger.warning(f"Failed to delete Rubitime record #{booking.rubitime_id}, but continuing")
+                except Exception as e:
+                    logger.error(f"Error deleting Rubitime record for cancelled booking: {e}")
+
             # Отменяем связанные Celery задачи при отмене бронирования
             if booking.expiration_task_id or booking.reminder_task_id:
                 try:
@@ -1267,24 +1292,87 @@ async def update_booking(
                 except Exception as e:
                     logger.error(f"Error revoking tasks for cancelled booking #{booking.id}: {e}", exc_info=True)
 
-        if "confirmed" in update_data:
-            booking.confirmed = update_data["confirmed"]
+            logger.info(f"Booking #{booking.id} cancelled by admin {current_admin.login}")
 
-        if "paid" in update_data:
-            booking.paid = update_data["paid"]
+            # Сохраняем изменения в БД сразу после отмены
+            db.commit()
+            db.refresh(booking)
 
-        if "amount" in update_data:
-            booking.amount = update_data["amount"]
+            # Отправляем уведомление пользователю об отмене ТОЛЬКО если это первая отмена
+            if not was_already_cancelled:
+                bot = get_bot()
+                if bot and user.telegram_id:
+                    try:
+                        visit_time_str = (
+                            f" в {booking.visit_time.strftime('%H:%M')}"
+                            if booking.visit_time
+                            else ""
+                        )
+                        duration_str = f" ({booking.duration}ч)" if booking.duration else ""
 
-        if "comment" in update_data:
-            booking.comment = update_data["comment"]
+                        message = f"""Ваша бронь была отменена
+
+Тариф: {tariff.name}
+Дата: {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}{duration_str}
+
+Если у вас есть вопросы, пожалуйста, свяжитесь с администрацией."""
+
+                        await bot.send_message(user.telegram_id, message)
+                        logger.info(
+                            f"Отправлено уведомление об отмене бронирования пользователю {user.telegram_id}"
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Не удалось отправить уведомление об отмене пользователю {user.telegram_id}: {e}"
+                        )
+
+        # Проверяем отмену бронирования (старая логика: confirmed: true -> false)
+        # Теперь также устанавливаем cancelled=True
+        elif "confirmed" in update_dict and not update_dict["confirmed"] and old_confirmed:
+            booking.cancelled = True  # Устанавливаем статус отмены
+
+            # Отменяем связанные Celery задачи при отмене бронирования
+            if booking.expiration_task_id or booking.reminder_task_id:
+                try:
+                    revoke_results = revoke_booking_tasks(
+                        expiration_task_id=booking.expiration_task_id,
+                        reminder_task_id=booking.reminder_task_id,
+                        booking_id=booking.id
+                    )
+                    logger.info(
+                        f"Revoked tasks for cancelled booking #{booking.id}: "
+                        f"{revoke_results['total_revoked']} tasks"
+                    )
+                    # Очищаем task IDs после отмены
+                    booking.expiration_task_id = None
+                    booking.reminder_task_id = None
+                    db.commit()  # Коммитим очистку task_id
+                except Exception as e:
+                    logger.error(f"Error revoking tasks for cancelled booking #{booking.id}: {e}", exc_info=True)
+
+        if "confirmed" in update_dict:
+            booking.confirmed = update_dict["confirmed"]
+
+        if "paid" in update_dict:
+            booking.paid = update_dict["paid"]
+
+        if "amount" in update_dict:
+            booking.amount = update_dict["amount"]
+
+        if "comment" in update_dict:
+            booking.comment = update_dict["comment"]
+
+        if "cancelled" in update_dict and not update_dict["cancelled"]:
+            # Разрешаем восстановление бронирования (cancelled: true -> false)
+            booking.cancelled = False
+            logger.info(f"Booking #{booking.id} restored from cancelled state")
 
         # Обработка изменения даты/времени/продолжительности
         date_time_changed = False
         tasks_recreated = False
 
         # Проверяем, изменились ли параметры, влияющие на время задач
-        if any(key in update_data for key in ["visit_date", "visit_time", "duration", "reminder_days"]):
+        if any(key in update_dict for key in ["visit_date", "visit_time", "duration", "reminder_days"]):
             date_time_changed = True
 
             # Сохраняем старые значения для логирования
@@ -1293,14 +1381,14 @@ async def update_booking(
             old_duration = booking.duration
 
             # Применяем изменения
-            if "visit_date" in update_data:
-                booking.visit_date = update_data["visit_date"]
-            if "visit_time" in update_data:
-                booking.visit_time = update_data["visit_time"]
-            if "duration" in update_data:
-                booking.duration = update_data["duration"]
-            if "reminder_days" in update_data:
-                booking.reminder_days = update_data["reminder_days"]
+            if "visit_date" in update_dict:
+                booking.visit_date = update_dict["visit_date"]
+            if "visit_time" in update_dict:
+                booking.visit_time = update_dict["visit_time"]
+            if "duration" in update_dict:
+                booking.duration = update_dict["duration"]
+            if "reminder_days" in update_dict:
+                booking.reminder_days = update_dict["reminder_days"]
 
             db.commit()  # Сохраняем изменения перед пересозданием задач
 
@@ -1399,11 +1487,12 @@ async def update_booking(
             except Exception as e:
                 logger.error(f"Error recreating tasks for booking #{booking.id}: {e}", exc_info=True)
 
-        # Создание записи в Rubitime при подтверждении
+        # Создание записи в Rubitime при подтверждении (только если не отменено)
         if (
-            "confirmed" in update_data
-            and update_data["confirmed"]
+            "confirmed" in update_dict
+            and update_dict["confirmed"]
             and not old_confirmed
+            and not booking.cancelled  # Не создаем запись для отмененных бронирований
             and not booking.rubitime_id
             and tariff.service_id
         ):
@@ -1489,8 +1578,8 @@ async def update_booking(
 
         # Обновление счетчика успешных бронирований
         if (
-            "paid" in update_data
-            and update_data["paid"]
+            "paid" in update_dict
+            and update_dict["paid"]
             and not old_paid
             and tariff.purpose
             and tariff.purpose.lower() in ["опенспейс", "coworking"]
@@ -1509,8 +1598,8 @@ async def update_booking(
         if bot and user.telegram_id:
             try:
                 if (
-                    "confirmed" in update_data
-                    and update_data["confirmed"]
+                    "confirmed" in update_dict
+                    and update_dict["confirmed"]
                     and not old_confirmed
                 ):
                     visit_time_str = (
@@ -1533,7 +1622,7 @@ async def update_booking(
                         f"Отправлено уведомление о подтверждении пользователю {user.telegram_id}"
                     )
 
-                elif "paid" in update_data and update_data["paid"] and not old_paid:
+                elif "paid" in update_dict and update_dict["paid"] and not old_paid:
                     visit_time_str = (
                         f" в {booking.visit_time.strftime('%H:%M')}"
                         if booking.visit_time
@@ -1641,6 +1730,7 @@ async def update_booking(
             "paid": bool(booking.paid),
             "rubitime_id": booking.rubitime_id,
             "confirmed": bool(booking.confirmed),
+            "cancelled": bool(booking.cancelled) if booking.cancelled is not None else False,
             "created_at": booking.created_at.isoformat(),
         }
 

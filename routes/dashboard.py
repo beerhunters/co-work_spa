@@ -325,6 +325,7 @@ async def get_chart_data(
                             COUNT(*) as count
                         FROM bookings
                         WHERE strftime('%Y', created_at) = :year AND strftime('%m', created_at) = :month_str
+                          AND (cancelled IS NULL OR cancelled = 0)
                         GROUP BY CAST(strftime('%d', created_at) AS INTEGER)
                     )
                     SELECT * FROM daily_data
@@ -570,6 +571,7 @@ async def get_bookings_calendar(
                     LEFT JOIN tariffs t ON b.tariff_id = t.id
                     WHERE strftime('%Y', b.visit_date) = :year
                       AND strftime('%m', b.visit_date) = :month_str
+                      AND (b.cancelled IS NULL OR b.cancelled = 0)
                     """
                 ]
 
@@ -753,6 +755,7 @@ async def get_tariff_distribution(
                     LEFT JOIN bookings b ON t.id = b.tariff_id
                         AND b.created_at >= :period_start
                         AND b.created_at < :period_end
+                        AND (b.cancelled IS NULL OR b.cancelled = 0)
                     WHERE t.is_active = 1
                     GROUP BY t.id, t.name, t.price
                     HAVING bookings_count > 0
@@ -879,7 +882,7 @@ async def compare_periods(
                     FROM dates
                     LEFT JOIN users u ON DATE(COALESCE(u.reg_date, u.first_join_time)) = dates.date
                     LEFT JOIN tickets t ON DATE(t.created_at) = dates.date
-                    LEFT JOIN bookings b ON DATE(b.created_at) = dates.date
+                    LEFT JOIN bookings b ON DATE(b.created_at) = dates.date AND (b.cancelled IS NULL OR b.cancelled = 0)
                     GROUP BY dates.date
                     ORDER BY dates.date
                 """)
@@ -981,12 +984,13 @@ async def export_dashboard_csv(
     try:
         def _get_export_data(session):
             # Получаем общую статистику (исправлен cartesian join - используем scalar subqueries)
+            # Отмененные бронирования исключаются из всех подсчетов
             stats_query = text("""
                 SELECT
                     (SELECT COUNT(*) FROM users WHERE reg_date >= :period_start AND reg_date < :period_end) as total_users,
-                    (SELECT COUNT(*) FROM bookings WHERE created_at >= :period_start AND created_at < :period_end) as total_bookings,
-                    (SELECT COUNT(*) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
-                    (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
+                    (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND created_at >= :period_start AND created_at < :period_end) as total_bookings,
+                    (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
+                    (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
                     (SELECT COUNT(*) FROM tickets WHERE created_at >= :period_start AND created_at < :period_end) as total_tickets,
                     (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN' AND created_at >= :period_start AND created_at < :period_end) as open_tickets
             """)
@@ -1013,7 +1017,7 @@ async def export_dashboard_csv(
                     COALESCE(SUM(CASE WHEN b.paid = 1 THEN b.amount ELSE 0 END), 0) as revenue
                 FROM dates d
                 LEFT JOIN users u ON DATE(u.reg_date) = d.date
-                LEFT JOIN bookings b ON DATE(b.created_at) = d.date
+                LEFT JOIN bookings b ON DATE(b.created_at) = d.date AND (b.cancelled IS NULL OR b.cancelled = 0)
                 LEFT JOIN tickets t ON DATE(t.created_at) = d.date
                 GROUP BY d.date
                 ORDER BY d.date
@@ -1034,6 +1038,7 @@ async def export_dashboard_csv(
                 LEFT JOIN bookings b ON b.tariff_id = t.id
                     AND b.created_at >= :period_start
                     AND b.created_at < :period_end
+                    AND (b.cancelled IS NULL OR b.cancelled = 0)
                 GROUP BY t.id, t.name
                 ORDER BY booking_count DESC
             """)
@@ -1148,9 +1153,9 @@ async def export_dashboard_excel(
             stats_query = text("""
                 SELECT
                     (SELECT COUNT(*) FROM users WHERE reg_date >= :period_start AND reg_date < :period_end) as total_users,
-                    (SELECT COUNT(*) FROM bookings WHERE created_at >= :period_start AND created_at < :period_end) as total_bookings,
-                    (SELECT COUNT(*) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
-                    (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
+                    (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND created_at >= :period_start AND created_at < :period_end) as total_bookings,
+                    (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1 AND created_at >= :period_start AND created_at < :period_end) as paid_bookings,
+                    (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1 AND created_at >= :period_start AND created_at < :period_end) as total_revenue,
                     (
                         SELECT COALESCE(
                             CASE WHEN COUNT(*) > 0
@@ -1159,6 +1164,7 @@ async def export_dashboard_excel(
                         FROM (
                             SELECT amount FROM bookings
                             WHERE paid = 1
+                              AND (cancelled IS NULL OR cancelled = 0)
                               AND created_at >= :period_start
                               AND created_at < :period_end
                             UNION ALL
@@ -1193,7 +1199,7 @@ async def export_dashboard_excel(
                     COALESCE(SUM(CASE WHEN b.paid = 1 THEN b.amount ELSE 0 END), 0) as revenue
                 FROM dates d
                 LEFT JOIN users u ON DATE(u.reg_date) = d.date
-                LEFT JOIN bookings b ON DATE(b.created_at) = d.date
+                LEFT JOIN bookings b ON DATE(b.created_at) = d.date AND (b.cancelled IS NULL OR b.cancelled = 0)
                 LEFT JOIN tickets t ON DATE(t.created_at) = d.date
                 GROUP BY d.date
                 ORDER BY d.date
@@ -1215,6 +1221,7 @@ async def export_dashboard_excel(
                 LEFT JOIN bookings b ON b.tariff_id = t.id
                     AND b.created_at >= :period_start
                     AND b.created_at < :period_end
+                    AND (b.cancelled IS NULL OR b.cancelled = 0)
                 GROUP BY t.id, t.name
                 ORDER BY booking_count DESC
             """)
@@ -1415,6 +1422,7 @@ async def get_top_clients(
                     INNER JOIN bookings b ON b.user_id = u.id
                     WHERE b.created_at >= :period_start
                         AND b.created_at < :period_end
+                        AND (b.cancelled IS NULL OR b.cancelled = 0)
                     GROUP BY u.id, u.username, u.telegram_id
                     HAVING total_spent > 0
                     ORDER BY total_spent DESC
@@ -1436,6 +1444,7 @@ async def get_top_clients(
                     INNER JOIN bookings b ON b.user_id = u.id
                     WHERE b.created_at >= :period_start
                         AND b.created_at < :period_end
+                        AND (b.cancelled IS NULL OR b.cancelled = 0)
                 """)
 
                 total_stats = session.execute(total_query, {
@@ -1531,6 +1540,7 @@ async def get_promocode_stats(
             LEFT JOIN bookings b ON b.promocode_id = p.id
                 AND b.created_at >= :period_start
                 AND b.created_at < :period_end
+                AND (b.cancelled IS NULL OR b.cancelled = 0)
             GROUP BY p.id, p.name, p.discount, p.is_active
             HAVING total_uses > 0 OR p.is_active = 1
             ORDER BY total_revenue DESC

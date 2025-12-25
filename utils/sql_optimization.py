@@ -81,6 +81,7 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
                     0 as avg_value
                 FROM bookings b
                 WHERE b.created_at >= :start_date AND b.created_at <= :end_date
+                  AND (b.cancelled IS NULL OR b.cancelled = 0)
                 GROUP BY DATE(b.created_at)
 
                 UNION ALL
@@ -110,6 +111,7 @@ def get_sparkline_data(session: Session, days: int = 7) -> Dict[str, List[int]]:
                     SELECT b.created_at as payment_date, b.amount
                     FROM bookings b
                     WHERE b.paid = 1
+                      AND (b.cancelled IS NULL OR b.cancelled = 0)
                       AND b.created_at >= :start_date
                       AND b.created_at <= :end_date
                     UNION ALL
@@ -309,11 +311,11 @@ class SQLOptimizer:
                 """
                                SELECT
                                        (SELECT COUNT(*) FROM users) as total_users,
-                                       (SELECT COUNT(*) FROM bookings) as total_bookings,
+                                       (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0)) as total_bookings,
                                        (SELECT COUNT(*) FROM tickets WHERE status != 'CLOSED') as open_tickets,
                                        (SELECT COUNT(*) FROM tariffs WHERE is_active = 1) as active_tariffs,
-                                       (SELECT COUNT(*) FROM bookings WHERE paid = 1) as paid_bookings,
-                                       (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1) as total_revenue,
+                                       (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1) as paid_bookings,
+                                       (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1) as total_revenue,
                                        (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN') as open_tickets_only,
                                        (SELECT COUNT(*) FROM tickets WHERE status = 'IN_PROGRESS') as in_progress_tickets,
                                        (SELECT COUNT(*) FROM tickets WHERE status = 'CLOSED') as closed_tickets,
@@ -413,6 +415,7 @@ class SQLOptimizer:
                         COUNT(DISTINCT CASE
                             WHEN b.created_at >= :period_start
                             AND b.created_at < :period_end
+                            AND (b.cancelled IS NULL OR b.cancelled = 0)
                             THEN b.id END) as bookings_count,
 
                         -- Тикеты за текущий период
@@ -424,6 +427,7 @@ class SQLOptimizer:
                         -- Доход за текущий период
                         COALESCE(SUM(CASE
                             WHEN b.paid = 1
+                            AND (b.cancelled IS NULL OR b.cancelled = 0)
                             AND b.created_at >= :period_start
                             AND b.created_at < :period_end
                             THEN b.amount ELSE 0 END), 0) as revenue,
@@ -438,6 +442,7 @@ class SQLOptimizer:
                                 SELECT b.amount
                                 FROM bookings b
                                 WHERE b.paid = 1
+                                  AND (b.cancelled IS NULL OR b.cancelled = 0)
                                   AND b.created_at >= :period_start
                                   AND b.created_at < :period_end
                                 UNION ALL
@@ -478,6 +483,7 @@ class SQLOptimizer:
                         COUNT(DISTINCT CASE
                             WHEN b.created_at >= :prev_period_start
                             AND b.created_at < :prev_period_end
+                            AND (b.cancelled IS NULL OR b.cancelled = 0)
                             THEN b.id END) as bookings_count,
 
                         -- Тикеты за предыдущий период
@@ -489,6 +495,7 @@ class SQLOptimizer:
                         -- Доход за предыдущий период
                         COALESCE(SUM(CASE
                             WHEN b.paid = 1
+                            AND (b.cancelled IS NULL OR b.cancelled = 0)
                             AND b.created_at >= :prev_period_start
                             AND b.created_at < :prev_period_end
                             THEN b.amount ELSE 0 END), 0) as revenue,
@@ -503,6 +510,7 @@ class SQLOptimizer:
                                 SELECT b.amount
                                 FROM bookings b
                                 WHERE b.paid = 1
+                                  AND (b.cancelled IS NULL OR b.cancelled = 0)
                                   AND b.created_at >= :prev_period_start
                                   AND b.created_at < :prev_period_end
                                 UNION ALL
@@ -534,11 +542,11 @@ class SQLOptimizer:
                 current_status AS (
                     SELECT
                         (SELECT COUNT(*) FROM users) as total_users,
-                        (SELECT COUNT(*) FROM bookings) as total_bookings,
+                        (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0)) as total_bookings,
                         (SELECT COUNT(*) FROM tickets WHERE status != 'CLOSED') as open_tickets,
                         (SELECT COUNT(*) FROM tariffs WHERE is_active = 1) as active_tariffs,
-                        (SELECT COUNT(*) FROM bookings WHERE paid = 1) as paid_bookings,
-                        (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE paid = 1) as total_revenue,
+                        (SELECT COUNT(*) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1) as paid_bookings,
+                        (SELECT COALESCE(SUM(amount), 0) FROM bookings WHERE (cancelled IS NULL OR cancelled = 0) AND paid = 1) as total_revenue,
                         (SELECT COUNT(*) FROM tickets WHERE status = 'OPEN') as open_tickets_only,
                         (SELECT COUNT(*) FROM tickets WHERE status = 'IN_PROGRESS') as in_progress_tickets,
                         (SELECT COUNT(*) FROM tickets WHERE status = 'CLOSED') as closed_tickets,
@@ -878,6 +886,7 @@ class SQLOptimizer:
                                    COUNT(CASE WHEN created_at >= :start_date THEN 1 END) as current_month_bookings,
                                    COALESCE(SUM(CASE WHEN created_at >= :start_date AND paid = 1 THEN amount ELSE 0 END), 0) as current_month_revenue
                                FROM bookings
+                               WHERE (cancelled IS NULL OR cancelled = 0)
                                """
             )
 
@@ -894,7 +903,7 @@ class SQLOptimizer:
                                          COUNT(b.id) as booking_count,
                                          COALESCE(SUM(CASE WHEN b.paid = 1 THEN b.amount ELSE 0 END), 0) as revenue
                                      FROM tariffs t
-                                              LEFT JOIN bookings b ON t.id = b.tariff_id
+                                              LEFT JOIN bookings b ON t.id = b.tariff_id AND (b.cancelled IS NULL OR b.cancelled = 0)
                                      WHERE t.is_active = 1
                                      GROUP BY t.id, t.name, t.price
                                      ORDER BY booking_count DESC, revenue DESC

@@ -668,28 +668,42 @@ const Bookings = ({
 
                     <Td data-tour="bookings-status">
                       <VStack align="start" spacing={1}>
-                        <Badge
-                          colorScheme={getStatusColor(booking.paid ? 'paid' : 'unpaid')}
-                          fontSize="sm"
-                        >
-                          {booking.paid ? (
-                            <HStack spacing={1}>
-                              <Icon as={FiCheck} />
-                              <Text>Оплачено</Text>
-                            </HStack>
-                          ) : (
+                        {booking.cancelled ? (
+                          <Badge
+                            colorScheme="red"
+                            fontSize="sm"
+                          >
                             <HStack spacing={1}>
                               <Icon as={FiX} />
-                              <Text>Не оплачено</Text>
+                              <Text>Отменено</Text>
                             </HStack>
-                          )}
-                        </Badge>
-                        <Badge
-                          colorScheme={getStatusColor(booking.confirmed ? 'confirmed' : 'pending')}
-                          fontSize="sm"
-                        >
-                          {booking.confirmed ? 'Подтверждено' : 'Ожидает'}
-                        </Badge>
+                          </Badge>
+                        ) : (
+                          <>
+                            <Badge
+                              colorScheme={getStatusColor(booking.paid ? 'paid' : 'unpaid')}
+                              fontSize="sm"
+                            >
+                              {booking.paid ? (
+                                <HStack spacing={1}>
+                                  <Icon as={FiCheck} />
+                                  <Text>Оплачено</Text>
+                                </HStack>
+                              ) : (
+                                <HStack spacing={1}>
+                                  <Icon as={FiX} />
+                                  <Text>Не оплачено</Text>
+                                </HStack>
+                              )}
+                            </Badge>
+                            <Badge
+                              colorScheme={getStatusColor(booking.confirmed ? 'confirmed' : 'pending')}
+                              fontSize="sm"
+                            >
+                              {booking.confirmed ? 'Подтверждено' : 'Ожидает'}
+                            </Badge>
+                          </>
+                        )}
                       </VStack>
                     </Td>
 

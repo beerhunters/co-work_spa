@@ -1027,6 +1027,7 @@ class Booking(Base):
     paid = Column(Boolean, default=False, index=True)
     rubitime_id = Column(String(100), nullable=True)
     confirmed = Column(Boolean, default=False, index=True)
+    cancelled = Column(Boolean, default=False, index=True)  # Отменено ли бронирование
     created_at = Column(
         DateTime, default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True
     )

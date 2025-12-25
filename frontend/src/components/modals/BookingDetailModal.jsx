@@ -65,7 +65,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
-  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false, markFree: false, save: false, sendLink: false, cancel: false });
+  const [actionLoading, setActionLoading] = useState({ confirm: false, markPaid: false, markFree: false, save: false, sendLink: false, cancel: false, restore: false });
   const toast = useToast();
 
   // Состояния для редактирования
@@ -352,29 +352,15 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     setActionLoading(prev => ({ ...prev, cancel: true }));
 
     try {
-      // Рассчитываем сумму на основе тарифа
-      const data = detailedBooking || booking;
-      const tariff = data.tariff || {};
-      const duration = data.duration || 1;
-
-      // Базовая сумма тарифа
-      let calculatedAmount = tariff.price || 0;
-
-      // Для переговорных умножаем на длительность
-      if (tariff.purpose === 'meeting_room' && duration) {
-        calculatedAmount = tariff.price * duration;
-      }
-
       await bookingApi.updateBooking(booking.id, {
-        confirmed: false,
+        cancelled: true,
         paid: false,
-        amount: calculatedAmount
+        confirmed: false
       });
 
       toast({
         title: 'Бронирование отменено',
-        description: 'Пользователь получит уведомление об отмене',
-        status: 'warning',
+        status: 'success',
         duration: 3000,
         isClosable: true,
       });
@@ -398,6 +384,59 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       });
     } finally {
       setActionLoading(prev => ({ ...prev, cancel: false }));
+    }
+  };
+
+  // Восстановить бронирование
+  const handleRestoreBooking = async () => {
+    setActionLoading(prev => ({ ...prev, restore: true }));
+
+    try {
+      await bookingApi.updateBooking(booking.id, {
+        cancelled: false,
+        confirmed: true  // Сразу подтверждаем при восстановлении
+      });
+
+      toast({
+        title: 'Бронирование восстановлено и подтверждено',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Перезагружаем данные из API
+      await fetchBookingDetails(false);
+
+      // Обновляем родительский компонент
+      if (onUpdate) {
+        onUpdate();
+      }
+    } catch (error) {
+      console.error('Ошибка восстановления бронирования:', error);
+      toast({
+        title: 'Ошибка восстановления',
+        description: error.message || 'Не удалось восстановить бронирование',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    } finally {
+      setActionLoading(prev => ({ ...prev, restore: false }));
+    }
+  };
+
+  // Универсальная функция для подтверждения или восстановления бронирования
+  const handleConfirmOrRestoreBooking = async () => {
+    const currentData = detailedBooking || booking;
+    if (!currentData) return;
+
+    // Если бронирование отменено - восстанавливаем
+    if (currentData.cancelled) {
+      await handleRestoreBooking();
+    }
+    // Если бронирование не подтверждено - подтверждаем
+    else if (!currentData.confirmed) {
+      await handleConfirmBooking();
     }
   };
 
@@ -537,12 +576,20 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
           <HStack justify="space-between" align="center">
             <HStack>
               <Text fontSize="xl" fontWeight="bold">Бронирование #{data.id}</Text>
-              <Badge colorScheme={getStatusColor(data.paid ? 'paid' : 'unpaid')} fontSize="sm">
-                {data.paid ? 'Оплачено' : 'Не оплачено'}
-              </Badge>
-              <Badge colorScheme={getStatusColor(data.confirmed ? 'confirmed' : 'pending')} fontSize="sm">
-                {data.confirmed ? 'Подтверждено' : 'Ожидает'}
-              </Badge>
+              {data.cancelled ? (
+                <Badge colorScheme="red" fontSize="sm">
+                  Отменено
+                </Badge>
+              ) : (
+                <>
+                  <Badge colorScheme={getStatusColor(data.paid ? 'paid' : 'unpaid')} fontSize="sm">
+                    {data.paid ? 'Оплачено' : 'Не оплачено'}
+                  </Badge>
+                  <Badge colorScheme={getStatusColor(data.confirmed ? 'confirmed' : 'pending')} fontSize="sm">
+                    {data.confirmed ? 'Подтверждено' : 'Ожидает'}
+                  </Badge>
+                </>
+              )}
             </HStack>
           </HStack>
         </ModalHeader>
@@ -1011,14 +1058,19 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                   Редактировать
                 </Button>
               )}
-              {!data.confirmed && (
-                <Button size="sm" colorScheme="green" leftIcon={<FiCheck />} onClick={handleConfirmBooking} isLoading={actionLoading.confirm}>
-                  Подтвердить
+              {(data.cancelled || !data.confirmed) ? (
+                <Button
+                  size="sm"
+                  colorScheme="green"
+                  leftIcon={<FiCheck />}
+                  onClick={handleConfirmOrRestoreBooking}
+                  isLoading={actionLoading.confirm || actionLoading.restore}
+                >
+                  Подтвердить бронирование
                 </Button>
-              )}
-              {data.confirmed && (
+              ) : (
                 <Button size="sm" colorScheme="red" leftIcon={<FiX />} onClick={handleCancelBooking} isLoading={actionLoading.cancel}>
-                  Отменить бронь
+                  Отменить бронирование
                 </Button>
               )}
             </HStack>

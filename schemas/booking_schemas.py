@@ -18,6 +18,7 @@ class BookingBase(BaseModel):
     paid: bool
     rubitime_id: Optional[str]
     confirmed: bool
+    cancelled: Optional[bool] = False
     created_at: datetime
 
     class Config:
@@ -46,8 +47,15 @@ class BookingUpdate(BaseModel):
 
     confirmed: Optional[bool] = None
     paid: Optional[bool] = None
+    cancelled: Optional[bool] = None
     rubitime_id: Optional[str] = None
     payment_id: Optional[str] = None
+    visit_date: Optional[date] = None
+    visit_time: Optional[time_type] = None
+    duration: Optional[int] = None
+    amount: Optional[float] = None
+    comment: Optional[str] = None
+    reminder_days: Optional[int] = None
 
 
 class BookingStats(BaseModel):
@@ -80,6 +88,7 @@ class BookingDetailed(BaseModel):
     paid: bool
     rubitime_id: Optional[str]
     confirmed: bool
+    cancelled: Optional[bool] = False
     created_at: str
     user: dict
     tariff: dict

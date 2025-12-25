@@ -736,6 +736,10 @@ export const bookingApi = {
         validatedData.amount = Number(updateData.amount);
       }
 
+      if ('cancelled' in updateData) {
+        validatedData.cancelled = Boolean(updateData.cancelled);
+      }
+
       const res = await apiClient.put(`/bookings/${id}`, validatedData);
       return res.data;
     } catch (error) {
