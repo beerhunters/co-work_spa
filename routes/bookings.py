@@ -2,6 +2,7 @@ from datetime import date, time as time_type, datetime, timedelta
 from typing import List, Optional
 import csv
 import io
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
@@ -572,27 +573,34 @@ async def create_booking_admin(
                         if hasattr(result["visit_date"], "strftime"):
                             visit_date_str = result["visit_date"].strftime('%d.%m.%Y')
 
+                        # Проверка, является ли тариф бесплатным
+                        is_free_tariff = tariff.price == 0
+                        amount_str = "" if is_free_tariff else f"\nСумма: {result['amount']:.2f} ₽"
+
                         # Формирование сообщения (объединяем подтверждение и оплату)
-                        if booking_data.paid:
+                        if booking_data.paid and not is_free_tariff:
+                            # Платный тариф с оплатой
                             message = f"""✅ Ваша бронь подтверждена!
 💳 Оплата зачислена!
 
 Тариф: {tariff.name}
-Дата: {visit_date_str}{visit_time_str}{duration_str}
-Сумма: {result['amount']:.2f} ₽
+Дата: {visit_date_str}{visit_time_str}{duration_str}{amount_str}
 
 Спасибо за оплату! Ждем вас в назначенное время!"""
                         else:
+                            # Бесплатный тариф или без оплаты
                             message = f"""Ваша бронь подтверждена!
 
 Тариф: {tariff.name}
-Дата: {visit_date_str}{visit_time_str}{duration_str}
-Сумма: {result['amount']:.2f} ₽
+Дата: {visit_date_str}{visit_time_str}{duration_str}{amount_str}
 
 Ждем вас в назначенное время!"""
 
-                        # Отправка уведомления
-                        await bot.send_message(user.telegram_id, message)
+                        # Отправка уведомления с таймаутом 3 секунды
+                        await asyncio.wait_for(
+                            bot.send_message(user.telegram_id, message),
+                            timeout=3.0
+                        )
 
                         logger.info(
                             f"✅ [ADMIN BOOKING] Уведомление о подтвержденной брони успешно отправлено пользователю {user.telegram_id}"
@@ -639,7 +647,10 @@ async def create_booking_admin(
 📅 Дата: {visit_date_str}
 💰 Сумма: {result['amount']:.2f} ₽"""
 
-                        await bot.send_message(ADMIN_TELEGRAM_ID, admin_payment_message)
+                        await asyncio.wait_for(
+                            bot.send_message(ADMIN_TELEGRAM_ID, admin_payment_message),
+                            timeout=3.0
+                        )
                         logger.info(f"✅ Уведомление об оплате отправлено администратору")
 
             except Exception as e:
@@ -1288,15 +1299,10 @@ async def update_booking(
                     # Очищаем task IDs после отмены
                     booking.expiration_task_id = None
                     booking.reminder_task_id = None
-                    db.commit()  # Коммитим очистку task_id
                 except Exception as e:
                     logger.error(f"Error revoking tasks for cancelled booking #{booking.id}: {e}", exc_info=True)
 
             logger.info(f"Booking #{booking.id} cancelled by admin {current_admin.login}")
-
-            # Сохраняем изменения в БД сразу после отмены
-            db.commit()
-            db.refresh(booking)
 
             # Отправляем уведомление пользователю об отмене ТОЛЬКО если это первая отмена
             if not was_already_cancelled:
@@ -1317,7 +1323,10 @@ async def update_booking(
 
 Если у вас есть вопросы, пожалуйста, свяжитесь с администрацией."""
 
-                        await bot.send_message(user.telegram_id, message)
+                        await asyncio.wait_for(
+                            bot.send_message(user.telegram_id, message),
+                            timeout=3.0
+                        )
                         logger.info(
                             f"Отправлено уведомление об отмене бронирования пользователю {user.telegram_id}"
                         )
@@ -1346,7 +1355,6 @@ async def update_booking(
                     # Очищаем task IDs после отмены
                     booking.expiration_task_id = None
                     booking.reminder_task_id = None
-                    db.commit()  # Коммитим очистку task_id
                 except Exception as e:
                     logger.error(f"Error revoking tasks for cancelled booking #{booking.id}: {e}", exc_info=True)
 
@@ -1390,7 +1398,7 @@ async def update_booking(
             if "reminder_days" in update_dict:
                 booking.reminder_days = update_dict["reminder_days"]
 
-            db.commit()  # Сохраняем изменения перед пересозданием задач
+            db.flush()  # Сохраняем изменения в БД, но не отсоединяем от сессии
 
             logger.info(
                 f"Изменены параметры времени для бронирования #{booking_id}: "
@@ -1609,27 +1617,38 @@ async def update_booking(
                     )
                     duration_str = f" ({booking.duration}ч)" if booking.duration else ""
 
+                    # Проверка, является ли тариф бесплатным
+                    is_free_tariff = tariff.price == 0
+                    amount_str = "" if is_free_tariff else f"\nСумма: {booking.amount:.2f} ₽"
+
                     message = f"""Ваша бронь подтверждена!
 
 Тариф: {tariff.name}
-Дата: {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}{duration_str}
-Сумма: {booking.amount:.2f} ₽
+Дата: {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}{duration_str}{amount_str}
 
 Ждем вас в назначенное время!"""
 
-                    await bot.send_message(user.telegram_id, message)
+                    await asyncio.wait_for(
+                        bot.send_message(user.telegram_id, message),
+                        timeout=3.0
+                    )
                     logger.info(
                         f"Отправлено уведомление о подтверждении пользователю {user.telegram_id}"
                     )
 
                 elif "paid" in update_dict and update_dict["paid"] and not old_paid:
-                    visit_time_str = (
-                        f" в {booking.visit_time.strftime('%H:%M')}"
-                        if booking.visit_time
-                        else ""
-                    )
+                    # Проверка, является ли тариф бесплатным
+                    is_free_tariff = tariff.price == 0
 
-                    message = f"""Оплата зачислена!
+                    # Отправляем уведомление об оплате только для платных тарифов
+                    if not is_free_tariff:
+                        visit_time_str = (
+                            f" в {booking.visit_time.strftime('%H:%M')}"
+                            if booking.visit_time
+                            else ""
+                        )
+
+                        message = f"""Оплата зачислена!
 
 Тариф: {tariff.name}
 Дата: {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}
@@ -1637,34 +1656,13 @@ async def update_booking(
 
 Ваша оплата успешно обработана и зачислена."""
 
-                    await bot.send_message(user.telegram_id, message)
-                    logger.info(
-                        f"Отправлено уведомление об оплате пользователю {user.telegram_id}"
-                    )
-
-                elif (
-                    "confirmed" in update_data
-                    and not update_data["confirmed"]
-                    and old_confirmed
-                ):
-                    visit_time_str = (
-                        f" в {booking.visit_time.strftime('%H:%M')}"
-                        if booking.visit_time
-                        else ""
-                    )
-                    duration_str = f" ({booking.duration}ч)" if booking.duration else ""
-
-                    message = f"""Ваша бронь была отменена
-
-Тариф: {tariff.name}
-Дата: {booking.visit_date.strftime('%d.%m.%Y')}{visit_time_str}{duration_str}
-
-Если у вас есть вопросы, пожалуйста, свяжитесь с администрацией."""
-
-                    await bot.send_message(user.telegram_id, message)
-                    logger.info(
-                        f"Отправлено уведомление об отмене бронирования пользователю {user.telegram_id}"
-                    )
+                        await asyncio.wait_for(
+                            bot.send_message(user.telegram_id, message),
+                            timeout=3.0
+                        )
+                        logger.info(
+                            f"Отправлено уведомление об оплате пользователю {user.telegram_id}"
+                        )
 
             except Exception as e:
                 logger.error(
@@ -2525,11 +2523,14 @@ async def send_payment_link(
                 )]
             ])
 
-            await bot.send_message(
-                chat_id=user.telegram_id,
-                text=message_text,
-                parse_mode="HTML",
-                reply_markup=keyboard
+            await asyncio.wait_for(
+                bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=message_text,
+                    parse_mode="HTML",
+                    reply_markup=keyboard
+                ),
+                timeout=3.0
             )
 
             logger.info(

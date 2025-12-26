@@ -144,10 +144,16 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     setIsRecalculating(true);
     const timeoutId = setTimeout(async () => {
       try {
+        // Для "Детской комнаты" используем parseFloat для поддержки дробных значений
+        const isKidsRoom = tariff?.name?.toLowerCase().includes('детская комната');
+        const parsedDuration = editData.duration
+          ? (isKidsRoom ? parseFloat(editData.duration) : parseInt(editData.duration))
+          : null;
+
         const result = await bookingApi.recalculateAmount(booking.id, {
           visit_date: editData.visit_date,
           visit_time: editData.visit_time,
-          duration: editData.duration ? parseInt(editData.duration) : null
+          duration: parsedDuration
         });
 
         setRecalculatedAmount(result.amount);
@@ -468,13 +474,19 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       // Автоматически пересчитываем сумму перед сохранением
       let finalAmount = recalculatedAmount;
 
+      // Для "Детской комнаты" используем parseFloat для поддержки дробных значений
+      const isKidsRoom = tariff?.name?.toLowerCase().includes('детская комната');
+      const parsedDuration = editData.duration
+        ? (isKidsRoom ? parseFloat(editData.duration) : parseInt(editData.duration))
+        : null;
+
       if (finalAmount === null || finalAmount === undefined) {
         // Если сумма не была пересчитана вручную, делаем это автоматически
         try {
           const recalcResult = await bookingApi.recalculateAmount(booking.id, {
             visit_date: editData.visit_date,
             visit_time: editData.visit_time,
-            duration: editData.duration ? parseInt(editData.duration) : null
+            duration: parsedDuration
           });
           finalAmount = recalcResult.amount;
         } catch (recalcError) {
@@ -487,7 +499,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       await bookingApi.updateBookingFull(booking.id, {
         visit_date: editData.visit_date,
         visit_time: editData.visit_time,
-        duration: editData.duration ? parseInt(editData.duration) : null,
+        duration: parsedDuration,
         amount: finalAmount
       });
 
@@ -754,8 +766,15 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                             <FormLabel fontSize="sm">Длительность (часов)</FormLabel>
                             <HStack>
                               <NumberInput
-                                min={tariff.name?.toLowerCase().includes('3 час') ? 3 : 1}
+                                min={
+                                  tariff.name?.toLowerCase().includes('детская комната')
+                                    ? 0.5
+                                    : tariff.name?.toLowerCase().includes('3 час')
+                                    ? 3
+                                    : 1
+                                }
                                 max={24}
+                                step={tariff.name?.toLowerCase().includes('детская комната') ? 0.5 : 1}
                                 value={editData.duration}
                                 onChange={(val) => setEditData({ ...editData, duration: val })}
                                 flex={1}

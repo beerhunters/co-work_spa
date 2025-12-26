@@ -132,7 +132,9 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
 
   // Обработчик изменения длительности
   const handleDurationChange = (value) => {
-    const duration = parseInt(value) || 1;
+    // Для "Детской комнаты" разрешаем дробные значения (шаг 0.5)
+    const isKidsRoom = selectedTariff?.name?.toLowerCase().includes('детская комната');
+    const duration = isKidsRoom ? (parseFloat(value) || 0.5) : (parseInt(value) || 1);
     handleFieldChange('duration', duration);
   };
 
@@ -303,27 +305,24 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
       newErrors.visit_time = 'Укажите время начала';
     }
 
-    if (requiresDuration && (!formData.duration || formData.duration < 1)) {
-      newErrors.duration = 'Укажите длительность (минимум 1 час)';
+    if (requiresDuration) {
+      const isKidsRoom = selectedTariff?.name?.toLowerCase().includes('детская комната');
+      const minDuration = isKidsRoom ? 0.5 : 1;
+      if (!formData.duration || formData.duration < minDuration) {
+        newErrors.duration = isKidsRoom
+          ? 'Укажите длительность (минимум 0.5 часа)'
+          : 'Укажите длительность (минимум 1 час)';
+      }
     }
 
-    if (formData.amount <= 0) {
+    // Проверяем amount только для платных тарифов (price > 0)
+    const isFreeTariff = selectedTariff?.price === 0;
+    if (!isFreeTariff && formData.amount <= 0) {
       newErrors.amount = 'Сумма должна быть больше 0';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
-
-  // Пересчет суммы по требованию
-  const handleRecalculate = () => {
-    calculateAmount();
-    toast({
-      title: 'Сумма пересчитана',
-      status: 'success',
-      duration: 2000,
-      isClosable: true,
-    });
   };
 
   // Сохранение бронирования
@@ -809,31 +808,41 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
             )}
 
             {/* Длительность - только для переговорных (meeting_room) */}
-            {selectedTariff?.purpose === 'meeting_room' && (
-              <FormControl isRequired isInvalid={errors.duration}>
-                <FormLabel>Длительность (часов)</FormLabel>
-                <NumberInput
-                  min={1}
-                  max={24}
-                  value={formData.duration}
-                  onChange={(valueString) => handleDurationChange(parseInt(valueString) || 1)}
-                >
-                  <NumberInputField />
-                  <NumberInputStepper>
-                    <NumberIncrementStepper />
-                    <NumberDecrementStepper />
-                  </NumberInputStepper>
-                </NumberInput>
-                <FormHelperText>
-                  Укажите количество часов бронирования
-                </FormHelperText>
-                {errors.duration && (
-                  <FormHelperText color="red.500">{errors.duration}</FormHelperText>
-                )}
-              </FormControl>
-            )}
+            {selectedTariff?.purpose === 'meeting_room' && (() => {
+              const isKidsRoom = selectedTariff?.name?.toLowerCase().includes('детская комната');
+              const step = isKidsRoom ? 0.5 : 1;
+              const minValue = isKidsRoom ? 0.5 : 1;
 
-            {/* Сумма к оплате */}
+              return (
+                <FormControl isRequired isInvalid={errors.duration}>
+                  <FormLabel>Длительность (часов)</FormLabel>
+                  <NumberInput
+                    min={minValue}
+                    max={24}
+                    step={step}
+                    value={formData.duration}
+                    onChange={(valueString) => handleDurationChange(valueString)}
+                  >
+                    <NumberInputField />
+                    <NumberInputStepper>
+                      <NumberIncrementStepper />
+                      <NumberDecrementStepper />
+                    </NumberInputStepper>
+                  </NumberInput>
+                  <FormHelperText>
+                    {isKidsRoom
+                      ? 'Укажите длительность (шаг 30 минут: 0.5, 1, 1.5, 2...)'
+                      : 'Укажите количество часов бронирования'}
+                  </FormHelperText>
+                  {errors.duration && (
+                    <FormHelperText color="red.500">{errors.duration}</FormHelperText>
+                  )}
+                </FormControl>
+              );
+            })()}
+
+            {/* Сумма к оплате (только для платных тарифов) */}
+            {selectedTariff && selectedTariff.price > 0 && (
             <FormControl>
               <FormLabel>Сумма к оплате</FormLabel>
               <HStack>
@@ -843,21 +852,6 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                   bg="gray.50"
                   fontWeight="bold"
                 />
-                {/* Кнопка "Пересчитать" не показываем для тарифов "3 часа", "Тестовый день", "Опенспейс на день", месячных */}
-                {selectedTariff &&
-                 !selectedTariff.name.toLowerCase().includes('3 час') &&
-                 !selectedTariff.name.toLowerCase().includes('тестовый день') &&
-                 !selectedTariff.name.toLowerCase().includes('опенспейс на день') &&
-                 !selectedTariff.name.toLowerCase().includes('месяц') && (
-                  <Button
-                    size="sm"
-                    onClick={handleRecalculate}
-                    isLoading={isCalculating}
-                    leftIcon={<FiDollarSign />}
-                  >
-                    Пересчитать
-                  </Button>
-                )}
               </HStack>
 
               {/* Breakdown суммы */}
@@ -926,6 +920,7 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                 </Box>
               )}
             </FormControl>
+            )}
 
             {/* Статусы */}
             <FormControl>
