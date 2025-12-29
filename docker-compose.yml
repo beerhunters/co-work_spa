@@ -318,7 +318,7 @@ services:
       dockerfile: Dockerfile.web
       target: ${BUILD_TARGET:-production}
     user: "1000:1000"
-    command: celery -A celery_app worker --loglevel=info --concurrency=2 --queues=newsletters,bookings
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 --queues=newsletters,bookings,offices
     secrets:
       - secret_key
       - secret_key_jwt
@@ -390,6 +390,10 @@ services:
           memory: 512M
         reservations:
           memory: 256M
+
+  # Celery Beat удалён - больше не используется
+  # Все периодические задачи теперь создаются индивидуально для каждой сущности
+  # (см. tasks/office_tasks.py и routes/offices.py)
 
   # Certbot для автообновления SSL сертификатов (только для production)
   certbot:

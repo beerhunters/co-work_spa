@@ -2,6 +2,7 @@
 Celery application configuration for background tasks.
 """
 from celery import Celery
+from celery.schedules import crontab
 from config import REDIS_URL
 from utils.logger import get_logger
 
@@ -12,7 +13,7 @@ celery_app = Celery(
     'coworking',
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=['tasks.newsletter_tasks', 'tasks.email_tasks', 'tasks.booking_tasks']
+    include=['tasks.newsletter_tasks', 'tasks.email_tasks', 'tasks.booking_tasks', 'tasks.office_tasks']
 )
 
 # Configure Celery
@@ -53,10 +54,14 @@ celery_app.conf.update(
         'tasks.newsletter_tasks.*': {'queue': 'newsletters'},
         'tasks.email_tasks.*': {'queue': 'newsletters'},  # Email campaigns также в newsletters очередь
         'tasks.booking_tasks.*': {'queue': 'bookings'},  # Booking notifications в отдельную очередь
+        'tasks.office_tasks.*': {'queue': 'offices'},  # Office reminders в отдельную очередь
     },
 
     # Beat schedule (for periodic tasks)
-    beat_schedule={},
+    beat_schedule={
+        # Офисные напоминания теперь создаются индивидуально для каждого офиса
+        # при создании/обновлении офиса (см. routes/offices.py: _schedule_office_reminders)
+    },
 )
 
 logger.info("Celery app configured successfully")

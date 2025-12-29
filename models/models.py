@@ -833,6 +833,10 @@ class Office(Base):
     tenant_reminder_type = Column(Enum(ReminderType), default=ReminderType.days_before, nullable=False)
     tenant_reminder_datetime = Column(DateTime, nullable=True)
 
+    # Task IDs для отложенных напоминаний (Celery)
+    admin_reminder_task_id = Column(String(255), nullable=True)  # ID задачи напоминания админу
+    tenant_reminder_task_id = Column(String(255), nullable=True)  # ID задачи напоминания постояльцам
+
     # Комментарий
     comment = Column(Text, nullable=True)
 

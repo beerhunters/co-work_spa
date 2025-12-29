@@ -30,7 +30,6 @@ from models.models import cleanup_database
 from utils.logger import get_logger, log_startup_info
 from utils.database_maintenance import start_maintenance_tasks
 from utils.backup_manager import start_backup_scheduler, stop_backup_scheduler
-from utils.office_reminder_scheduler import start_office_reminder_scheduler
 from utils.openspace_scheduler import start_openspace_scheduler
 from utils.booking_reminder_scheduler import start_booking_reminder_scheduler
 
@@ -269,12 +268,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Ошибка запуска планировщика бэкапов: {e}")
 
-    # Запускаем планировщик напоминаний по офисам
-    try:
-        start_office_reminder_scheduler()
-        logger.info("🏢 Планировщик напоминаний по офисам запущен")
-    except Exception as e:
-        logger.error(f"Ошибка запуска планировщика напоминаний по офисам: {e}")
+    # Планировщик напоминаний по офисам: индивидуальные задачи для каждого офиса
+    # Задачи создаются автоматически при создании/обновлении офиса
+    # См. tasks/office_tasks.py (send_office_reminder) и routes/offices.py (_schedule_office_reminders)
+    logger.info("🏢 Напоминания по офисам: индивидуальные Celery задачи для каждого офиса")
 
     # Запускаем планировщик опенспейса
     try:

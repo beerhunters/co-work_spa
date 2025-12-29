@@ -7,7 +7,7 @@ from datetime import datetime
 from celery.result import AsyncResult
 from celery_app import celery_app
 from dependencies import require_super_admin, CachedAdmin
-from models.models import Booking, DatabaseManager, User, Tariff
+from models.models import Booking, DatabaseManager, User, Tariff, Office
 from utils.logger import get_logger
 from config import MOSCOW_TZ
 
@@ -435,12 +435,45 @@ async def get_task_info(
 
         booking_info = DatabaseManager.safe_execute(_get_booking_for_task)
 
+        # Проверяем, связана ли задача с офисом
+        def _get_office_for_task(session):
+            # Ищем офис по task_id (admin или tenant)
+            office = session.query(Office).filter(
+                (Office.admin_reminder_task_id == task_id) |
+                (Office.tenant_reminder_task_id == task_id)
+            ).first()
+
+            if office:
+                # Определяем тип напоминания
+                reminder_type = 'admin' if office.admin_reminder_task_id == task_id else 'tenant'
+
+                # Получаем количество постояльцев
+                tenant_count = len(office.tenants) if office.tenants else 0
+
+                return {
+                    'office_id': office.id,
+                    'office_number': office.office_number,
+                    'floor': office.floor,
+                    'capacity': office.capacity,
+                    'price_per_month': office.price_per_month,
+                    'reminder_type': reminder_type,
+                    'next_payment_date': office.next_payment_date.isoformat() if office.next_payment_date else None,
+                    'payment_type': office.payment_type,
+                    'payment_status': office.payment_status,
+                    'tenant_count': tenant_count,
+                    'is_active': office.is_active,
+                }
+            return None
+
+        office_info = DatabaseManager.safe_execute(_get_office_for_task)
+
         result = {
             'task_id': task_id,
             'exists': task_status['exists'],
             'state': task_status['state'],
             'info': task_status['info'],
             'booking': booking_info,
+            'office': office_info,
             'timestamp': datetime.now(MOSCOW_TZ).isoformat(),
         }
 

@@ -5,12 +5,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from sqlalchemy import delete
 
-from models.models import Office, office_tenants, OfficeTenantReminder, OfficePaymentHistory, User, Permission
+from models.models import Office, office_tenants, OfficeTenantReminder, OfficePaymentHistory, User, Permission, ReminderType
 from dependencies import get_db, verify_token, verify_token_with_permissions, CachedAdmin
 from schemas.office_schemas import OfficeBase, OfficeCreate, OfficeUpdate, OfficeTenantBase, TenantReminderSetting, OfficePaymentRecord, OfficePaymentButtonStatus
 from utils.logger import get_logger
 from utils.cache_manager import cache_manager
-from datetime import datetime
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 import asyncio
 from config import MOSCOW_TZ, ADMIN_TELEGRAM_ID
@@ -292,6 +292,9 @@ async def create_office(
             else:  # monthly
                 office.next_payment_date = office_data.rental_start_date + relativedelta(months=1)
 
+        # Планируем задачи напоминаний
+        _schedule_office_reminders(office, db)
+
         db.commit()
         db.refresh(office)
 
@@ -483,6 +486,9 @@ async def update_office(
             # Установить payment_status в pending если еще не установлен
             if not office.payment_status:
                 office.payment_status = 'pending'
+
+        # Планируем задачи напоминаний (отменяет старые и создает новые)
+        _schedule_office_reminders(office, db)
 
         db.commit()
         db.refresh(office)
@@ -1020,6 +1026,108 @@ async def get_office_payment_button_status(
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
 
 
+def _schedule_office_reminders(office: Office, db: Session) -> None:
+    """
+    Планирование задач напоминаний для офиса.
+    Отменяет старые задачи и создает новые при необходимости.
+    """
+    from tasks.office_tasks import send_office_reminder
+    from celery_app import celery_app
+    from datetime import time as time_type
+
+    now = datetime.now(MOSCOW_TZ)
+
+    # Админ напоминание
+    if office.admin_reminder_enabled and office.next_payment_date:
+        # Отменяем старую задачу если есть
+        if office.admin_reminder_task_id:
+            try:
+                celery_app.control.revoke(office.admin_reminder_task_id, terminate=True)
+                logger.info(f"Revoked old admin reminder task {office.admin_reminder_task_id} for office #{office.id}")
+            except Exception as e:
+                logger.error(f"Error revoking old admin task: {e}")
+            office.admin_reminder_task_id = None
+
+        # Вычисляем дату/время напоминания
+        payment_date = office.next_payment_date
+        if payment_date.tzinfo is None:
+            payment_date = payment_date.replace(tzinfo=MOSCOW_TZ)
+
+        if office.admin_reminder_type == ReminderType.days_before:
+            # За N дней до платежа
+            reminder_date = payment_date.date() - timedelta(days=office.admin_reminder_days)
+            reminder_datetime = datetime.combine(reminder_date, time_type(10, 0))  # 10:00 утра
+            reminder_datetime = MOSCOW_TZ.localize(reminder_datetime) if reminder_datetime.tzinfo is None else reminder_datetime
+        elif office.admin_reminder_type == ReminderType.specific_datetime and office.admin_reminder_datetime:
+            # В конкретное время
+            reminder_datetime = office.admin_reminder_datetime
+            if reminder_datetime.tzinfo is None:
+                reminder_datetime = reminder_datetime.replace(tzinfo=MOSCOW_TZ)
+        else:
+            reminder_datetime = None
+
+        # Создаем задачу если дата в будущем
+        if reminder_datetime and reminder_datetime > now:
+            try:
+                task_result = send_office_reminder.apply_async(
+                    args=[office.id, 'admin'],
+                    eta=reminder_datetime
+                )
+                office.admin_reminder_task_id = task_result.id
+                logger.info(
+                    f"📅 Запланировано admin напоминание для офиса #{office.id} "
+                    f"на {reminder_datetime.strftime('%d.%m.%Y %H:%M')} (task: {task_result.id})"
+                )
+            except Exception as e:
+                logger.error(f"Error scheduling admin reminder for office #{office.id}: {e}", exc_info=True)
+
+    # Постояльцы напоминание
+    if office.tenant_reminder_enabled and office.next_payment_date:
+        # Отменяем старую задачу если есть
+        if office.tenant_reminder_task_id:
+            try:
+                celery_app.control.revoke(office.tenant_reminder_task_id, terminate=True)
+                logger.info(f"Revoked old tenant reminder task {office.tenant_reminder_task_id} for office #{office.id}")
+            except Exception as e:
+                logger.error(f"Error revoking old tenant task: {e}")
+            office.tenant_reminder_task_id = None
+
+        # Вычисляем дату/время напоминания
+        payment_date = office.next_payment_date
+        if payment_date.tzinfo is None:
+            payment_date = payment_date.replace(tzinfo=MOSCOW_TZ)
+
+        if office.tenant_reminder_type == ReminderType.days_before:
+            # За N дней до платежа
+            reminder_date = payment_date.date() - timedelta(days=office.tenant_reminder_days)
+            reminder_datetime = datetime.combine(reminder_date, time_type(10, 0))  # 10:00 утра
+            reminder_datetime = MOSCOW_TZ.localize(reminder_datetime) if reminder_datetime.tzinfo is None else reminder_datetime
+        elif office.tenant_reminder_type == ReminderType.specific_datetime and office.tenant_reminder_datetime:
+            # В конкретное время
+            reminder_datetime = office.tenant_reminder_datetime
+            if reminder_datetime.tzinfo is None:
+                reminder_datetime = reminder_datetime.replace(tzinfo=MOSCOW_TZ)
+        else:
+            reminder_datetime = None
+
+        # Создаем задачу если дата в будущем
+        if reminder_datetime and reminder_datetime > now:
+            try:
+                task_result = send_office_reminder.apply_async(
+                    args=[office.id, 'tenant'],
+                    eta=reminder_datetime
+                )
+                office.tenant_reminder_task_id = task_result.id
+                logger.info(
+                    f"📅 Запланировано tenant напоминание для офиса #{office.id} "
+                    f"на {reminder_datetime.strftime('%d.%m.%Y %H:%M')} (task: {task_result.id})"
+                )
+            except Exception as e:
+                logger.error(f"Error scheduling tenant reminder for office #{office.id}: {e}", exc_info=True)
+
+    db.flush()  # Сохраняем изменения task_id
+
+
 async def _send_payment_notifications(
     office: Office,
     amount: float,
@@ -1030,7 +1138,7 @@ async def _send_payment_notifications(
 ):
     """Отправка уведомлений о платеже в Telegram."""
     from utils.bot_instance import get_bot
-    
+
     bot = get_bot()
     
     # Уведомление администратору

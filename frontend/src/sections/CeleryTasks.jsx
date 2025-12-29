@@ -147,6 +147,10 @@ const formatTaskName = (name, taskType) => {
     'send_rental_reminder': 'Напоминание об аренде',
     'send_booking_reminder': 'Напоминание о бронировании',
     'cleanup_expired_bookings': 'Очистка истекших бронирований',
+    'send_office_reminders': 'Напоминания по офисам',
+    'send_newsletter_task': 'Отправка рассылки',
+    'send_email_campaign_task': 'Email кампания',
+    'check_scheduled_campaigns_task': 'Проверка запланированных кампаний',
   };
 
   return nameTranslations[shortName] || shortName;
@@ -563,13 +567,22 @@ const CeleryTasks = () => {
             {selectedTask && (
               <VStack align="stretch" spacing={4}>
                 {/* Название задачи */}
-                {selectedTask.booking && (
+                {selectedTask.booking ? (
                   <Box borderWidth="1px" borderRadius="md" p={3} bg="purple.50">
                     <Text fontSize="lg" fontWeight="bold" color="purple.700">
                       {formatTaskName(null, selectedTask.booking.task_type)}
                     </Text>
                     <Text fontSize="xs" color="gray.600" mt={1}>
                       {selectedTask.booking.task_type}
+                    </Text>
+                  </Box>
+                ) : (
+                  <Box borderWidth="1px" borderRadius="md" p={3} bg="blue.50">
+                    <Text fontSize="lg" fontWeight="bold" color="blue.700">
+                      {formatTaskName(selectedTask.info?.name)}
+                    </Text>
+                    <Text fontSize="xs" color="gray.600" mt={1}>
+                      {selectedTask.info?.name || 'Системная задача'}
                     </Text>
                   </Box>
                 )}
@@ -605,6 +618,45 @@ const CeleryTasks = () => {
                      selectedTask.state}
                   </Badge>
                 </Box>
+
+                {/* Информация о системных задачах (без привязки к бронированию) */}
+                {!selectedTask.booking && selectedTask.info?.name && (
+                  <Box borderWidth="1px" borderRadius="md" p={3} bg="blue.50">
+                    <Text fontWeight="bold" fontSize="sm" color="blue.700" mb={2}>
+                      ℹ️ Информация о задаче:
+                    </Text>
+                    <VStack align="stretch" spacing={2}>
+                      {selectedTask.info.name === 'tasks.office_tasks.send_office_reminders' && (
+                        <>
+                          <Text fontSize="sm">
+                            🏢 Эта задача автоматически проверяет все активные офисы и отправляет напоминания администраторам и постояльцам о предстоящих платежах.
+                          </Text>
+                          <Text fontSize="sm" color="gray.600">
+                            ⏰ Запускается ежедневно в 10:00 МСК через Celery Beat
+                          </Text>
+                          <Text fontSize="sm" color="gray.600">
+                            📊 Обрабатывает все офисы с настроенными напоминаниями
+                          </Text>
+                        </>
+                      )}
+                      {selectedTask.info.name === 'tasks.newsletter_tasks.send_newsletter_task' && (
+                        <Text fontSize="sm">
+                          📧 Задача отправки массовой рассылки пользователям
+                        </Text>
+                      )}
+                      {selectedTask.info.name === 'tasks.email_tasks.send_email_campaign_task' && (
+                        <Text fontSize="sm">
+                          ✉️ Задача отправки email кампании
+                        </Text>
+                      )}
+                      {selectedTask.info.name === 'tasks.email_tasks.check_scheduled_campaigns_task' && (
+                        <Text fontSize="sm">
+                          📅 Задача проверки запланированных email кампаний
+                        </Text>
+                      )}
+                    </VStack>
+                  </Box>
+                )}
 
                 {/* Информация о бронировании */}
                 {selectedTask.booking && (
@@ -694,6 +746,105 @@ const CeleryTasks = () => {
                         <Badge colorScheme={selectedTask.booking.paid ? 'green' : 'gray'} fontSize="xs">
                           {selectedTask.booking.paid ? '✓ Оплачено' : '○ Не оплачено'}
                         </Badge>
+                      </HStack>
+                    </VStack>
+                  </Box>
+                )}
+
+                {/* Информация об офисе */}
+                {selectedTask.office && (
+                  <Box borderWidth="1px" borderRadius="md" p={3} bg="blue.50">
+                    <Text fontWeight="bold" fontSize="sm" color="blue.700" mb={2}>
+                      🏢 Информация об офисе:
+                    </Text>
+                    <VStack align="stretch" spacing={2}>
+                      <HStack>
+                        <Text fontSize="sm" fontWeight="medium" minW="140px">
+                          Номер офиса:
+                        </Text>
+                        <Badge colorScheme="blue" fontSize="md">
+                          {selectedTask.office.office_number}
+                        </Badge>
+                      </HStack>
+
+                      <HStack>
+                        <Text fontSize="sm" fontWeight="medium" minW="140px">
+                          Этаж:
+                        </Text>
+                        <Text fontSize="sm">{selectedTask.office.floor}</Text>
+                      </HStack>
+
+                      <HStack>
+                        <Text fontSize="sm" fontWeight="medium" minW="140px">
+                          Вместимость:
+                        </Text>
+                        <Text fontSize="sm">👥 {selectedTask.office.capacity} {selectedTask.office.capacity === 1 ? 'человек' : selectedTask.office.capacity < 5 ? 'человека' : 'человек'}</Text>
+                      </HStack>
+
+                      <HStack>
+                        <Text fontSize="sm" fontWeight="medium" minW="140px">
+                          Тип напоминания:
+                        </Text>
+                        <Badge colorScheme={selectedTask.office.reminder_type === 'admin' ? 'purple' : 'green'} fontSize="sm">
+                          {selectedTask.office.reminder_type === 'admin' ? '👨‍💼 Администратору' : '👥 Постояльцам'}
+                        </Badge>
+                      </HStack>
+
+                      {selectedTask.office.next_payment_date && (
+                        <HStack>
+                          <Text fontSize="sm" fontWeight="medium" minW="140px">
+                            Следующий платеж:
+                          </Text>
+                          <Text fontSize="sm">📅 {new Date(selectedTask.office.next_payment_date).toLocaleDateString('ru-RU')}</Text>
+                        </HStack>
+                      )}
+
+                      <HStack>
+                        <Text fontSize="sm" fontWeight="medium" minW="140px">
+                          Стоимость в месяц:
+                        </Text>
+                        <Text fontSize="sm" fontWeight="semibold" color="green.600">
+                          💰 {selectedTask.office.price_per_month.toLocaleString('ru-RU')} ₽
+                        </Text>
+                      </HStack>
+
+                      {selectedTask.office.payment_type && (
+                        <HStack>
+                          <Text fontSize="sm" fontWeight="medium" minW="140px">
+                            Тип оплаты:
+                          </Text>
+                          <Badge colorScheme={selectedTask.office.payment_type === 'monthly' ? 'blue' : 'orange'} fontSize="xs">
+                            {selectedTask.office.payment_type === 'monthly' ? '📅 Ежемесячно' : '💳 Разовый платеж'}
+                          </Badge>
+                        </HStack>
+                      )}
+
+                      {selectedTask.office.tenant_count !== undefined && (
+                        <HStack>
+                          <Text fontSize="sm" fontWeight="medium" minW="140px">
+                            Постояльцев:
+                          </Text>
+                          <Text fontSize="sm">👤 {selectedTask.office.tenant_count}</Text>
+                        </HStack>
+                      )}
+
+                      <HStack spacing={2} mt={2}>
+                        <Badge colorScheme={selectedTask.office.is_active ? 'green' : 'red'} fontSize="xs">
+                          {selectedTask.office.is_active ? '✓ Активен' : '✗ Неактивен'}
+                        </Badge>
+                        {selectedTask.office.payment_status && (
+                          <Badge
+                            colorScheme={
+                              selectedTask.office.payment_status === 'paid' ? 'green' :
+                              selectedTask.office.payment_status === 'pending' ? 'yellow' : 'red'
+                            }
+                            fontSize="xs"
+                          >
+                            {selectedTask.office.payment_status === 'paid' ? '✓ Оплачено' :
+                             selectedTask.office.payment_status === 'pending' ? '⏳ Ожидает оплаты' :
+                             '❌ Просрочено'}
+                          </Badge>
+                        )}
                       </HStack>
                     </VStack>
                   </Box>
