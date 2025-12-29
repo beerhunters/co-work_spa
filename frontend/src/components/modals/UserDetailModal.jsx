@@ -15,6 +15,7 @@ import {
   FormControl,
   FormLabel,
   FormErrorMessage,
+  FormHelperText,
   Badge,
   useToast,
   Modal as ChakraModal,
@@ -129,7 +130,8 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
         phone: user.phone || '',
         email: user.email || '',
         language_code: user.language_code || 'ru',
-        admin_comment: user.admin_comment || ''
+        admin_comment: user.admin_comment || '',
+        birth_date: user.birth_date || ''
       };
       setFormData(userData);
 
@@ -1015,6 +1017,22 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     />
                     <FormErrorMessage>{errors.admin_comment?.message}</FormErrorMessage>
                   </FormControl>
+
+                  <FormControl isInvalid={!!errors.birth_date}>
+                    <FormLabel>Дата рождения</FormLabel>
+                    <Input
+                      type="text"
+                      {...register('birth_date', {
+                        onChange: (e) => setFormData({ ...formData, birth_date: e.target.value })
+                      })}
+                      placeholder="ДД.ММ или ДД.ММ.ГГГГ (например, 25.12 или 25.12.1990)"
+                      maxLength={10}
+                    />
+                    <FormHelperText>
+                      Опциональное поле. Год можно не указывать. Используется для автоматических поздравлений.
+                    </FormHelperText>
+                    <FormErrorMessage>{errors.birth_date?.message}</FormErrorMessage>
+                  </FormControl>
                 </VStack>
               ) : (
                 <VStack spacing={3} align="stretch">
@@ -1064,6 +1082,36 @@ const UserDetailModal = ({ isOpen, onClose, user, onUpdate }) => {
                     <Text fontWeight="bold">Дата регистрации:</Text>
                     <Text>{new Date(currentUser.reg_date || currentUser.first_join_time).toLocaleDateString('ru-RU')}</Text>
                   </HStack>
+
+                  {currentUser.birth_date && (
+                    <HStack justify="space-between">
+                      <Text fontWeight="bold">Дата рождения:</Text>
+                      <Text>
+                        {currentUser.birth_date}
+                        {(() => {
+                          // Если указан год (формат DD.MM.YYYY), показываем возраст
+                          const parts = currentUser.birth_date.split('.');
+                          if (parts.length === 3) {
+                            const [day, month, year] = parts.map(Number);
+                            const today = new Date();
+                            let age = today.getFullYear() - year;
+                            const monthDiff = today.getMonth() + 1 - month;
+
+                            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < day)) {
+                              age--;
+                            }
+
+                            return (
+                              <Badge colorScheme="purple" ml={2}>
+                                {age} лет
+                              </Badge>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </Text>
+                    </HStack>
+                  )}
 
                   <HStack justify="space-between">
                     <Text fontWeight="bold">Согласие с условиями:</Text>

@@ -72,6 +72,7 @@ async def get_users(
                 "avatar": user.avatar,
                 "referrer_id": user.referrer_id,
                 "admin_comment": user.admin_comment,
+                "birth_date": str(user.birth_date) if user.birth_date else None,
                 "is_banned": user.is_banned or False,
                 "banned_at": user.banned_at,
                 "ban_reason": user.ban_reason,
@@ -137,7 +138,8 @@ async def export_users_to_csv(
             'Согласие с условиями',
             'Аватар',
             'ID пригласившего',
-            'Комментарий администратора'
+            'Комментарий администратора',
+            'Дата рождения'
         ]
         writer.writerow(headers)
 
@@ -158,7 +160,8 @@ async def export_users_to_csv(
                 'Да' if user.agreed_to_terms else 'Нет',
                 user.avatar or '',
                 user.referrer_id or '',
-                user.admin_comment or ''
+                user.admin_comment or '',
+                user.birth_date or ''
             ]
             writer.writerow(row)
 
@@ -228,7 +231,8 @@ async def bulk_export_users(
             'ID', 'Telegram ID', 'ФИО', 'Username', 'Телефон', 'Email',
             'Дата регистрации', 'Дата первого входа', 'Баланс',
             'Успешных броней', 'Приглашенных', 'Пригласивший ID',
-            'Согласие с условиями', 'Забанен', 'Причина бана', 'Комментарий админа'
+            'Согласие с условиями', 'Забанен', 'Причина бана', 'Комментарий админа',
+            'Дата рождения'
         ]
 
         writer = csv.DictWriter(output, fieldnames=fieldnames)
@@ -252,7 +256,8 @@ async def bulk_export_users(
                 'Согласие с условиями': 'Да' if user.agreed_to_terms else 'Нет',
                 'Забанен': 'Да' if user.is_banned else 'Нет',
                 'Причина бана': user.ban_reason or '',
-                'Комментарий админа': user.admin_comment or ''
+                'Комментарий админа': user.admin_comment or '',
+                'Дата рождения': user.birth_date or ''
             })
 
         output.seek(0)
@@ -319,6 +324,7 @@ async def get_user_by_telegram_id(telegram_id: int, db: Session = Depends(get_db
         "agreed_to_terms": user.agreed_to_terms,
         "avatar": user.avatar,
         "referrer_id": user.referrer_id,
+        "birth_date": str(user.birth_date) if user.birth_date else None,
         "is_complete": is_complete,
         "is_banned": user.is_banned or False,
         "ban_reason": user.ban_reason,

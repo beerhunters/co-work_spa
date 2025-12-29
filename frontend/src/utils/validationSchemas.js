@@ -61,6 +61,38 @@ export const userSchema = z.object({
     .max(500, 'Комментарий не может быть длиннее 500 символов')
     .optional()
     .or(z.literal('')),
+
+  birth_date: z
+    .string()
+    .refine(
+      (val) => {
+        if (!val || val === '') return true;
+
+        // Проверка формата DD.MM или DD.MM.YYYY
+        const dateRegex = /^\d{2}\.\d{2}(\.\d{4})?$/;
+        if (!dateRegex.test(val)) return false;
+
+        // Проверка валидности дня, месяца и опционально года
+        const parts = val.split('.').map(Number);
+        const [day, month, year] = parts;
+
+        if (day < 1 || day > 31) return false;
+        if (month < 1 || month > 12) return false;
+
+        // Если год указан, проверяем что он в разумных пределах
+        if (year !== undefined) {
+          const currentYear = new Date().getFullYear();
+          if (year < 1900 || year > currentYear) return false;
+        }
+
+        return true;
+      },
+      {
+        message: 'Дата рождения должна быть в формате ДД.ММ или ДД.ММ.ГГГГ (например, 25.12 или 25.12.1990)',
+      }
+    )
+    .optional()
+    .or(z.literal('')),
 });
 
 /**

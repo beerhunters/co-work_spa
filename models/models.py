@@ -713,6 +713,9 @@ class User(Base):
     referrer_id = Column(BigInteger, nullable=True)  # Убрать ForeignKey пока что
     admin_comment = Column(Text, nullable=True)  # Комментарий администратора о пользователе
 
+    # День рождения пользователя (опциональное поле, формат: DD.MM или DD.MM.YYYY)
+    birth_date = Column(String(10), nullable=True, index=True)
+
     # Система банов
     is_banned = Column(Boolean, default=False, nullable=False, index=True)
     banned_at = Column(DateTime, nullable=True, index=True)
