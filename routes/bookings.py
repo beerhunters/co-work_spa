@@ -670,8 +670,8 @@ async def create_booking_admin(
             is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
             is_monthly_tariff = 'месяц' in tariff_name
 
-            # Определяем тарифы-исключения (Переговорная, Амфитеатр)
-            is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name
+            # Определяем тарифы-исключения (Переговорная, Амфитеатр, Детская комната)
+            is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name or 'детская комната' in tariff_name
 
             if is_daily_tariff:
                 # Дневные тарифы - уведомление в 00:05 следующего дня
@@ -946,7 +946,7 @@ async def create_booking(booking_data: BookingCreate):
             is_monthly_tariff = 'месяц' in tariff_name
 
             # --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-            is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name
+            is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name or 'детская комната' in tariff_name
 
             if is_daily_tariff:
                 # Дневные тарифы - уведомление в 00:05 следующего дня
@@ -1436,7 +1436,7 @@ async def update_booking(
                 tariff_name = tariff.name.lower()
                 is_daily_tariff = 'тестовый день' in tariff_name or 'опенспейс на день' in tariff_name
                 is_monthly_tariff = 'месяц' in tariff_name
-                is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name
+                is_excluded_from_timer = 'переговорная' in tariff_name or 'meeting' in tariff_name or 'амфитеатр' in tariff_name or 'детская комната' in tariff_name
 
                 # Создаем expiration notification
                 if is_daily_tariff:
