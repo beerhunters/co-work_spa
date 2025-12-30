@@ -12,6 +12,7 @@ import {
   CardHeader,
   Divider,
   Grid,
+  SimpleGrid,
   GridItem,
   Stat,
   StatLabel,
@@ -61,7 +62,8 @@ import {
   InputGroup,
   InputLeftElement,
   IconButton,
-  Tooltip
+  Tooltip,
+  Icon
 } from '@chakra-ui/react';
 import { 
   FiRefreshCw, 
@@ -415,16 +417,20 @@ const Backups = ({ currentAdmin }) => {
   return (
     <Container maxW="container.xl" py={8}>
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и действия */}
+        {/* Заголовок */}
         <Box>
-          <HStack justify="space-between" align="center" mb={4}>
-            <Heading size="lg">Управление бэкапами</Heading>
+          <HStack justify="space-between" align="center" mb={2}>
+            <HStack spacing={4}>
+              <Icon as={FiDatabase} boxSize={8} color="purple.500" />
+              <Heading size="lg">Бэкапы</Heading>
+            </HStack>
             <HStack>
               <Button
                 leftIcon={<FiRefreshCw />}
                 onClick={refreshAllData}
                 isLoading={statsLoading}
                 variant="ghost"
+                size="sm"
               >
                 Обновить
               </Button>
@@ -432,6 +438,7 @@ const Backups = ({ currentAdmin }) => {
                 leftIcon={<FiSettings />}
                 onClick={onSettingsOpen}
                 variant="outline"
+                size="sm"
               >
                 Настройки
               </Button>
@@ -440,15 +447,19 @@ const Backups = ({ currentAdmin }) => {
                 onClick={createBackup}
                 colorScheme="blue"
                 isLoading={loading}
+                size="sm"
               >
                 Создать бэкап
               </Button>
             </HStack>
           </HStack>
+          <Text color="gray.600">
+            Создание и восстановление резервных копий базы данных
+          </Text>
 
           {/* Прогресс операции */}
           {operationProgress > 0 && (
-            <Box mb={4}>
+            <Box mt={4}>
               <Text fontSize="sm" mb={2}>Выполнение операции...</Text>
               <Progress value={operationProgress} colorScheme="blue" hasStripe isAnimated />
             </Box>
@@ -457,17 +468,15 @@ const Backups = ({ currentAdmin }) => {
 
         {/* Статистика */}
         {backupStats && (
-          <Grid templateColumns="repeat(auto-fit, minmax(250px, 1fr))" gap={6}>
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
             <Card>
               <CardBody>
                 <Stat>
                   <StatLabel>Всего бэкапов</StatLabel>
                   <StatNumber>{backupStats.total_backups}</StatNumber>
                   <StatHelpText>
-                    <HStack>
-                      <FiHardDrive />
-                      <Text>{formatFileSize((backupStats.total_size_mb || 0) * 1024 * 1024)}</Text>
-                    </HStack>
+                    <Icon as={FiHardDrive} mr={1} />
+                    {formatFileSize((backupStats.total_size_mb || 0) * 1024 * 1024)}
                   </StatHelpText>
                 </Stat>
               </CardBody>
@@ -478,19 +487,15 @@ const Backups = ({ currentAdmin }) => {
                 <Stat>
                   <StatLabel>Последний бэкап</StatLabel>
                   <StatNumber fontSize="lg">
-                    {backupStats.last_backup?.created_at ? 
+                    {backupStats.last_backup?.created_at ?
                       formatDate(backupStats.last_backup.created_at) : 'Нет данных'
                     }
                   </StatNumber>
                   <StatHelpText>
-                    <HStack>
-                      <FiClock />
-                      <Text>
-                        {backupStats.enabled ? 
-                          'Автобэкапы включены' : 'Отключено'
-                        }
-                      </Text>
-                    </HStack>
+                    <Icon as={FiClock} mr={1} />
+                    {backupStats.enabled ?
+                      'Автобэкапы включены' : 'Отключено'
+                    }
                   </StatHelpText>
                 </Stat>
               </CardBody>
@@ -501,7 +506,7 @@ const Backups = ({ currentAdmin }) => {
                 <Stat>
                   <StatLabel>Статус системы</StatLabel>
                   <StatNumber>
-                    <Badge 
+                    <Badge
                       colorScheme={backupStats.enabled ? 'green' : 'red'}
                       fontSize="sm"
                     >
@@ -509,18 +514,16 @@ const Backups = ({ currentAdmin }) => {
                     </Badge>
                   </StatNumber>
                   <StatHelpText>
-                    <HStack>
-                      {backupStats.enabled ? <FiCheckCircle /> : <FiAlertCircle />}
-                      <Text>
-                        {backupStats.scheduler_running ? 'Планировщик работает' : 'Планировщик остановлен'}
-                      </Text>
-                    </HStack>
+                    <Icon as={backupStats.enabled ? FiCheckCircle : FiAlertCircle} mr={1} />
+                    {backupStats.scheduler_running ? 'Планировщик работает' : 'Планировщик остановлен'}
                   </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
-          </Grid>
+          </SimpleGrid>
         )}
+
+        <Divider />
 
         {/* Управление бэкапами */}
         <Tabs>

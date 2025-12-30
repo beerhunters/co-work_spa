@@ -19,9 +19,19 @@ import {
   useColorModeValue,
   Select,
   Flex,
-  useDisclosure
+  useDisclosure,
+  SimpleGrid,
+  Card,
+  CardBody,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Divider,
+  Icon,
+  Heading
 } from '@chakra-ui/react';
-import { FiSearch, FiEdit, FiTrash2, FiPlus, FiEye, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiSearch, FiEdit, FiTrash2, FiPlus, FiEye, FiChevronLeft, FiChevronRight, FiShield, FiUser, FiCheckCircle, FiXCircle } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import AdminDetailModal from '../components/modals/AdminDetailModal';
 
@@ -87,6 +97,22 @@ const Admins = ({ admins, onUpdate, currentAdmin }) => {
     return role === 'super_admin' ? 'purple' : 'blue';
   };
 
+  // Статистика
+  const stats = useMemo(() => {
+    const active = admins.filter(a => a.is_active).length;
+    const inactive = admins.filter(a => !a.is_active).length;
+    const superAdmins = admins.filter(a => a.role === 'super_admin').length;
+    const managers = admins.filter(a => a.role === 'manager').length;
+
+    return {
+      total: admins.length,
+      active,
+      inactive,
+      superAdmins,
+      managers
+    };
+  }, [admins]);
+
   const formatDateTime = (dateString) => {
     if (!dateString) return 'Не указано';
     return new Date(dateString).toLocaleString('ru-RU', {
@@ -130,27 +156,88 @@ const Admins = ({ admins, onUpdate, currentAdmin }) => {
   return (
     <Box p={6}>
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и кнопка создания */}
-        <HStack justify="space-between" align="center" wrap="wrap" spacing={4}>
-          <VStack align="start" spacing={1}>
-            <Text fontSize="2xl" fontWeight="bold">
-              Администраторы
-            </Text>
-            <Text fontSize="sm" color="gray.500">
-              Всего: {admins.length} | Показано: {currentAdmins.length} из {filteredAdmins.length}
-            </Text>
-          </VStack>
+        {/* Заголовок */}
+        <Box>
+          <HStack justify="space-between" align="center" mb={2}>
+            <HStack spacing={4}>
+              <Icon as={FiShield} boxSize={8} color="purple.500" />
+              <Heading size="lg">
+                Администраторы
+              </Heading>
+            </HStack>
 
-          {currentAdmin?.role === 'super_admin' && (
-            <Button
-              leftIcon={<FiPlus />}
-              colorScheme="purple"
-              onClick={handleCreateAdmin}
-            >
-              Добавить админа
-            </Button>
-          )}
-        </HStack>
+            {currentAdmin?.role === 'super_admin' && (
+              <Button
+                leftIcon={<FiPlus />}
+                colorScheme="purple"
+                onClick={handleCreateAdmin}
+                size="sm"
+              >
+                Добавить админа
+              </Button>
+            )}
+          </HStack>
+          <Text color="gray.600">
+            Управление учетными записями администраторов и распределение ролей
+          </Text>
+        </Box>
+
+        {/* Статистика */}
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Всего админов</StatLabel>
+                <StatNumber>{stats.total}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiUser} mr={1} />
+                  В системе
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Активные</StatLabel>
+                <StatNumber color="green.500">{stats.active}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiCheckCircle} mr={1} />
+                  Имеют доступ
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Неактивные</StatLabel>
+                <StatNumber color="red.500">{stats.inactive}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiXCircle} mr={1} />
+                  Доступ закрыт
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Роли</StatLabel>
+                <StatNumber color="purple.500">{stats.superAdmins} / {stats.managers}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiShield} mr={1} />
+                  Главные / Менеджеры
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+        </SimpleGrid>
+
+        <Divider />
 
         {/* Фильтры */}
         <HStack spacing={4} wrap="wrap">

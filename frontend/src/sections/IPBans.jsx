@@ -36,6 +36,7 @@ import {
   StatLabel,
   StatNumber,
   StatHelpText,
+  SimpleGrid,
   StatGroup,
   Code,
   Tooltip,
@@ -45,7 +46,9 @@ import {
   AlertDialogHeader,
   AlertDialogContent,
   AlertDialogOverlay,
-  useDisclosure
+  useDisclosure,
+  Divider,
+  Icon
 } from '@chakra-ui/react';
 import {
   FiShield,
@@ -56,7 +59,9 @@ import {
   FiTrash2,
   FiAlertTriangle,
   FiDownload,
-  FiZap
+  FiZap,
+  FiDatabase,
+  FiEye
 } from 'react-icons/fi';
 import { ipBanApi } from '../utils/api';
 import { createLogger } from '../utils/logger.js';
@@ -302,74 +307,99 @@ const IPBans = ({ currentAdmin }) => {
   return (
     <Box p={8}>
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и кнопки */}
-        <HStack justify="space-between">
-          <HStack spacing={3}>
-            <FiShield size={32} />
-            <Heading size="lg">Управление IP банами</Heading>
+        {/* Заголовок */}
+        <Box>
+          <HStack justify="space-between" mb={2}>
+            <HStack spacing={4}>
+              <Icon as={FiShield} boxSize={8} color="purple.500" />
+              <Heading size="lg">IP Баны</Heading>
+            </HStack>
+            <HStack spacing={3}>
+              <Button
+                leftIcon={<FiRefreshCw />}
+                onClick={loadData}
+                variant="outline"
+                size="sm"
+              >
+                Обновить
+              </Button>
+              <Button
+                leftIcon={<FiZap />}
+                onClick={toggleAutoRefresh}
+                colorScheme={autoRefresh ? 'green' : 'gray'}
+                variant={autoRefresh ? 'solid' : 'outline'}
+                size="sm"
+              >
+                {autoRefresh ? 'Авто' : 'Ручное'}
+              </Button>
+              <Button
+                leftIcon={<FiLock />}
+                colorScheme="red"
+                onClick={onBanOpen}
+                size="sm"
+              >
+                Забанить IP
+              </Button>
+              {bannedIPs.length > 0 && (
+                <>
+                  <Button
+                    leftIcon={<FiDownload />}
+                    colorScheme="blue"
+                    variant="outline"
+                    onClick={handleExportToNginx}
+                    size="sm"
+                  >
+                    Экспорт в nginx
+                  </Button>
+                  <Button
+                    leftIcon={<FiTrash2 />}
+                    colorScheme="orange"
+                    variant="outline"
+                    onClick={onClearOpen}
+                    size="sm"
+                  >
+                    Очистить все
+                  </Button>
+                </>
+              )}
+            </HStack>
           </HStack>
-          <HStack spacing={3}>
-            <Button
-              leftIcon={<FiRefreshCw />}
-              onClick={loadData}
-              variant="outline"
-            >
-              Обновить
-            </Button>
-            <Button
-              leftIcon={<FiZap />}
-              onClick={toggleAutoRefresh}
-              colorScheme={autoRefresh ? 'green' : 'gray'}
-              variant={autoRefresh ? 'solid' : 'outline'}
-              size="md"
-            >
-              {autoRefresh ? 'Авто' : 'Ручное'}
-            </Button>
-            <Button
-              leftIcon={<FiLock />}
-              colorScheme="red"
-              onClick={onBanOpen}
-            >
-              Забанить IP
-            </Button>
-            {bannedIPs.length > 0 && (
-              <>
-                <Button
-                  leftIcon={<FiDownload />}
-                  colorScheme="blue"
-                  variant="outline"
-                  onClick={handleExportToNginx}
-                >
-                  Экспорт в nginx
-                </Button>
-                <Button
-                  leftIcon={<FiTrash2 />}
-                  colorScheme="orange"
-                  variant="outline"
-                  onClick={onClearOpen}
-                >
-                  Очистить все
-                </Button>
-              </>
-            )}
-          </HStack>
-        </HStack>
+          <Text color="gray.600">
+            Управление блокировками IP-адресов и защита от подозрительной активности
+          </Text>
+        </Box>
 
         {/* Статистика */}
         {stats && (
-          <Card>
-            <CardBody>
-              <StatGroup>
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+            <Card>
+              <CardBody>
                 <Stat>
                   <StatLabel>Забанено IP</StatLabel>
-                  <StatNumber>{stats.total_banned}</StatNumber>
-                  <StatHelpText>Активные баны</StatHelpText>
+                  <StatNumber color="red.500">{stats.total_banned}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiLock} mr={1} />
+                    Активные баны
+                  </StatHelpText>
                 </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
                 <Stat>
                   <StatLabel>Отслеживается</StatLabel>
-                  <StatNumber>{stats.total_tracked}</StatNumber>
-                  <StatHelpText>Подозрительные IP</StatHelpText>
+                  <StatNumber color="orange.500">{stats.total_tracked}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiEye} mr={1} />
+                    Подозрительные IP
+                  </StatHelpText>
                 </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
                 <Stat>
                   <StatLabel>Redis</StatLabel>
                   <StatNumber>
@@ -377,12 +407,17 @@ const IPBans = ({ currentAdmin }) => {
                       {stats.redis_available ? 'Доступен' : 'Недоступен'}
                     </Badge>
                   </StatNumber>
-                  <StatHelpText>Статус хранилища</StatHelpText>
+                  <StatHelpText>
+                    <Icon as={FiDatabase} mr={1} />
+                    Статус хранилища
+                  </StatHelpText>
                 </Stat>
-              </StatGroup>
-            </CardBody>
-          </Card>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
         )}
+
+        <Divider />
 
         {/* Поиск */}
         <Card>

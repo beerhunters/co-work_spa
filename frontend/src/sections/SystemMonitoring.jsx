@@ -4,6 +4,7 @@ import {
   VStack,
   HStack,
   Grid,
+  SimpleGrid,
   Card,
   CardHeader,
   CardBody,
@@ -350,35 +351,107 @@ const SystemMonitoring = () => {
   return (
     <Box p={6} minH="100vh" bg={colors.background}>
       <VStack align="stretch" spacing={6}>
-        {/* Заголовок с управлением */}
-        <Flex align="center" justify="space-between">
-          <HStack spacing={4}>
-            <Icon as={FiActivity} boxSize={8} color="purple.400" />
-            <Heading size="lg" color={colors.text.primary}>
-              Мониторинг системы
-            </Heading>
-          </HStack>
-          <HStack spacing={3}>
-            <Button
-              size="sm"
-              leftIcon={<FiRefreshCw />}
-              onClick={loadAllData}
-              isLoading={loading}
-              variant="outline"
-            >
-              Обновить
-            </Button>
-            <Button
-              size="sm"
-              leftIcon={<FiZap />}
-              onClick={toggleAutoRefresh}
-              colorScheme={autoRefresh ? 'green' : 'gray'}
-              variant={autoRefresh ? 'solid' : 'outline'}
-            >
-              {autoRefresh ? 'Авто' : 'Ручное'}
-            </Button>
-          </HStack>
-        </Flex>
+        {/* Заголовок */}
+        <Box>
+          <Flex align="center" justify="space-between" mb={2}>
+            <HStack spacing={4}>
+              <Icon as={FiActivity} boxSize={8} color="purple.500" />
+              <Heading size="lg" color={colors.text.primary}>
+                Мониторинг системы
+              </Heading>
+            </HStack>
+            <HStack spacing={3}>
+              <Button
+                size="sm"
+                leftIcon={<FiRefreshCw />}
+                onClick={loadAllData}
+                isLoading={loading}
+                variant="outline"
+              >
+                Обновить
+              </Button>
+              <Button
+                size="sm"
+                leftIcon={<FiZap />}
+                onClick={toggleAutoRefresh}
+                colorScheme={autoRefresh ? 'green' : 'gray'}
+                variant={autoRefresh ? 'solid' : 'outline'}
+              >
+                {autoRefresh ? 'Авто' : 'Ручное'}
+              </Button>
+            </HStack>
+          </Flex>
+          <Text color="gray.600">
+            Мониторинг состояния системы, ресурсов и производительности в реальном времени
+          </Text>
+        </Box>
+
+        {/* Общая статистика */}
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Статус системы</StatLabel>
+                <StatNumber color={healthData ? `${getHealthColor(healthData.status)}.500` : 'gray.500'}>
+                  {healthData?.status?.toUpperCase() || 'Загрузка...'}
+                </StatNumber>
+                <StatHelpText>
+                  <Icon as={healthData ? getHealthIcon(healthData.status) : FiClock} mr={1} />
+                  {healthData ? `${healthData.response_time_ms}мс` : 'Проверка...'}
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Производительность БД</StatLabel>
+                <StatNumber color={dbPerformanceScore !== null ? `${getPerformanceColor(dbPerformanceScore)}.500` : 'gray.500'}>
+                  {dbPerformanceScore !== null ? `${dbPerformanceScore}/100` : 'N/A'}
+                </StatNumber>
+                <StatHelpText>
+                  <Icon as={FiDatabase} mr={1} />
+                  Оценка производительности
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Cache Hit Rate</StatLabel>
+                <StatNumber color={cacheStats ? 'green.500' : 'gray.500'}>
+                  {cacheStats
+                    ? `${((cacheStats.hits || 0) / ((cacheStats.hits || 0) + (cacheStats.misses || 0)) * 100 || 0).toFixed(1)}%`
+                    : 'N/A'}
+                </StatNumber>
+                <StatHelpText>
+                  <Icon as={FiBarChart} mr={1} />
+                  {cacheStats ? `${formatNumber(cacheStats.total_keys || 0)} ключей` : 'Загрузка...'}
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Медленные запросы</StatLabel>
+                <StatNumber color={slowQueries.length > 0 ? 'orange.500' : 'green.500'}>
+                  {slowQueries.length}
+                </StatNumber>
+                <StatHelpText>
+                  <Icon as={FiClock} mr={1} />
+                  Требуют оптимизации
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+        </SimpleGrid>
+
+        <Divider />
 
         {/* === РАЗДЕЛ 1: Здоровье системы === */}
         <Box>

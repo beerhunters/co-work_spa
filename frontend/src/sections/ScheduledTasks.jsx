@@ -40,6 +40,7 @@ import {
   StatLabel,
   StatNumber,
   StatHelpText,
+  SimpleGrid,
   Grid,
   GridItem,
   AlertDialog,
@@ -48,6 +49,8 @@ import {
   AlertDialogHeader,
   AlertDialogContent,
   AlertDialogOverlay,
+  Divider,
+  Icon,
 } from '@chakra-ui/react';
 import {
   FiRefreshCw,
@@ -387,42 +390,54 @@ const ScheduledTasks = () => {
   return (
     <Box p={6}>
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и кнопки управления */}
-        <Flex align="center">
-          <Heading size="lg">Запланированные задачи</Heading>
-          <Spacer />
-          <HStack spacing={3}>
-            <Button
-              leftIcon={<FiTrash2 />}
-              colorScheme="orange"
-              size="sm"
-              onClick={handleCleanup}
-            >
-              Очистить старые
-            </Button>
-            <Button
-              leftIcon={<FiRefreshCw />}
-              colorScheme="blue"
-              size="sm"
-              onClick={() => {
-                fetchTasks();
-                fetchStats();
-              }}
-              isLoading={isLoading}
-            >
-              Обновить
-            </Button>
-          </HStack>
-        </Flex>
+        {/* Заголовок */}
+        <Box>
+          <Flex align="center" mb={2}>
+            <HStack spacing={4}>
+              <Icon as={FiClock} boxSize={8} color="purple.500" />
+              <Heading size="lg">Запланированные задачи</Heading>
+            </HStack>
+            <Spacer />
+            <HStack spacing={3}>
+              <Button
+                leftIcon={<FiTrash2 />}
+                colorScheme="orange"
+                size="sm"
+                onClick={handleCleanup}
+              >
+                Очистить старые
+              </Button>
+              <Button
+                leftIcon={<FiRefreshCw />}
+                colorScheme="blue"
+                size="sm"
+                onClick={() => {
+                  fetchTasks();
+                  fetchStats();
+                }}
+                isLoading={isLoading}
+              >
+                Обновить
+              </Button>
+            </HStack>
+          </Flex>
+          <Text color="gray.600">
+            Управление отложенными задачами, напоминаниями и автоматическими операциями
+          </Text>
+        </Box>
 
         {/* Статистика */}
         {stats && (
-          <Grid templateColumns="repeat(auto-fit, minmax(150px, 1fr))" gap={4}>
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 6 }} spacing={4}>
             <Card>
               <CardBody>
                 <Stat>
                   <StatLabel>Всего задач</StatLabel>
                   <StatNumber>{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCalendar} mr={1} />
+                    Всего в системе
+                  </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
@@ -432,6 +447,10 @@ const ScheduledTasks = () => {
                 <Stat>
                   <StatLabel>Ожидают</StatLabel>
                   <StatNumber color="blue.500">{stats.pending}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiClock} mr={1} />
+                    Запланированные
+                  </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
@@ -441,6 +460,10 @@ const ScheduledTasks = () => {
                 <Stat>
                   <StatLabel>Выполняются</StatLabel>
                   <StatNumber color="cyan.500">{stats.running}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiRefreshCw} mr={1} />
+                    В процессе
+                  </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
@@ -450,6 +473,10 @@ const ScheduledTasks = () => {
                 <Stat>
                   <StatLabel>Завершены</StatLabel>
                   <StatNumber color="green.500">{stats.completed}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCheckCircle} mr={1} />
+                    Успешно
+                  </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
@@ -459,6 +486,10 @@ const ScheduledTasks = () => {
                 <Stat>
                   <StatLabel>Ошибки</StatLabel>
                   <StatNumber color="red.500">{stats.failed}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiXCircle} mr={1} />
+                    Требуют внимания
+                  </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
@@ -468,11 +499,17 @@ const ScheduledTasks = () => {
                 <Stat>
                   <StatLabel>Просрочено</StatLabel>
                   <StatNumber color="orange.500">{stats.overdue}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiAlertTriangle} mr={1} />
+                    Пропущено
+                  </StatHelpText>
                 </Stat>
               </CardBody>
             </Card>
-          </Grid>
+          </SimpleGrid>
         )}
+
+        <Divider />
 
         {/* Фильтры */}
         <Card>

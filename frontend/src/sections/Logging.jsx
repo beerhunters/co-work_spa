@@ -36,8 +36,10 @@ import {
   StatLabel,
   StatNumber,
   StatHelpText,
+  SimpleGrid,
   StatGroup,
-  Tooltip
+  Tooltip,
+  Icon
 } from '@chakra-ui/react';
 import {
   FiSettings,
@@ -46,7 +48,10 @@ import {
   FiRefreshCw,
   FiSearch,
   FiEye,
-  FiSend
+  FiSend,
+  FiAlertCircle,
+  FiAlertTriangle,
+  FiDatabase
 } from 'react-icons/fi';
 import { createLogger } from '../utils/logger.js';
 import { getAuthToken } from '../utils/auth.js';
@@ -599,63 +604,88 @@ const Logging = ({ currentAdmin }) => {
   return (
     <Box p={6} bg="gray.50" minHeight="100vh">
       <VStack spacing={6} align="stretch">
-        <HStack justify="space-between" align="center">
-          <Heading size="lg" color="gray.800">
-            <HStack>
-              <FiFileText />
-              <Text>Управление логированием</Text>
+        {/* Заголовок */}
+        <Box>
+          <HStack justify="space-between" align="center" mb={2}>
+            <HStack spacing={4}>
+              <Icon as={FiFileText} boxSize={8} color="purple.500" />
+              <Heading size="lg" color="gray.800">
+                Логирование
+              </Heading>
             </HStack>
-          </Heading>
 
-          <HStack>
-            <Button
-              leftIcon={<FiRefreshCw />}
-              variant="outline"
-              size="sm"
-              onClick={refreshData}
-              isLoading={loading}
-            >
-              Обновить
-            </Button>
-            
-            <Button
-              colorScheme="red"
-              size="sm"
-              onClick={clearLogs}
-              isLoading={clearing}
-              loadingText="Очистка..."
-            >
-              Очистить логи
-            </Button>
+            <HStack>
+              <Button
+                leftIcon={<FiRefreshCw />}
+                variant="outline"
+                size="sm"
+                onClick={refreshData}
+                isLoading={loading}
+              >
+                Обновить
+              </Button>
+
+              <Button
+                colorScheme="red"
+                size="sm"
+                onClick={clearLogs}
+                isLoading={clearing}
+                loadingText="Очистка..."
+              >
+                Очистить логи
+              </Button>
+            </HStack>
           </HStack>
-        </HStack>
+          <Text color="gray.600">
+            Просмотр и настройка системного логирования приложения
+          </Text>
+        </Box>
 
         {/* Статистика логов */}
         {statistics && (
-          <Card bg="white" borderColor="gray.200" boxShadow="lg">
-            <CardHeader>
-              <Heading size="md" color="gray.800">Статистика за 24 часа</Heading>
-            </CardHeader>
-            <CardBody>
-              <StatGroup>
+          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
+            <Card bg="white" borderColor="gray.200" boxShadow="lg">
+              <CardBody>
                 <Stat>
                   <StatLabel color="gray.600">Всего записей</StatLabel>
                   <StatNumber color="gray.800">{statistics.total_entries}</StatNumber>
+                  <StatHelpText color="gray.500">
+                    <Icon as={FiDatabase} mr={1} />
+                    За 24 часа
+                  </StatHelpText>
                 </Stat>
+              </CardBody>
+            </Card>
+
+            <Card bg="white" borderColor="gray.200" boxShadow="lg">
+              <CardBody>
                 <Stat>
                   <StatLabel color="gray.600">Ошибки</StatLabel>
                   <StatNumber color="red.500">{statistics.errors_count}</StatNumber>
-                  <StatHelpText color="gray.500">{statistics.error_rate}%</StatHelpText>
+                  <StatHelpText color="gray.500">
+                    <Icon as={FiAlertCircle} mr={1} />
+                    {statistics.error_rate}%
+                  </StatHelpText>
                 </Stat>
+              </CardBody>
+            </Card>
+
+            <Card bg="white" borderColor="gray.200" boxShadow="lg">
+              <CardBody>
                 <Stat>
                   <StatLabel color="gray.600">Предупреждения</StatLabel>
                   <StatNumber color="orange.500">{statistics.warnings_count}</StatNumber>
-                  <StatHelpText color="gray.500">{statistics.warning_rate}%</StatHelpText>
+                  <StatHelpText color="gray.500">
+                    <Icon as={FiAlertTriangle} mr={1} />
+                    {statistics.warning_rate}%
+                  </StatHelpText>
                 </Stat>
-              </StatGroup>
-            </CardBody>
-          </Card>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
         )}
+
+        <Divider />
 
         <Tabs variant="enclosed" colorScheme="purple">
           <TabList>
