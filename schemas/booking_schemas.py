@@ -20,6 +20,7 @@ class BookingBase(BaseModel):
     confirmed: bool
     cancelled: Optional[bool] = False
     created_at: datetime
+    comment: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -40,6 +41,7 @@ class BookingCreate(BaseModel):
     confirmed: bool = False
     rubitime_id: Optional[str] = None
     reminder_days: Optional[int] = None  # За сколько дней до окончания напомнить
+    comment: Optional[str] = None  # Комментарий администратора
 
 
 class BookingUpdate(BaseModel):
@@ -90,6 +92,7 @@ class BookingDetailed(BaseModel):
     confirmed: bool
     cancelled: Optional[bool] = False
     created_at: str
+    comment: Optional[str] = None
     user: dict
     tariff: dict
     promocode: Optional[dict] = None

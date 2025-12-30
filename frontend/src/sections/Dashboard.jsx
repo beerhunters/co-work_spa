@@ -9,7 +9,7 @@ import {
   Input, InputGroup, InputLeftElement, Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
   Menu, MenuButton, MenuList, MenuItem, Divider
 } from '@chakra-ui/react';
-import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload, FiZap } from 'react-icons/fi';
+import { FiUsers, FiShoppingBag, FiMessageCircle, FiCreditCard, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload, FiZap } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -1408,7 +1408,7 @@ const Dashboard = ({
                         {stats?.average_booking_value?.trend ? (
                           <HStack spacing={1}>
                             <Icon
-                              as={stats.average_booking_value.trend.direction === 'up' ? FiTrendingUp : stats.average_booking_value.trend.direction === 'down' ? FiTrendingDown : FiDollarSign}
+                              as={stats.average_booking_value.trend.direction === 'up' ? FiTrendingUp : stats.average_booking_value.trend.direction === 'down' ? FiTrendingDown : FiCreditCard}
                               color={stats.average_booking_value.trend.is_positive ? 'green.300' : 'red.300'}
                             />
                             <Text color={stats.average_booking_value.trend.is_positive ? 'green.300' : 'red.300'}>
@@ -1419,7 +1419,7 @@ const Dashboard = ({
                           </HStack>
                         ) : (
                           <HStack spacing={1}>
-                            <Icon as={FiDollarSign} />
+                            <Icon as={FiCreditCard} />
                             <Text>Средняя сумма</Text>
                           </HStack>
                         )}

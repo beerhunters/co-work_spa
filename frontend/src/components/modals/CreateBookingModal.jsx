@@ -30,9 +30,10 @@ import {
   Box,
   InputGroup,
   InputLeftElement,
-  Icon
+  Icon,
+  Textarea
 } from '@chakra-ui/react';
-import { FiSave, FiX, FiDollarSign, FiSearch, FiUser } from 'react-icons/fi';
+import { FiSave, FiX, FiCreditCard, FiSearch, FiUser } from 'react-icons/fi';
 import { bookingApi } from '../../utils/api';
 import { formatLocalDate } from '../../utils/dateUtils';
 
@@ -48,7 +49,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
     amount: 0,
     paid: true,  // По умолчанию оплачено для бронирований администратора
     confirmed: true,  // По умолчанию подтверждено для бронирований администратора
-    reminder_days: null  // Напоминание за N дней до окончания аренды
+    reminder_days: null,  // Напоминание за N дней до окончания аренды
+    comment: ''  // Комментарий администратора
   });
 
   const [selectedTariff, setSelectedTariff] = useState(null);
@@ -76,7 +78,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
       promocode_id: null,
       amount: 0,
       paid: true,  // По умолчанию оплачено для бронирований администратора
-      confirmed: true  // По умолчанию подтверждено для бронирований администратора
+      confirmed: true,  // По умолчанию подтверждено для бронирований администратора
+      comment: ''  // Сброс комментария
     });
     setSelectedTariff(null);
     setCalculatedAmount(0);
@@ -351,7 +354,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
         paid: formData.paid,
         confirmed: formData.confirmed,
         promocode_id: formData.promocode_id || null,
-        reminder_days: formData.reminder_days || null
+        reminder_days: formData.reminder_days || null,
+        comment: formData.comment || null
       };
 
       console.log('Создание бронирования с данными:', bookingData);
@@ -449,7 +453,8 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
         paid: true,  // Считается оплаченным
         confirmed: true,  // Подтверждено
         promocode_id: null,
-        reminder_days: formData.reminder_days || null
+        reminder_days: formData.reminder_days || null,
+        comment: formData.comment || null
       };
 
       console.log('Создание бесплатного бронирования:', bookingData);
@@ -939,6 +944,21 @@ const CreateBookingModal = ({ isOpen, onClose, onSuccess, tariffs, users }) => {
                   Оплачено
                 </Checkbox>
               </VStack>
+            </FormControl>
+
+            {/* Комментарий администратора */}
+            <FormControl>
+              <FormLabel>Комментарий</FormLabel>
+              <Textarea
+                value={formData.comment}
+                onChange={(e) => handleFieldChange('comment', e.target.value)}
+                placeholder="Дополнительная информация о бронировании (опционально)"
+                rows={3}
+                resize="vertical"
+              />
+              <FormHelperText>
+                Комментарий видит только администратор
+              </FormHelperText>
             </FormControl>
           </VStack>
         </ModalBody>

@@ -83,7 +83,7 @@ export const colors = {
     },
     average_booking_value: {
       gradient: 'linear(to-br, purple.400, purple.600)',
-      icon: 'FiDollarSign'
+      icon: 'FiCreditCard'
     },
     tickets: {
       gradient: 'linear(to-br, orange.400, orange.600)',

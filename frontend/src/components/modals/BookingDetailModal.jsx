@@ -36,13 +36,14 @@ import {
   NumberIncrementStepper,
   NumberDecrementStepper,
   Divider,
-  IconButton
+  IconButton,
+  Textarea
 } from '@chakra-ui/react';
 import {
   FiUser,
   FiCalendar,
   FiClock,
-  FiDollarSign,
+  FiCreditCard,
   FiTag,
   FiPercent,
   FiPhone,
@@ -76,7 +77,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     visit_date: null,
     visit_time: null,
     duration: null,
-    reminder_days: null  // Напоминание за N дней
+    reminder_days: null,  // Напоминание за N дней
+    comment: ''  // Комментарий администратора
   });
   const [recalculatedAmount, setRecalculatedAmount] = useState(null);
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -457,7 +459,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
       visit_date: detailedBooking.visit_date || '',
       visit_time: detailedBooking.visit_time || '',
       duration: detailedBooking.duration || '',
-      reminder_days: detailedBooking.reminder_days || null
+      reminder_days: detailedBooking.reminder_days || null,
+      comment: detailedBooking.comment || ''
     });
     setRecalculatedAmount(detailedBooking.amount);
     setIsEditing(true);
@@ -466,7 +469,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
   // Отменить редактирование
   const handleCancelEdit = () => {
     setIsEditing(false);
-    setEditData({ visit_date: null, visit_time: null, duration: null, reminder_days: null });
+    setEditData({ visit_date: null, visit_time: null, duration: null, reminder_days: null, comment: '' });
     setRecalculatedAmount(null);
   };
 
@@ -505,12 +508,13 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
         visit_time: editData.visit_time,
         duration: parsedDuration,
         amount: finalAmount,
-        reminder_days: editData.reminder_days  // Добавляем напоминание
+        reminder_days: editData.reminder_days,  // Добавляем напоминание
+        comment: editData.comment || null  // Добавляем комментарий
       });
 
       toast({
         title: 'Бронирование обновлено',
-        description: 'Пользователь получит уведомление об изменениях',
+        description: 'Изменения успешно сохранены',
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -841,11 +845,26 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                         </FormControl>
                       )}
 
+                      {/* Комментарий администратора */}
+                      <FormControl>
+                        <FormLabel fontSize="sm">Комментарий</FormLabel>
+                        <Textarea
+                          value={editData.comment}
+                          onChange={(e) => setEditData({ ...editData, comment: e.target.value })}
+                          placeholder="Дополнительная информация о бронировании (опционально)"
+                          rows={3}
+                          resize="vertical"
+                        />
+                        <FormHelperText>
+                          Комментарий видит только администратор
+                        </FormHelperText>
+                      </FormControl>
+
                       <Divider />
 
                       <HStack justify="space-between">
                         <HStack>
-                          <Icon as={FiDollarSign} color="green.500" />
+                          <Icon as={FiCreditCard} color="green.500" />
                           <Text fontWeight="medium">Пересчитанная сумма:</Text>
                         </HStack>
                         {isRecalculating ? (
@@ -858,30 +877,6 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                             {recalculatedAmount !== null ? `${recalculatedAmount} ₽` : `${data.amount} ₽`}
                           </Text>
                         )}
-                      </HStack>
-
-                      <HStack spacing={2} width="100%">
-                        <Button
-                          leftIcon={<FiSave />}
-                          colorScheme="green"
-                          size="sm"
-                          onClick={handleSaveEdit}
-                          isLoading={actionLoading.save}
-                          loadingText="Сохранение..."
-                          flex={1}
-                        >
-                          Сохранить
-                        </Button>
-                        <Button
-                          leftIcon={<FiX />}
-                          colorScheme="red"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleCancelEdit}
-                          flex={1}
-                        >
-                          Отмена
-                        </Button>
                       </HStack>
                     </VStack>
                   ) : (
@@ -919,7 +914,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
 
                       <HStack justify="space-between">
                         <HStack>
-                          <Icon as={FiDollarSign} color="green.500" />
+                          <Icon as={FiCreditCard} color="green.500" />
                           <Text fontWeight="medium">Итоговая сумма:</Text>
                         </HStack>
                         <Text fontSize="lg" fontWeight="bold" color="green.500">
@@ -957,6 +952,28 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                           )}
                         </Badge>
                       </HStack>
+
+                      {/* Комментарий администратора */}
+                      {data.comment && (
+                        <Box>
+                          <Divider my={2} />
+                          <VStack align="stretch" spacing={2}>
+                            <HStack>
+                              <Icon as={FiMessageCircle} color="gray.500" />
+                              <Text fontWeight="medium" fontSize="sm" color="gray.600">Комментарий администратора:</Text>
+                            </HStack>
+                            <Box
+                              bg="gray.50"
+                              p={3}
+                              borderRadius="md"
+                              borderLeft="3px solid"
+                              borderColor="gray.300"
+                            >
+                              <Text fontSize="sm" whiteSpace="pre-wrap">{data.comment}</Text>
+                            </Box>
+                          </VStack>
+                        </Box>
+                      )}
                     </VStack>
                   )}
                 </VStack>
@@ -1099,7 +1116,18 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
           <VStack spacing={3} width="100%">
             {/* Ряд 1: Основные действия */}
             <HStack width="100%" spacing={2} justify="flex-start" flexWrap="wrap">
-              {!isEditing && (
+              {isEditing ? (
+                <Button
+                  size="sm"
+                  colorScheme="green"
+                  leftIcon={<FiSave />}
+                  onClick={handleSaveEdit}
+                  isLoading={actionLoading.save}
+                  loadingText="Сохранение..."
+                >
+                  Сохранить
+                </Button>
+              ) : (
                 <Button size="sm" colorScheme="blue" leftIcon={<FiEdit2 />} onClick={handleStartEdit}>
                   Редактировать
                 </Button>
@@ -1124,7 +1152,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
             {/* Ряд 2: Действия с оплатой */}
             {!data.paid && (
               <HStack width="100%" spacing={2} justify="flex-start" flexWrap="wrap" borderTop="1px solid" borderColor="gray.200" pt={3}>
-                <Button size="sm" colorScheme="green" leftIcon={<FiDollarSign />} onClick={handleMarkAsPaid} isLoading={actionLoading.markPaid}>
+                <Button size="sm" colorScheme="green" leftIcon={<FiCreditCard />} onClick={handleMarkAsPaid} isLoading={actionLoading.markPaid}>
                   Оплачено
                 </Button>
                 <Button size="sm" colorScheme="purple" leftIcon={<FiCheck />} onClick={handleMarkAsFree} isLoading={actionLoading.markFree}>

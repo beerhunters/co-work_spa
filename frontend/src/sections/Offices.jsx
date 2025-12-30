@@ -52,7 +52,7 @@ import {
   Spinner,
   Flex
 } from '@chakra-ui/react';
-import { FiEye, FiPlus, FiUsers, FiBell, FiSearch, FiHome, FiCheckCircle, FiXCircle, FiDollarSign } from 'react-icons/fi';
+import { FiEye, FiPlus, FiUsers, FiBell, FiSearch, FiHome, FiCheckCircle, FiXCircle, FiCreditCard } from 'react-icons/fi';
 import { BsList, BsGrid3X3Gap } from 'react-icons/bs';
 import { sizes, styles, getStatusColor, colors } from '../styles/styles';
 import { officeApi } from '../utils/api';
@@ -903,7 +903,7 @@ const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoadin
                   <StatLabel>Средняя цена</StatLabel>
                   <StatNumber color="purple.500">{stats.avgPrice} ₽</StatNumber>
                   <StatHelpText>
-                    <Icon as={FiDollarSign} mr={1} />
+                    <Icon as={FiCreditCard} mr={1} />
                     В месяц
                   </StatHelpText>
                 </Stat>

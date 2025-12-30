@@ -158,7 +158,7 @@ async def get_dashboard_stats(
                 "change_percentage": result.get("average_booking_value", {}).get("change_percentage", 0),
                 "trend": create_trend(result.get("average_booking_value", {}).get("change_percentage", 0), "growth"),
                 "label": "Средний чек",
-                "icon": "FiDollarSign",
+                "icon": "FiCreditCard",
                 "sparkline": result.get("sparkline", {}).get("average_booking_value", {"values": [], "labels": []})
             },
             "tickets": {
@@ -223,7 +223,7 @@ async def get_dashboard_stats(
                 "change_percentage": 0.0,
                 "trend": {"value": 0.0, "direction": "neutral", "is_positive": True},
                 "label": "Средний чек",
-                "icon": "FiDollarSign",
+                "icon": "FiCreditCard",
                 "sparkline": {"values": [0]*7, "labels": [""]*7}
             },
             "tickets": {

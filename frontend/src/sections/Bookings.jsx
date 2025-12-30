@@ -56,7 +56,6 @@ import {
   FiDownload,
   FiPlus,
   FiCalendar,
-  FiDollarSign,
   FiCreditCard,
   FiAlertCircle
 } from 'react-icons/fi';
@@ -566,7 +565,7 @@ const Bookings = ({
                   <StatLabel>Сумма (оплачено)</StatLabel>
                   <StatNumber color="green.600">{stats.paidAmount.toLocaleString()} ₽</StatNumber>
                   <StatHelpText>
-                    <Icon as={FiDollarSign} mr={1} />
+                    <Icon as={FiCreditCard} mr={1} />
                     На странице
                   </StatHelpText>
                 </Stat>

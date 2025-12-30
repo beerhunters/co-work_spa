@@ -344,6 +344,7 @@ async def create_booking_admin(
             confirmed=booking_data.confirmed,
             rubitime_id=booking_data.rubitime_id,
             reminder_days=booking_data.reminder_days,
+            comment=booking_data.comment,
         )
 
         session.add(booking)
@@ -961,6 +962,7 @@ async def create_booking(booking_data: BookingCreate):
             confirmed=booking_data.confirmed,
             rubitime_id=booking_data.rubitime_id,
             reminder_days=booking_data.reminder_days,
+            comment=booking_data.comment,
         )
 
         session.add(booking)
@@ -1200,6 +1202,8 @@ async def get_booking_detailed(
             "confirmed": bool(booking.confirmed),
             "cancelled": bool(booking.cancelled) if booking.cancelled is not None else False,
             "created_at": booking.created_at.isoformat(),
+            "comment": booking.comment,
+            "reminder_days": booking.reminder_days,
             "user": (
                 {
                     "id": user.id if user else booking.user_id,
@@ -2416,6 +2420,10 @@ async def update_booking_full(
             if "reminder_days" in update_data:
                 booking.reminder_days = update_data["reminder_days"]
 
+            # Обновить комментарий администратора
+            if "comment" in update_data:
+                booking.comment = update_data["comment"]
+
             session.commit()
 
             # Получить тариф для Rubitime
@@ -2551,22 +2559,32 @@ async def update_booking_full(
         await invalidate_dashboard_cache()
 
         # Отправить уведомление пользователю о изменении брони (только если бронь подтверждена)
+        # Уведомление отправляется только если изменились дата, время или сумма
         try:
             if updated_booking.confirmed:
-                user = db.query(User).filter(User.id == updated_booking.user_id).first()
-                if user and user.telegram_id:
-                    # Подготовить данные для уведомления
-                    booking_data = {
-                        "visit_date": updated_booking.visit_date,
-                        "visit_time": updated_booking.visit_time,
-                        "duration": updated_booking.duration,
-                        "amount": updated_booking.amount
-                    }
-                    tariff_data = {
-                        "name": tariff.name if tariff else "Неизвестно"
-                    }
-                    await send_booking_update_notification(user.telegram_id, booking_data, tariff_data)
-                    logger.info(f"Update notification sent to user {user.telegram_id}")
+                # Проверяем, изменились ли важные поля (дата, время, сумма)
+                date_changed = old_values["visit_date"] != updated_booking.visit_date
+                time_changed = old_values["visit_time"] != updated_booking.visit_time
+                amount_changed = old_values["amount"] != updated_booking.amount
+
+                # Отправляем уведомление только если что-то из важного изменилось
+                if date_changed or time_changed or amount_changed:
+                    user = db.query(User).filter(User.id == updated_booking.user_id).first()
+                    if user and user.telegram_id:
+                        # Подготовить данные для уведомления
+                        booking_data = {
+                            "visit_date": updated_booking.visit_date,
+                            "visit_time": updated_booking.visit_time,
+                            "duration": updated_booking.duration,
+                            "amount": updated_booking.amount
+                        }
+                        tariff_data = {
+                            "name": tariff.name if tariff else "Неизвестно"
+                        }
+                        await send_booking_update_notification(user.telegram_id, booking_data, tariff_data)
+                        logger.info(f"Update notification sent to user {user.telegram_id} (date_changed={date_changed}, time_changed={time_changed}, amount_changed={amount_changed})")
+                else:
+                    logger.info(f"Booking {booking_id} updated but no important fields changed (only comment or no changes), notification not sent")
             else:
                 logger.info(f"Booking {booking_id} is not confirmed, notification not sent")
         except Exception as e:
@@ -2584,7 +2602,9 @@ async def update_booking_full(
             "confirmed": updated_booking.confirmed,
             "paid": updated_booking.paid,
             "payment_id": updated_booking.payment_id,
-            "rubitime_id": updated_booking.rubitime_id
+            "rubitime_id": updated_booking.rubitime_id,
+            "comment": updated_booking.comment,
+            "reminder_days": updated_booking.reminder_days
         }
 
         return {"success": True, "booking": booking_dict}

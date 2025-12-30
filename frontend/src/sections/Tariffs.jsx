@@ -44,7 +44,7 @@ import {
   Spinner,
   Flex
 } from '@chakra-ui/react';
-import { FiEye, FiPlus, FiSave, FiX, FiTag, FiCheckCircle, FiXCircle, FiDollarSign } from 'react-icons/fi';
+import { FiEye, FiPlus, FiSave, FiX, FiTag, FiCheckCircle, FiXCircle, FiCreditCard } from 'react-icons/fi';
 import { sizes, styles, getStatusColor, colors, spacing, typography } from '../styles/styles';
 import { tariffApi } from '../utils/api';
 import { ListSkeleton } from '../components/LoadingSkeletons';
@@ -440,7 +440,7 @@ const Tariffs = ({ tariffs, openDetailModal, onUpdate, isLoading = false }) => {
                   <StatLabel>Средняя цена</StatLabel>
                   <StatNumber color="purple.500">{stats.avgPrice} ₽</StatNumber>
                   <StatHelpText>
-                    <Icon as={FiDollarSign} mr={1} />
+                    <Icon as={FiCreditCard} mr={1} />
                     По всем тарифам
                   </StatHelpText>
                 </Stat>
