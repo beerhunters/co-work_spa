@@ -14,6 +14,7 @@ from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 from bot.hndlrs.booking_hndlr import register_book_handlers
 from bot.hndlrs.registration_hndlr import register_reg_handlers
 from bot.hndlrs.ticket_hndlr import register_ticket_handlers
+from bot.hndlrs.office_subscription_hndlr import register_office_subscription_handlers
 from bot.middlewares.fsm_timeout import FSMTimeoutMiddleware
 from utils.api_client import get_api_client, close_api_client
 from utils.bot_instance import get_bot
@@ -226,6 +227,7 @@ async def main() -> None:
     register_reg_handlers(dp)
     register_book_handlers(dp)
     register_ticket_handlers(dp)
+    register_office_subscription_handlers(dp)
 
     logger.info("Обработчики зарегистрированы")
 

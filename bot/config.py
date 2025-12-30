@@ -23,6 +23,7 @@ def create_user_keyboard(lang="ru") -> InlineKeyboardMarkup:
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=get_button_text(lang, "book"), callback_data="book")],
+            [InlineKeyboardButton(text=get_button_text(lang, "subscribe_office"), callback_data="subscribe_office")],
             [InlineKeyboardButton(text=get_button_text(lang, "support_button"), callback_data="support")],
             [
                 InlineKeyboardButton(

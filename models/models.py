@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlite3 import IntegrityError
 from typing import Optional, List
 import threading
@@ -30,6 +30,7 @@ from sqlalchemy import (
     event,
     Text,
     Table,
+    JSON,
 )
 from sqlalchemy import UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
@@ -752,6 +753,12 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    office_subscriptions = relationship(
+        "OfficeSubscription",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return f"<User {self.telegram_id} - {self.full_name}>"
@@ -1107,6 +1114,56 @@ class NewsletterRecipient(Base):
         return f"<NewsletterRecipient(id={self.id}, newsletter_id={self.newsletter_id}, telegram_id={self.telegram_id}, status={self.status})>"
 
 
+class OfficeSubscription(Base):
+    """
+    Подписки пользователей на уведомления о доступности офисов.
+
+    Пользователь может подписаться на несколько размеров офисов одновременно.
+    Когда офис нужного размера становится доступен, администратор может
+    отправить уведомление всем подписчикам или фильтровать по размеру офиса.
+    """
+    __tablename__ = 'office_subscriptions'
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Связь с пользователем
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    user = relationship('User', back_populates='office_subscriptions')
+
+    # Размеры офисов (флаги для каждого размера)
+    office_1 = Column(Boolean, default=False, nullable=False)  # Офис на 1 человека
+    office_2 = Column(Boolean, default=False, nullable=False)  # Офис на 2 человека
+    office_4 = Column(Boolean, default=False, nullable=False)  # Офис на 4 человека
+    office_6 = Column(Boolean, default=False, nullable=False)  # Офис на 6 человек
+
+    # Метаданные
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), onupdate=lambda: datetime.now(MOSCOW_TZ), nullable=False)
+
+    # Дополнительная информация для удобства (денормализация для производительности)
+    telegram_id = Column(BigInteger, nullable=False, index=True)  # Для быстрой отправки уведомлений
+    full_name = Column(String(100), nullable=True)
+    username = Column(String(50), nullable=True)
+
+    def __repr__(self):
+        sizes = []
+        if self.office_1: sizes.append('1')
+        if self.office_2: sizes.append('2')
+        if self.office_4: sizes.append('4')
+        if self.office_6: sizes.append('6')
+        return f"<OfficeSubscription user_id={self.user_id} sizes=[{','.join(sizes)}]>"
+
+    @property
+    def selected_sizes(self) -> list[int]:
+        """Возвращает список выбранных размеров офисов."""
+        sizes = []
+        if self.office_1: sizes.append(1)
+        if self.office_2: sizes.append(2)
+        if self.office_4: sizes.append(4)
+        if self.office_6: sizes.append(6)
+        return sizes
+
+
 class TicketStatus(enum.Enum):
     """Перечисление для статусов заявки."""
 
@@ -1307,6 +1364,91 @@ class EmailTracking(Base):
 
     def __repr__(self) -> str:
         return f"<EmailTracking(id={self.id}, event_type={self.event_type}, created_at={self.created_at})>"
+
+
+class TaskStatus(enum.Enum):
+    """Статусы выполнения задач."""
+    PENDING = "pending"  # Ожидает выполнения
+    RUNNING = "running"  # Выполняется
+    COMPLETED = "completed"  # Успешно выполнена
+    FAILED = "failed"  # Ошибка при выполнении
+    CANCELLED = "cancelled"  # Отменена
+
+
+class TaskType(enum.Enum):
+    """Типы планируемых задач."""
+    OFFICE_REMINDER_ADMIN = "office_reminder_admin"  # Напоминание админу об офисе
+    OFFICE_REMINDER_TENANT = "office_reminder_tenant"  # Напоминание постояльцу об офисе
+    BOOKING_EXPIRATION = "booking_expiration"  # Уведомление о завершении бронирования
+    BOOKING_RENTAL_REMINDER = "booking_rental_reminder"  # Напоминание о завершении аренды
+
+
+class ScheduledTask(Base):
+    """
+    Модель для управления запланированными задачами.
+
+    Хранит информацию о всех задачах (Celery), обеспечивая:
+    - Полную видимость всех запланированных задач
+    - Историю выполнения
+    - Ручное управление через админ-панель
+    - Защиту от дубликатов
+    - Аудит действий
+    """
+    __tablename__ = 'scheduled_tasks'
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Идентификация задачи
+    task_type = Column(Enum(TaskType), nullable=False, index=True)
+    celery_task_id = Column(String(255), unique=True, index=True, nullable=True)  # ID задачи в Celery
+
+    # Связи с сущностями
+    office_id = Column(Integer, ForeignKey('offices.id', ondelete='CASCADE'), nullable=True, index=True)
+    booking_id = Column(Integer, ForeignKey('bookings.id', ondelete='CASCADE'), nullable=True, index=True)
+
+    # Планирование
+    scheduled_datetime = Column(DateTime(timezone=True), nullable=False, index=True)  # Когда должна выполниться
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(MOSCOW_TZ), nullable=False, index=True)
+    created_by = Column(String(100), nullable=False)  # 'system', 'admin_login', 'api'
+
+    # Выполнение
+    status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, nullable=False, index=True)
+    executed_at = Column(DateTime(timezone=True), nullable=True)
+    result = Column(JSON, nullable=True)  # Результат выполнения
+    error_message = Column(Text, nullable=True)
+
+    # Метаданные
+    params = Column(JSON, nullable=True)  # Дополнительные параметры задачи
+    retry_count = Column(Integer, default=0, nullable=False)
+
+    # Relationships
+    office = relationship('Office', foreign_keys=[office_id])
+    booking = relationship('Booking', foreign_keys=[booking_id])
+
+    def __repr__(self) -> str:
+        return f"<ScheduledTask(id={self.id}, type={self.task_type.value}, status={self.status.value}, scheduled={self.scheduled_datetime})>"
+
+    @property
+    def is_overdue(self) -> bool:
+        """Проверяет, просрочена ли задача."""
+        if self.status in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]:
+            return False
+        now = datetime.now(MOSCOW_TZ)
+        # Если scheduled_datetime без timezone, добавляем MOSCOW_TZ
+        scheduled = self.scheduled_datetime
+        if scheduled.tzinfo is None:
+            scheduled = MOSCOW_TZ.localize(scheduled)
+        return scheduled < now
+
+    @property
+    def time_until_execution(self) -> timedelta:
+        """Возвращает время до выполнения."""
+        now = datetime.now(MOSCOW_TZ)
+        # Если scheduled_datetime без timezone, добавляем MOSCOW_TZ
+        scheduled = self.scheduled_datetime
+        if scheduled.tzinfo is None:
+            scheduled = MOSCOW_TZ.localize(scheduled)
+        return scheduled - now
 
 
 # Обновленная функция создания админа

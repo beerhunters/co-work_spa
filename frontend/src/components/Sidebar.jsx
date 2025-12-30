@@ -27,13 +27,14 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin, isCollapsed,
     { icon: FiHelpCircle, label: 'Заявки', section: 'tickets', color: 'yellow' },
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
     { icon: FiSend, label: 'Рассылка (Telegram)', section: 'newsletters', color: 'teal' },
-    { icon: FiMail, label: 'Email Рассылки', section: 'emails', color: 'blue' },
+    // { icon: FiMail, label: 'Email Рассылки', section: 'emails', color: 'blue' },
+    { icon: FiBell, label: 'Подписки на офисы', section: 'office-subscriptions', color: 'orange' },
   ];
 
   // Административные функции для super_admin
   const adminMenuItems = [
     { icon: FiActivity, label: 'Мониторинг системы', section: 'system-monitoring', color: 'purple' },
-    { icon: FiCpu, label: 'Celery задачи', section: 'celery-tasks', color: 'cyan' },
+    { icon: FiCpu, label: 'Запланированные задачи', section: 'scheduled-tasks', color: 'cyan' },
     { icon: FiFileText, label: 'Логирование', section: 'logging', color: 'gray' },
     { icon: FiShield, label: 'IP Баны', section: 'ip-bans', color: 'red' },
     { icon: FiShield, label: 'Администраторы', section: 'admins', color: 'purple' },

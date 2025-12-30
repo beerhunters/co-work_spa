@@ -1030,25 +1030,40 @@ def _schedule_office_reminders(office: Office, db: Session) -> None:
     """
     Планирование задач напоминаний для офиса.
     Отменяет старые задачи и создает новые при необходимости.
+
+    Теперь с синхронизацией в БД для полной видимости задач.
     """
     from tasks.office_tasks import send_office_reminder
     from celery_app import celery_app
     from celery.result import AsyncResult
     from datetime import time as time_type
+    from models.models import ScheduledTask, TaskType, TaskStatus
 
     now = datetime.now(MOSCOW_TZ)
 
     # Админ напоминание
     if office.admin_reminder_enabled and office.next_payment_date:
-        # Отменяем старую задачу если есть
+        # Удаляем старую задачу из БД и Celery
         if office.admin_reminder_task_id:
             try:
-                # Используем AsyncResult для полного удаления задачи из очереди
+                # Находим задачу в БД
+                old_task = db.query(ScheduledTask).filter(
+                    ScheduledTask.celery_task_id == office.admin_reminder_task_id
+                ).first()
+
+                # Отменяем в Celery
                 result = AsyncResult(office.admin_reminder_task_id, app=celery_app)
                 result.revoke(terminate=True)
                 logger.info(f"Revoked old admin reminder task {office.admin_reminder_task_id} for office #{office.id}")
+
+                # Удаляем из БД или обновляем статус
+                if old_task:
+                    old_task.status = TaskStatus.CANCELLED
+                    old_task.executed_at = now
+                    logger.info(f"Cancelled old task #{old_task.id} in DB")
+
             except Exception as e:
-                logger.error(f"Error revoking old admin task: {e}")
+                logger.error(f"Error cancelling old admin task: {e}")
             office.admin_reminder_task_id = None
 
         # Вычисляем дату/время напоминания
@@ -1072,27 +1087,61 @@ def _schedule_office_reminders(office: Office, db: Session) -> None:
         # Создаем задачу если дата в будущем
         if reminder_datetime and reminder_datetime > now:
             try:
+                # 1. Создаем запись в БД
+                scheduled_task = ScheduledTask(
+                    task_type=TaskType.OFFICE_REMINDER_ADMIN,
+                    office_id=office.id,
+                    scheduled_datetime=reminder_datetime,
+                    created_by='system',
+                    status=TaskStatus.PENDING,
+                    params={
+                        'office_number': office.office_number,
+                        'floor': office.floor,
+                        'reminder_type': 'admin'
+                    }
+                )
+                db.add(scheduled_task)
+                db.flush()  # Получаем ID
+
+                # 2. Создаем задачу в Celery
                 task_result = send_office_reminder.apply_async(
                     args=[office.id, 'admin'],
                     eta=reminder_datetime
                 )
+
+                # 3. Сохраняем celery_task_id в БД и office
+                scheduled_task.celery_task_id = task_result.id
                 office.admin_reminder_task_id = task_result.id
+
                 logger.info(
                     f"📅 Запланировано admin напоминание для офиса #{office.id} "
-                    f"на {reminder_datetime.strftime('%d.%m.%Y %H:%M')} (task: {task_result.id})"
+                    f"на {reminder_datetime.strftime('%d.%m.%Y %H:%M')} "
+                    f"(task_id: {task_result.id}, db_id: {scheduled_task.id})"
                 )
             except Exception as e:
                 logger.error(f"Error scheduling admin reminder for office #{office.id}: {e}", exc_info=True)
 
     # Постояльцы напоминание
     if office.tenant_reminder_enabled and office.next_payment_date:
-        # Отменяем старую задачу если есть
+        # Удаляем старую задачу из БД и Celery
         if office.tenant_reminder_task_id:
             try:
-                # Используем AsyncResult для полного удаления задачи из очереди
+                # Находим задачу в БД
+                old_task = db.query(ScheduledTask).filter(
+                    ScheduledTask.celery_task_id == office.tenant_reminder_task_id
+                ).first()
+
+                # Отменяем в Celery
                 result = AsyncResult(office.tenant_reminder_task_id, app=celery_app)
                 result.revoke(terminate=True)
                 logger.info(f"Revoked old tenant reminder task {office.tenant_reminder_task_id} for office #{office.id}")
+
+                # Обновляем статус в БД
+                if old_task:
+                    old_task.status = TaskStatus.CANCELLED
+                    old_task.executed_at = now
+                    logger.info(f"Cancelled old task #{old_task.id} in DB")
+
             except Exception as e:
                 logger.error(f"Error revoking old tenant task: {e}")
             office.tenant_reminder_task_id = None
@@ -1118,14 +1167,36 @@ def _schedule_office_reminders(office: Office, db: Session) -> None:
         # Создаем задачу если дата в будущем
         if reminder_datetime and reminder_datetime > now:
             try:
+                # 1. Создаем запись в БД
+                scheduled_task = ScheduledTask(
+                    task_type=TaskType.OFFICE_REMINDER_TENANT,
+                    office_id=office.id,
+                    scheduled_datetime=reminder_datetime,
+                    created_by='system',
+                    status=TaskStatus.PENDING,
+                    params={
+                        'office_number': office.office_number,
+                        'floor': office.floor,
+                        'reminder_type': 'tenant'
+                    }
+                )
+                db.add(scheduled_task)
+                db.flush()  # Получаем ID
+
+                # 2. Создаем задачу в Celery
                 task_result = send_office_reminder.apply_async(
                     args=[office.id, 'tenant'],
                     eta=reminder_datetime
                 )
+
+                # 3. Сохраняем celery_task_id в БД и office
+                scheduled_task.celery_task_id = task_result.id
                 office.tenant_reminder_task_id = task_result.id
+
                 logger.info(
                     f"📅 Запланировано tenant напоминание для офиса #{office.id} "
-                    f"на {reminder_datetime.strftime('%d.%m.%Y %H:%M')} (task: {task_result.id})"
+                    f"на {reminder_datetime.strftime('%d.%m.%Y %H:%M')} "
+                    f"(task_id: {task_result.id}, db_id: {scheduled_task.id})"
                 )
             except Exception as e:
                 logger.error(f"Error scheduling tenant reminder for office #{office.id}: {e}", exc_info=True)

@@ -259,8 +259,24 @@ def send_office_reminder(self, office_id: int, reminder_type: str):
     Returns:
         Dict с результатом выполнения
     """
+    from models.models import ScheduledTask, TaskStatus
+
+    # Обновляем статус задачи в БД на "running"
+    def _update_task_status_running(session):
+        task = session.query(ScheduledTask).filter(
+            ScheduledTask.celery_task_id == self.request.id
+        ).first()
+        if task:
+            task.status = TaskStatus.RUNNING
+            session.commit()
+            logger.info(f"Task #{task.id} status updated to RUNNING")
+        return task
+
     try:
         logger.info(f"🏢 Отправка {reminder_type} напоминания для офиса #{office_id}")
+
+        # Обновляем статус на running
+        DatabaseManager.safe_execute(_update_task_status_running)
 
         # Event loop setup
         try:
@@ -274,10 +290,40 @@ def send_office_reminder(self, office_id: int, reminder_type: str):
 
         result = loop.run_until_complete(_send_single_office_reminder_async(office_id, reminder_type))
 
+        # Обновляем статус на completed
+        def _update_task_status_completed(session):
+            task = session.query(ScheduledTask).filter(
+                ScheduledTask.celery_task_id == self.request.id
+            ).first()
+            if task:
+                task.status = TaskStatus.COMPLETED
+                task.executed_at = datetime.now(MOSCOW_TZ)
+                task.result = result
+                session.commit()
+                logger.info(f"Task #{task.id} status updated to COMPLETED")
+
+        DatabaseManager.safe_execute(_update_task_status_completed)
+
         return result
 
     except Exception as e:
         logger.error(f"Error sending {reminder_type} reminder for office #{office_id}: {e}", exc_info=True)
+
+        # Обновляем статус на failed
+        def _update_task_status_failed(session):
+            task = session.query(ScheduledTask).filter(
+                ScheduledTask.celery_task_id == self.request.id
+            ).first()
+            if task:
+                task.status = TaskStatus.FAILED
+                task.executed_at = datetime.now(MOSCOW_TZ)
+                task.error_message = str(e)
+                task.retry_count += 1
+                session.commit()
+                logger.info(f"Task #{task.id} status updated to FAILED")
+
+        DatabaseManager.safe_execute(_update_task_status_failed)
+
         raise self.retry(exc=e)
 
 

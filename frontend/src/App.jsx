@@ -30,12 +30,13 @@ const Tickets = lazy(() => import('./sections/Tickets'));
 const Notifications = lazy(() => import('./sections/Notifications'));
 const Newsletters = lazy(() => import('./sections/Newsletters'));
 const Emails = lazy(() => import('./sections/Emails'));
+const OfficeSubscriptions = lazy(() => import('./sections/OfficeSubscriptions'));
 const Admins = lazy(() => import('./sections/Admins'));
 const Backups = lazy(() => import('./sections/Backups'));
 const SystemMonitoring = lazy(() => import('./sections/SystemMonitoring'));
 const Logging = lazy(() => import('./sections/Logging'));
 const IPBans = lazy(() => import('./sections/IPBans'));
-const CeleryTasks = lazy(() => import('./sections/CeleryTasks'));
+const ScheduledTasks = lazy(() => import('./sections/ScheduledTasks'));
 
 // Утилиты
 import { getAuthToken, removeAuthToken, verifyToken, login as apiLogin, logout as apiLogout } from './utils/auth.js';
@@ -1073,14 +1074,14 @@ function AppContent() {
       admins: 'manage_admins',
       logging: 'view_logs',
       backups: 'manage_backups',
-      'celery-tasks': 'manage_system_settings'
+      'scheduled-tasks': 'manage_system_settings'
     };
 
     const requiredPermission = sectionPermissions[section];
     const hasAccess = !requiredPermission || hasPermission(requiredPermission);
 
-    // Для админов, бэкапов и celery-tasks дополнительная проверка на супер админа
-    if ((section === 'admins' || section === 'backups' || section === 'celery-tasks') && currentAdmin?.role !== 'super_admin') {
+    // Для админов, бэкапов и scheduled-tasks дополнительная проверка на супер админа
+    if ((section === 'admins' || section === 'backups' || section === 'scheduled-tasks') && currentAdmin?.role !== 'super_admin') {
       return (
         <div style={{ padding: '2rem', textAlign: 'center' }}>
           <h2 style={{ color: '#e53e3e', fontSize: '1.5rem', marginBottom: '1rem' }}>
@@ -1193,6 +1194,8 @@ function AppContent() {
         return <Newsletters newsletters={newsletters} currentAdmin={currentAdmin} />;
       case 'emails':
         return <Emails currentAdmin={currentAdmin} />;
+      case 'office-subscriptions':
+        return <OfficeSubscriptions currentAdmin={currentAdmin} />;
       case 'admins':
         return (
           <Admins
@@ -1210,8 +1213,8 @@ function AppContent() {
         return <IPBans currentAdmin={currentAdmin} />;
       case 'backups':
         return <Backups currentAdmin={currentAdmin} />;
-      case 'celery-tasks':
-        return <CeleryTasks currentAdmin={currentAdmin} />;
+      case 'scheduled-tasks':
+        return <ScheduledTasks currentAdmin={currentAdmin} />;
       default:
         return (
           <Dashboard
