@@ -1033,6 +1033,7 @@ def _schedule_office_reminders(office: Office, db: Session) -> None:
     """
     from tasks.office_tasks import send_office_reminder
     from celery_app import celery_app
+    from celery.result import AsyncResult
     from datetime import time as time_type
 
     now = datetime.now(MOSCOW_TZ)
@@ -1042,7 +1043,9 @@ def _schedule_office_reminders(office: Office, db: Session) -> None:
         # Отменяем старую задачу если есть
         if office.admin_reminder_task_id:
             try:
-                celery_app.control.revoke(office.admin_reminder_task_id, terminate=True)
+                # Используем AsyncResult для полного удаления задачи из очереди
+                result = AsyncResult(office.admin_reminder_task_id, app=celery_app)
+                result.revoke(terminate=True)
                 logger.info(f"Revoked old admin reminder task {office.admin_reminder_task_id} for office #{office.id}")
             except Exception as e:
                 logger.error(f"Error revoking old admin task: {e}")
@@ -1086,7 +1089,9 @@ def _schedule_office_reminders(office: Office, db: Session) -> None:
         # Отменяем старую задачу если есть
         if office.tenant_reminder_task_id:
             try:
-                celery_app.control.revoke(office.tenant_reminder_task_id, terminate=True)
+                # Используем AsyncResult для полного удаления задачи из очереди
+                result = AsyncResult(office.tenant_reminder_task_id, app=celery_app)
+                result.revoke(terminate=True)
                 logger.info(f"Revoked old tenant reminder task {office.tenant_reminder_task_id} for office #{office.id}")
             except Exception as e:
                 logger.error(f"Error revoking old tenant task: {e}")
