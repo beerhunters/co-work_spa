@@ -29,7 +29,20 @@ import {
   AlertDialogContent,
   AlertDialogOverlay,
   useDisclosure,
-  Checkbox
+  Checkbox,
+  Heading,
+  Card,
+  CardBody,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Divider,
+  Spinner,
+  Alert,
+  AlertIcon,
+  AlertDescription
 } from '@chakra-ui/react';
 import {
   FiSearch,
@@ -37,12 +50,15 @@ import {
   FiChevronRight,
   FiCheck,
   FiX,
-  FiEye,
   FiTrash2,
   FiCheckSquare,
   FiSquare,
   FiDownload,
-  FiPlus
+  FiPlus,
+  FiCalendar,
+  FiDollarSign,
+  FiCreditCard,
+  FiAlertCircle
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { bookingApi } from '../utils/api';
@@ -419,34 +435,40 @@ const Bookings = ({
   const stats = useMemo(() => {
     const total = totalCount;
     const paid = displayedBookings.filter(b => b.paid).length;
+    const unpaid = displayedBookings.filter(b => !b.paid).length;
     const confirmed = displayedBookings.filter(b => b.confirmed).length;
     const totalAmount = displayedBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+    const paidAmount = displayedBookings.filter(b => b.paid).reduce((sum, b) => sum + (b.amount || 0), 0);
 
-    return { total, paid, confirmed, totalAmount };
+    return { total, paid, unpaid, confirmed, totalAmount, paidAmount };
   }, [displayedBookings, totalCount]);
+
+  // Loading state
+  if (isLoading && displayedBookings.length === 0) {
+    return (
+      <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
+        <Spinner size="xl" color="blue.500" thickness="4px" />
+        <Text color="gray.500">Загрузка бронирований...</Text>
+      </Flex>
+    );
+  }
 
   return (
     <Box p={6}>
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и статистика */}
-        <VStack align="stretch" spacing={4}>
-          <HStack justify="space-between" align="center" wrap="wrap">
-            <VStack align="start" spacing={1}>
-              <Text fontSize="2xl" fontWeight="bold">
-                Бронирования
-              </Text>
-              <HStack spacing={4} fontSize="sm" color="gray.600">
-                <Text>Всего: {stats.total}</Text>
-                <Text>На странице - Оплачено: {stats.paid}</Text>
-                <Text>Подтверждено: {stats.confirmed}</Text>
-                <Text>Сумма на странице: {stats.totalAmount.toLocaleString()} ₽</Text>
-              </HStack>
-            </VStack>
+        {/* Заголовок */}
+        <Flex justify="space-between" align="center">
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiCalendar} color="blue.500" mr={3} />
+              Бронирования
+            </Heading>
+            <Text color="gray.600">
+              Управление бронированиями рабочих мест и офисов
+            </Text>
+          </Box>
 
-            <HStack spacing={3}>
-              <Text fontSize="sm" color="gray.500">
-                Показано: {displayedBookings.length} из {totalCount}
-              </Text>
+          <HStack spacing={3}>
               {canDeleteBookings && (
                 <Button
                   size="sm"
@@ -479,9 +501,82 @@ const Bookings = ({
                 Обновить
               </Button>
             </HStack>
-          </HStack>
+        </Flex>
 
-          {/* Фильтры */}
+        {/* Statistics Cards */}
+        {displayedBookings.length > 0 && (
+          <SimpleGrid columns={{ base: 1, md: 5 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Всего бронирований</StatLabel>
+                  <StatNumber color="blue.500">{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCalendar} mr={1} />
+                    В системе
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Оплачено</StatLabel>
+                  <StatNumber color="green.500">{stats.paid}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCreditCard} mr={1} />
+                    На текущей странице
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Не оплачено</StatLabel>
+                  <StatNumber color="orange.500">{stats.unpaid}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiAlertCircle} mr={1} />
+                    Ожидают оплаты
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Подтверждено</StatLabel>
+                  <StatNumber color="purple.500">{stats.confirmed}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCheck} mr={1} />
+                    Администратором
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Сумма (оплачено)</StatLabel>
+                  <StatNumber color="green.600">{stats.paidAmount.toLocaleString()} ₽</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiDollarSign} mr={1} />
+                    На странице
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+        )}
+
+        <Divider />
+
+        {/* Фильтры */}
+        <VStack align="stretch" spacing={4}>
           <HStack spacing={4} wrap="wrap">
             {/* Поиск по пользователю */}
             <form onSubmit={handleSearchSubmit}>
@@ -578,26 +673,11 @@ const Bookings = ({
         </VStack>
 
         {/* Таблица бронирований */}
-        {isLoading ? (
-          <Box
-            bg={tableBg}
-            borderWidth="1px"
-            borderColor={borderColor}
-            borderRadius="lg"
-            overflow="hidden"
-          >
-            <TableSkeleton rows={10} columns={canDeleteBookings ? 9 : 8} />
-          </Box>
-        ) : displayedBookings.length > 0 ? (
-          <Box
-            bg={tableBg}
-            borderWidth="1px"
-            borderColor={borderColor}
-            borderRadius="lg"
-            overflow="hidden"
-            data-tour="bookings-list"
-          >
-            <Table variant="simple">
+        {displayedBookings.length > 0 ? (
+          <Card data-tour="bookings-list">
+            <CardBody p={0}>
+              <Box overflowX="auto">
+                <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
                 <Tr>
                   {isSelectionMode && <Th w="40px"></Th>}
@@ -640,9 +720,32 @@ const Bookings = ({
                           />
                         </Td>
                       )}
-                      <Td fontWeight="semibold">#{booking.id}</Td>
+                      <Td
+                        fontWeight="semibold"
+                        cursor="pointer"
+                        onClick={(e) => {
+                          if (isSelectionMode) {
+                            e.stopPropagation();
+                            handleSelectBooking(booking.id, !isSelected);
+                          } else {
+                            openDetailModal(booking, 'booking');
+                          }
+                        }}
+                      >
+                        #{booking.id}
+                      </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectBooking(booking.id, !isSelected);
+                        } else {
+                          openDetailModal(booking, 'booking');
+                        }
+                      }}
+                    >
                       <VStack align="start" spacing={0}>
                         <Text fontWeight="medium" fontSize="sm">
                           {booking.user?.full_name || 'Имя не указано'}
@@ -655,7 +758,17 @@ const Bookings = ({
                       </VStack>
                     </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectBooking(booking.id, !isSelected);
+                        } else {
+                          openDetailModal(booking, 'booking');
+                        }
+                      }}
+                    >
                       <Text fontWeight="medium" fontSize="md">
                         {booking.tariff?.name || `Тариф #${booking.tariff_id}`}
                       </Text>
@@ -666,7 +779,18 @@ const Bookings = ({
                       )}
                     </Td>
 
-                    <Td data-tour="bookings-status">
+                    <Td
+                      data-tour="bookings-status"
+                      cursor="pointer"
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectBooking(booking.id, !isSelected);
+                        } else {
+                          openDetailModal(booking, 'booking');
+                        }
+                      }}
+                    >
                       <VStack align="start" spacing={1}>
                         {booking.cancelled ? (
                           <Badge
@@ -707,7 +831,18 @@ const Bookings = ({
                       </VStack>
                     </Td>
 
-                    <Td isNumeric>
+                    <Td
+                      isNumeric
+                      cursor="pointer"
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectBooking(booking.id, !isSelected);
+                        } else {
+                          openDetailModal(booking, 'booking');
+                        }
+                      }}
+                    >
                       <HStack spacing={1} justify="flex-end">
                         <Text fontWeight="bold" color="green.500">
                           {booking.amount.toLocaleString()} ₽
@@ -715,69 +850,74 @@ const Bookings = ({
                       </HStack>
                     </Td>
 
-                    <Td>
+                    <Td
+                      cursor="pointer"
+                      onClick={(e) => {
+                        if (isSelectionMode) {
+                          e.stopPropagation();
+                          handleSelectBooking(booking.id, !isSelected);
+                        } else {
+                          openDetailModal(booking, 'booking');
+                        }
+                      }}
+                    >
                       <Text fontSize="sm">
                         {formatDateTime(booking.created_at)}
                       </Text>
                     </Td>
 
                     <Td>
-                      <HStack spacing={2}>
-                        <Tooltip label="Подробная информация">
-                          <Button
+                      {canDeleteBookings && !isSelectionMode && (
+                        <Tooltip label="Удалить бронирование">
+                          <IconButton
+                            icon={<FiTrash2 />}
                             size="sm"
-                            variant="outline"
-                            leftIcon={<FiEye />}
-                            onClick={() => openDetailModal(booking, 'booking')}
-                          >
-                            Детали
-                          </Button>
+                            variant="ghost"
+                            colorScheme="red"
+                            aria-label="Удалить бронирование"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteBooking(booking);
+                            }}
+                          />
                         </Tooltip>
-
-                        {canDeleteBookings && !isSelectionMode && (
-                          <Tooltip label="Удалить бронирование">
-                            <IconButton
-                              icon={<FiTrash2 />}
-                              size="sm"
-                              variant="ghost"
-                              colorScheme="red"
-                              aria-label="Удалить бронирование"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteBooking(booking);
-                              }}
-                            />
-                          </Tooltip>
-                        )}
-                      </HStack>
+                      )}
                     </Td>
                   </Tr>
                   );
                 })}
               </Tbody>
             </Table>
-          </Box>
+              </Box>
+            </CardBody>
+          </Card>
         ) : (
-          <Box textAlign="center" py={10} color="gray.500">
-            <VStack spacing={2}>
-              <Text fontSize="lg">Бронирований не найдено</Text>
-              <Text fontSize="sm">
-                {hasActiveFilters
-                  ? 'Попробуйте изменить фильтры или сбросить их'
-                  : 'Попробуйте обновить страницу'
-                }
-              </Text>
-              {hasActiveFilters && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleResetFilters}
-                >
-                  Сбросить фильтры
-                </Button>
-              )}
-            </VStack>
-          </Box>
+          <Card>
+            <CardBody>
+              <VStack spacing={4} py={10}>
+                <Icon as={FiCalendar} boxSize={16} color="gray.300" />
+                <VStack spacing={2}>
+                  <Heading size="md" color="gray.600">
+                    {hasActiveFilters ? 'Бронирования не найдены' : 'Пока нет бронирований'}
+                  </Heading>
+                  <Text color="gray.500" textAlign="center" maxW="500px">
+                    {hasActiveFilters
+                      ? 'По заданным фильтрам бронирования не найдены. Попробуйте изменить критерии поиска или сбросить все фильтры.'
+                      : 'Когда пользователи начнут создавать бронирования, они появятся здесь. Вы также можете создать бронирование вручную.'}
+                  </Text>
+                </VStack>
+                {hasActiveFilters && (
+                  <Button
+                    colorScheme="blue"
+                    variant="outline"
+                    onClick={handleResetFilters}
+                  >
+                    Сбросить фильтры
+                  </Button>
+                )}
+              </VStack>
+            </CardBody>
+          </Card>
         )}
 
         {/* Пагинация */}
@@ -800,32 +940,49 @@ const Bookings = ({
         <AlertDialogOverlay>
           <AlertDialogContent>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
-              Удалить бронирование
+              <HStack>
+                <Icon as={FiTrash2} color="red.500" />
+                <Text>Удаление бронирования</Text>
+              </HStack>
             </AlertDialogHeader>
 
             <AlertDialogBody>
-              Вы уверены, что хотите удалить бронирование{' '}
-              <strong>#{deleteTarget?.id}</strong>?
-              <br />
-              <br />
-              <VStack align="start" spacing={1} fontSize="sm">
+              <VStack align="start" spacing={3}>
                 <Text>
-                  <strong>Пользователь:</strong> {deleteTarget?.user?.full_name || 'Не указано'}
+                  Вы уверены, что хотите удалить бронирование{' '}
+                  <strong>#{deleteTarget?.id}</strong>?
                 </Text>
-                <Text>
-                  <strong>Тариф:</strong> {deleteTarget?.tariff?.name || 'Не указан'}
-                </Text>
-                <Text>
-                  <strong>Сумма:</strong> {deleteTarget?.amount?.toLocaleString()} ₽
-                </Text>
-                <Text>
-                  <strong>Статус:</strong> {deleteTarget?.paid ? 'Оплачено' : 'Не оплачено'}, {deleteTarget?.confirmed ? 'Подтверждено' : 'Ожидает'}
-                </Text>
+
+                <Box w="full" p={3} bg="gray.50" borderRadius="md">
+                  <VStack align="start" spacing={1} fontSize="sm">
+                    <Text>
+                      <strong>Пользователь:</strong> {deleteTarget?.user?.full_name || 'Не указано'}
+                    </Text>
+                    <Text>
+                      <strong>Тариф:</strong> {deleteTarget?.tariff?.name || 'Не указан'}
+                    </Text>
+                    <Text>
+                      <strong>Сумма:</strong> {deleteTarget?.amount?.toLocaleString()} ₽
+                    </Text>
+                    <Text>
+                      <strong>Статус:</strong> {deleteTarget?.paid ? 'Оплачено' : 'Не оплачено'}, {deleteTarget?.confirmed ? 'Подтверждено' : 'Ожидает'}
+                    </Text>
+                  </VStack>
+                </Box>
+
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertDescription fontSize="sm">
+                      Это действие удалит бронирование и все связанные с ним данные.
+                      <br />
+                      <Text color="red.500" fontWeight="medium" mt={2}>
+                        Это действие нельзя отменить!
+                      </Text>
+                    </AlertDescription>
+                  </Box>
+                </Alert>
               </VStack>
-              <br />
-              <Text color="red.500" fontWeight="medium">
-                Это действие нельзя отменить!
-              </Text>
             </AlertDialogBody>
 
             <AlertDialogFooter>
@@ -855,12 +1012,31 @@ const Bookings = ({
         <AlertDialogOverlay>
           <AlertDialogContent>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
-              Удалить выбранные бронирования
+              <HStack>
+                <Icon as={FiTrash2} color="red.500" />
+                <Text>Массовое удаление бронирований</Text>
+              </HStack>
             </AlertDialogHeader>
 
             <AlertDialogBody>
-              Вы уверены, что хотите удалить {selectedBookings.size} выбранных бронирований? 
-              Это действие нельзя отменить.
+              <VStack align="start" spacing={3}>
+                <Text>
+                  Вы уверены, что хотите удалить <strong>{selectedBookings.size}</strong> выбранных бронирований?
+                </Text>
+
+                <Alert status="error" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertDescription fontSize="sm">
+                      Будут удалены все данные выбранных бронирований, включая платежную информацию и уведомления.
+                      <br />
+                      <Text color="red.500" fontWeight="medium" mt={2}>
+                        Это действие нельзя отменить!
+                      </Text>
+                    </AlertDescription>
+                  </Box>
+                </Alert>
+              </VStack>
             </AlertDialogBody>
 
             <AlertDialogFooter>

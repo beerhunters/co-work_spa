@@ -1194,7 +1194,7 @@ function AppContent() {
         return <Newsletters newsletters={newsletters} currentAdmin={currentAdmin} />;
       case 'emails':
         return <Emails currentAdmin={currentAdmin} />;
-      case 'office-subscriptions':
+      case 'officesubscriptions':
         return <OfficeSubscriptions currentAdmin={currentAdmin} />;
       case 'admins':
         return (

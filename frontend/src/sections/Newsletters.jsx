@@ -52,6 +52,11 @@ import {
   AlertDialogOverlay,
   useDisclosure,
   Collapse,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Flex,
 } from '@chakra-ui/react';
 import {
   FiUsers,
@@ -72,7 +77,10 @@ import {
   FiEye,
   FiLink,
   FiBarChart2,
-  FiDownload
+  FiDownload,
+  FiMail,
+  FiCheckCircle,
+  FiPercent
 } from 'react-icons/fi';
 import { newsletterApi, userApi } from '../utils/api';
 import TelegramEditor from '../components/TelegramEditor';
@@ -873,6 +881,74 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   return (
     <Box p={6} bg={bgColor} minH="calc(100vh - 64px)">
       <VStack spacing={6} align="stretch">
+        {/* Header */}
+        <Box>
+          <Heading size="lg" mb={2}>
+            <Icon as={FiMail} color="purple.500" mr={3} />
+            Рассылки
+          </Heading>
+          <Text color="gray.600">
+            Управление массовыми рассылками в Telegram
+          </Text>
+        </Box>
+
+        {/* Statistics Cards */}
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Всего рассылок</StatLabel>
+                <StatNumber>{analyticsData.kpis.total}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiMail} mr={1} />
+                  Отправлено
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Успешность</StatLabel>
+                <StatNumber color="green.500">{analyticsData.kpis.successRate}%</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiCheckCircle} mr={1} />
+                  Успешных рассылок
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Получателей</StatLabel>
+                <StatNumber color="blue.500">{analyticsData.kpis.totalRecipients}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiUsers} mr={1} />
+                  Всего получили
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Средняя доставка</StatLabel>
+                <StatNumber color="purple.500">{analyticsData.kpis.avgSuccessRate}%</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiPercent} mr={1} />
+                  По всем рассылкам
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+        </SimpleGrid>
+
+        <Divider />
+
         {/* Форма отправки - показываем только если есть права */}
         {canSendNewsletters && (
           <Card bg={cardBg} borderRadius="lg" boxShadow="sm">

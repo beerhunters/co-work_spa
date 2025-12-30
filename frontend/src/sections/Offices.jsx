@@ -45,8 +45,14 @@ import {
   SimpleGrid,
   Radio,
   RadioGroup,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Spinner,
+  Flex
 } from '@chakra-ui/react';
-import { FiEye, FiPlus, FiUsers, FiBell, FiSearch } from 'react-icons/fi';
+import { FiEye, FiPlus, FiUsers, FiBell, FiSearch, FiHome, FiCheckCircle, FiXCircle, FiDollarSign } from 'react-icons/fi';
 import { BsList, BsGrid3X3Gap } from 'react-icons/bs';
 import { sizes, styles, getStatusColor, colors } from '../styles/styles';
 import { officeApi } from '../utils/api';
@@ -768,25 +774,149 @@ const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoadin
     localStorage.setItem('officesViewMode', mode);
   };
 
+  const stats = useMemo(() => {
+    const totalTenants = offices.reduce((sum, o) => sum + (o.tenants?.length || 0), 0);
+    const totalCapacity = offices.reduce((sum, o) => sum + (o.capacity || 0), 0);
+    const avgPrice = offices.length > 0
+      ? Math.round(offices.reduce((sum, o) => sum + (o.price_per_month || 0), 0) / offices.length)
+      : 0;
+    const withReminders = offices.filter(o => o.admin_reminder_enabled || o.tenant_reminder_enabled).length;
+
+    return {
+      total: offices.length,
+      active: offices.filter(o => o.is_active).length,
+      inactive: offices.filter(o => !o.is_active).length,
+      occupied: offices.filter(o => o.tenants && o.tenants.length > 0).length,
+      totalTenants,
+      totalCapacity,
+      avgPrice,
+      withReminders
+    };
+  }, [offices]);
+
+  if (isLoading && offices.length === 0) {
+    return (
+      <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
+        <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
+          <Spinner size="xl" color="purple.500" thickness="4px" />
+          <Text color="gray.500">Загрузка офисов...</Text>
+        </Flex>
+      </Box>
+    );
+  }
+
   const EmptyState = () => (
-    <Box textAlign="center" py={10}>
-      <Text color="gray.500" fontSize="lg">
-        Офисов пока нет
-      </Text>
-      <Text color="gray.400" fontSize="sm" mt={2}>
-        Создайте первый офис, нажав кнопку "Добавить офис"
-      </Text>
-    </Box>
+    <Flex direction="column" align="center" justify="center" py={12} gap={4}>
+      <Icon as={FiHome} boxSize={16} color="gray.300" />
+      <VStack spacing={2}>
+        <Text fontSize="lg" fontWeight="medium" color="gray.600">
+          Офисов пока нет
+        </Text>
+        <Text fontSize="sm" color="gray.500">
+          Создайте первый офис для сдачи в аренду
+        </Text>
+      </VStack>
+      <Button
+        leftIcon={<FiPlus />}
+        colorScheme="blue"
+        variant="outline"
+        onClick={onOpen}
+        mt={2}
+      >
+        Создать первый офис
+      </Button>
+    </Flex>
   );
 
   return (
     <>
       <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
-        <Card bg={colors.background.card}>
-          <CardHeader>
-            <HStack justify="space-between">
-              <Heading size="md">Офисы</Heading>
-              <HStack spacing={3}>
+        <VStack align="stretch" spacing={6}>
+          {/* Header */}
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiHome} color="purple.500" mr={3} />
+              Офисы
+            </Heading>
+            <Text color="gray.600">
+              Управление офисами для аренды и постояльцами
+            </Text>
+          </Box>
+
+          {/* Statistics Cards */}
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 5 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Всего офисов</StatLabel>
+                  <StatNumber>{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiHome} mr={1} />
+                    Общее количество
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Активные</StatLabel>
+                  <StatNumber color="green.500">{stats.active}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCheckCircle} mr={1} />
+                    Доступны для аренды
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Занятые</StatLabel>
+                  <StatNumber color="blue.500">{stats.occupied}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiUsers} mr={1} />
+                    {stats.totalTenants} постояльцев
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>С напоминаниями</StatLabel>
+                  <StatNumber color="orange.500">{stats.withReminders}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiBell} mr={1} />
+                    Настроены уведомления
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Средняя цена</StatLabel>
+                  <StatNumber color="purple.500">{stats.avgPrice} ₽</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiDollarSign} mr={1} />
+                    В месяц
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+
+          <Divider />
+
+          {/* Offices Card */}
+          <Card bg={colors.background.card}>
+            <CardHeader>
+              <HStack justify="flex-end" spacing={3}>
                 <ButtonGroup size="sm" isAttached variant="outline">
                   <IconButton
                     icon={<BsList />}
@@ -812,15 +942,14 @@ const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoadin
                   Добавить офис
                 </Button>
               </HStack>
-            </HStack>
-          </CardHeader>
+            </CardHeader>
 
-          <CardBody>
-            {isLoading ? (
-              <ListSkeleton items={5} />
-            ) : offices.length === 0 ? (
-              <EmptyState />
-            ) : viewMode === 'list' ? (
+            <CardBody>
+              {isLoading ? (
+                <ListSkeleton items={5} />
+              ) : offices.length === 0 ? (
+                <EmptyState />
+              ) : viewMode === 'list' ? (
               <VStack align="stretch" spacing={2}>
                 {offices.map(office => (
                   <Box
@@ -995,8 +1124,9 @@ const Offices = ({ offices = [], users = [], openDetailModal, onUpdate, isLoadin
                 ))}
               </SimpleGrid>
             )}
-          </CardBody>
-        </Card>
+            </CardBody>
+          </Card>
+        </VStack>
       </Box>
 
       <CreateOfficeModal

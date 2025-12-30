@@ -29,9 +29,22 @@ import {
   useDisclosure,
   Tooltip,
   Checkbox,
-  Icon
+  Icon,
+  Heading,
+  Card,
+  CardBody,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Divider,
+  Spinner,
+  Alert,
+  AlertIcon,
+  AlertDescription
 } from '@chakra-ui/react';
-import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare, FiDownload } from 'react-icons/fi';
+import { FiSearch, FiChevronLeft, FiChevronRight, FiTrash2, FiCheckSquare, FiSquare, FiDownload, FiUsers, FiUserCheck, FiUserX, FiUserPlus } from 'react-icons/fi';
 import { userApi } from '../utils/api';
 import { TableSkeleton } from '../components/LoadingSkeletons';
 import { PaginationControls } from '../components/PaginationControls';
@@ -352,22 +365,122 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
   const isAllSelected = currentUsers.length > 0 && selectedUsers.size === currentUsers.length;
   const isIndeterminate = selectedUsers.size > 0 && selectedUsers.size < currentUsers.length;
 
+  // Подсчет статистики
+  const getStats = () => {
+    const stats = {
+      total: users.length,
+      active: users.filter(u => !u.is_banned).length,
+      banned: users.filter(u => u.is_banned).length,
+      withBookings: users.filter(u => u.successful_bookings > 0).length,
+      newThisMonth: users.filter(u => {
+        const regDate = new Date(u.reg_date || u.first_join_time);
+        const now = new Date();
+        return regDate.getMonth() === now.getMonth() && regDate.getFullYear() === now.getFullYear();
+      }).length,
+    };
+    return stats;
+  };
+
+  const stats = getStats();
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
+        <Spinner size="xl" color="purple.500" thickness="4px" />
+        <Text color="gray.500">Загрузка пользователей...</Text>
+      </Flex>
+    );
+  }
+
   return (
     <Box p={6}>
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и поиск */}
-        <HStack justify="space-between" align="center" wrap="wrap" spacing={4}>
-          <VStack align="start" spacing={1}>
-            <Text fontSize="2xl" fontWeight="bold">
+        {/* Заголовок */}
+        <Flex justify="space-between" align="center">
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiUsers} color="purple.500" mr={3} />
               Пользователи
+            </Heading>
+            <Text color="gray.600">
+              Управление пользователями системы и их данными
             </Text>
-            <Text fontSize="sm" color="gray.500">
-              Всего: {users.length} | Показано: {currentUsers.length} из {filteredUsers.length}
-            </Text>
-          </VStack>
+          </Box>
+        </Flex>
 
-          <VStack spacing={3} align="end">
-            <HStack spacing={4} data-tour="users-filters">
+        {/* Statistics Cards */}
+        {users.length > 0 && (
+          <SimpleGrid columns={{ base: 1, md: 5 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Всего пользователей</StatLabel>
+                  <StatNumber color="purple.500">{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiUsers} mr={1} />
+                    Зарегистрировано
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Активных</StatLabel>
+                  <StatNumber color="green.500">{stats.active}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiUserCheck} mr={1} />
+                    Не заблокированы
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Заблокировано</StatLabel>
+                  <StatNumber color="red.500">{stats.banned}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiUserX} mr={1} />
+                    {stats.banned > 0 ? 'пользователей' : 'нет блокировок'}
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>С бронированиями</StatLabel>
+                  <StatNumber color="blue.500">{stats.withBookings}</StatNumber>
+                  <StatHelpText>Имеют успешные брони</StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Новых в этом месяце</StatLabel>
+                  <StatNumber color="orange.500">{stats.newThisMonth}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiUserPlus} mr={1} />
+                    Регистраций
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+        )}
+
+        <Divider />
+
+        {/* Фильтры и поиск */}
+        <VStack align="stretch" spacing={4}>
+          <HStack spacing={4} data-tour="users-filters">
               <InputGroup maxWidth="300px" data-tour="users-search">
                 <InputLeftElement pointerEvents="none">
                   <FiSearch color="gray.300" />
@@ -441,8 +554,7 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
                 </Button>
               )}
             </HStack>
-          </VStack>
-        </HStack>
+        </VStack>
 
         {/* Панель массовых действий */}
         {isSelectionMode && (
@@ -500,25 +612,11 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
         )}
 
         {/* Таблица пользователей */}
-        {isLoading ? (
-          <Box
-            bg={tableBg}
-            borderWidth="1px"
-            borderColor={borderColor}
-            borderRadius="lg"
-            overflow="hidden"
-          >
-            <TableSkeleton rows={10} columns={canDeleteUsers ? 7 : 6} />
-          </Box>
-        ) : currentUsers.length > 0 ? (
-          <Box
-            bg={tableBg}
-            borderWidth="1px"
-            borderColor={borderColor}
-            borderRadius="lg"
-            overflow="hidden"
-          >
-            <Table variant="simple">
+        {currentUsers.length > 0 ? (
+          <Card>
+            <CardBody p={0}>
+              <Box overflowX="auto">
+                <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
                 <Tr>
                   {isSelectionMode && <Th w="40px"></Th>}
@@ -698,22 +796,32 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
                 })}
               </Tbody>
             </Table>
-          </Box>
+              </Box>
+            </CardBody>
+          </Card>
         ) : (
-          <Box
-            textAlign="center"
-            py={10}
-            color="gray.500"
-          >
-            {searchQuery ? (
-              <VStack spacing={2}>
-                <Text fontSize="lg">Пользователи не найдены</Text>
-                <Text fontSize="sm">Попробуйте изменить запрос поиска</Text>
+          <Card>
+            <CardBody>
+              <VStack spacing={4} py={10}>
+                <Icon as={FiUserPlus} boxSize={16} color="gray.300" />
+                <VStack spacing={2}>
+                  <Heading size="md" color="gray.600">
+                    {searchQuery ? 'Пользователи не найдены' : 'Пока нет зарегистрированных пользователей'}
+                  </Heading>
+                  <Text color="gray.500" textAlign="center" maxW="500px">
+                    {searchQuery
+                      ? 'По вашему запросу ничего не найдено. Попробуйте изменить поисковый запрос или проверьте правильность введённых данных.'
+                      : 'Когда пользователи начнут регистрироваться через Telegram бота, они появятся здесь.'}
+                  </Text>
+                </VStack>
+                {searchQuery && (
+                  <Button colorScheme="purple" variant="outline" onClick={() => setSearchQuery('')}>
+                    Сбросить поиск
+                  </Button>
+                )}
               </VStack>
-            ) : (
-              <Text fontSize="lg">Пользователи не найдены</Text>
-            )}
-          </Box>
+            </CardBody>
+          </Card>
         )}
 
         {/* Пагинация */}
@@ -736,30 +844,34 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
         <AlertDialogOverlay>
           <AlertDialogContent>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
-              Удалить пользователя
+              <HStack>
+                <Icon as={FiTrash2} color="red.500" />
+                <Text>Удаление пользователя</Text>
+              </HStack>
             </AlertDialogHeader>
 
             <AlertDialogBody>
-              Вы уверены, что хотите удалить пользователя{' '}
-              <strong>
-                {deleteTarget?.full_name || `ID: ${deleteTarget?.telegram_id}`}
-              </strong>?
-              <br />
-              <br />
-              Это действие также удалит:
-              <br />
-              • Все бронирования пользователя
-              <br />
-              • Все уведомления
-              <br />
-              • Все тикеты
-              <br />
-              • Аватар пользователя
-              <br />
-              <br />
-              <Text color="red.500" fontWeight="medium">
-                Это действие нельзя отменить!
-              </Text>
+              <VStack align="start" spacing={3}>
+                <Text>
+                  Вы уверены, что хотите удалить пользователя{' '}
+                  <strong>
+                    {deleteTarget?.full_name || `ID: ${deleteTarget?.telegram_id}`}
+                  </strong>?
+                </Text>
+
+                <Alert status="warning" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertDescription fontSize="sm">
+                      Это действие удалит все бронирования, уведомления, тикеты и аватар пользователя.
+                      <br />
+                      <Text color="red.500" fontWeight="medium" mt={2}>
+                        Это действие нельзя отменить!
+                      </Text>
+                    </AlertDescription>
+                  </Box>
+                </Alert>
+              </VStack>
             </AlertDialogBody>
 
             <AlertDialogFooter>
@@ -789,12 +901,31 @@ const Users = ({ users, openDetailModal, onUpdate, currentAdmin, isLoading = fal
         <AlertDialogOverlay>
           <AlertDialogContent>
             <AlertDialogHeader fontSize="lg" fontWeight="bold">
-              Удалить выбранных пользователей
+              <HStack>
+                <Icon as={FiTrash2} color="red.500" />
+                <Text>Массовое удаление пользователей</Text>
+              </HStack>
             </AlertDialogHeader>
 
             <AlertDialogBody>
-              Вы уверены, что хотите удалить {selectedUsers.size} выбранных пользователей? 
-              Это действие нельзя отменить.
+              <VStack align="start" spacing={3}>
+                <Text>
+                  Вы уверены, что хотите удалить <strong>{selectedUsers.size}</strong> выбранных пользователей?
+                </Text>
+
+                <Alert status="error" borderRadius="md">
+                  <AlertIcon />
+                  <Box>
+                    <AlertDescription fontSize="sm">
+                      Будут удалены все данные выбранных пользователей, включая бронирования, уведомления и тикеты.
+                      <br />
+                      <Text color="red.500" fontWeight="medium" mt={2}>
+                        Это действие нельзя отменить!
+                      </Text>
+                    </AlertDescription>
+                  </Box>
+                </Alert>
+              </VStack>
             </AlertDialogBody>
 
             <AlertDialogFooter>

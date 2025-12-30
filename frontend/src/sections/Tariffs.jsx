@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -34,9 +34,17 @@ import {
   useToast,
   Alert,
   AlertIcon,
-  AlertDescription
+  AlertDescription,
+  Divider,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Spinner,
+  Flex
 } from '@chakra-ui/react';
-import { FiEye, FiPlus, FiSave, FiX } from 'react-icons/fi';
+import { FiEye, FiPlus, FiSave, FiX, FiTag, FiCheckCircle, FiXCircle, FiDollarSign } from 'react-icons/fi';
 import { sizes, styles, getStatusColor, colors, spacing, typography } from '../styles/styles';
 import { tariffApi } from '../utils/api';
 import { ListSkeleton } from '../components/LoadingSkeletons';
@@ -335,80 +343,194 @@ const Tariffs = ({ tariffs, openDetailModal, onUpdate, isLoading = false }) => {
     return labels[purpose] || purpose;
   };
 
+  const stats = useMemo(() => {
+    return {
+      total: tariffs.length,
+      active: tariffs.filter(t => t.is_active).length,
+      inactive: tariffs.filter(t => !t.is_active).length,
+      coworking: tariffs.filter(t => t.purpose === 'coworking').length,
+      meetingRooms: tariffs.filter(t => t.purpose === 'meeting_room').length,
+      avgPrice: tariffs.length > 0 ? Math.round(tariffs.reduce((sum, t) => sum + t.price, 0) / tariffs.length) : 0
+    };
+  }, [tariffs]);
+
+  if (isLoading && tariffs.length === 0) {
+    return (
+      <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
+        <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
+          <Spinner size="xl" color="purple.500" thickness="4px" />
+          <Text color="gray.500">Загрузка тарифов...</Text>
+        </Flex>
+      </Box>
+    );
+  }
+
   return (
     <>
       <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
-        <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
-          <CardHeader>
-            <HStack justify="space-between">
-              <Heading size="md">Тарифы</Heading>
-              <Button
-                leftIcon={<FiPlus />}
-                colorScheme="blue"
-                onClick={onOpen}
-                size="sm"
-              >
-                Добавить тариф
-              </Button>
-            </HStack>
-          </CardHeader>
-          <CardBody>
-            <VStack align="stretch" spacing={2}>
-              {isLoading ? (
-                <ListSkeleton items={5} />
-              ) : tariffs.length === 0 ? (
-                <Box textAlign="center" py={8}>
-                  <Text color="gray.500" mb={4}>Тарифов пока нет</Text>
-                  <Button
-                    leftIcon={<FiPlus />}
-                    colorScheme="blue"
-                    variant="outline"
-                    onClick={onOpen}
-                  >
-                    Создать первый тариф
-                  </Button>
-                </Box>
-              ) : (
-                tariffs.map(tariff => (
-                  <Box
-                    key={tariff.id}
-                    p={styles.listItem.padding}
-                    borderRadius={styles.listItem.borderRadius}
-                    border={styles.listItem.border}
-                    borderColor={styles.listItem.borderColor}
-                    bg={styles.listItem.bg}
-                    cursor={styles.listItem.cursor}
-                    _hover={styles.listItem.hover}
-                    transition={styles.listItem.transition}
-                    onClick={() => openDetailModal(tariff, 'tariff')}
-                  >
-                    <HStack justify="space-between">
-                      <VStack align="start" spacing={1}>
-                        <HStack spacing={3}>
-                          <Text fontWeight="bold" fontSize="lg">{tariff.name}</Text>
-                          <Badge colorScheme={getStatusColor(tariff.is_active ? 'active' : 'inactive')}>
-                            {tariff.is_active ? 'Активен' : 'Неактивен'}
-                          </Badge>
-                        </HStack>
-                        <HStack spacing={4} fontSize="sm" color="gray.600">
-                          <Text>Цена: <strong>{tariff.price} ₽</strong></Text>
-                          <Text>Тип: <strong>{getPurposeLabel(tariff.purpose)}</strong></Text>
-                          {tariff.service_id && (
-                            <Text>Service ID: <strong>{tariff.service_id}</strong></Text>
-                          )}
-                        </HStack>
-                        <Text fontSize="sm" color="gray.500" noOfLines={1}>
-                          {tariff.description}
-                        </Text>
-                      </VStack>
-                      <Icon as={FiEye} color="purple.500" />
-                    </HStack>
-                  </Box>
-                ))
-              )}
-            </VStack>
-          </CardBody>
-        </Card>
+        <VStack align="stretch" spacing={6}>
+          {/* Header */}
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiTag} color="purple.500" mr={3} />
+              Тарифы
+            </Heading>
+            <Text color="gray.600">
+              Управление тарифами и ценообразованием услуг
+            </Text>
+          </Box>
+
+          {/* Statistics Cards */}
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 5 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Всего тарифов</StatLabel>
+                  <StatNumber>{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiTag} mr={1} />
+                    Общее количество
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Активные</StatLabel>
+                  <StatNumber color="green.500">{stats.active}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCheckCircle} mr={1} />
+                    Доступны для выбора
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Неактивные</StatLabel>
+                  <StatNumber color="red.500">{stats.inactive}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiXCircle} mr={1} />
+                    Скрыты от пользователей
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Опенспейс</StatLabel>
+                  <StatNumber color="blue.500">{stats.coworking}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiTag} mr={1} />
+                    Коворкинг
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Средняя цена</StatLabel>
+                  <StatNumber color="purple.500">{stats.avgPrice} ₽</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiDollarSign} mr={1} />
+                    По всем тарифам
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+
+          <Divider />
+
+          {/* Tariffs Card */}
+          <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
+            <CardHeader>
+              <HStack justify="flex-end">
+                <Button
+                  leftIcon={<FiPlus />}
+                  colorScheme="blue"
+                  onClick={onOpen}
+                  size="sm"
+                >
+                  Добавить тариф
+                </Button>
+              </HStack>
+            </CardHeader>
+            <CardBody>
+              <VStack align="stretch" spacing={2}>
+                {isLoading ? (
+                  <ListSkeleton items={5} />
+                ) : tariffs.length === 0 ? (
+                  <Flex direction="column" align="center" justify="center" py={12} gap={4}>
+                    <Icon as={FiTag} boxSize={16} color="gray.300" />
+                    <VStack spacing={2}>
+                      <Text fontSize="lg" fontWeight="medium" color="gray.600">
+                        Тарифов пока нет
+                      </Text>
+                      <Text fontSize="sm" color="gray.500">
+                        Создайте первый тариф для предоставления услуг
+                      </Text>
+                    </VStack>
+                    <Button
+                      leftIcon={<FiPlus />}
+                      colorScheme="blue"
+                      variant="outline"
+                      onClick={onOpen}
+                      mt={2}
+                    >
+                      Создать первый тариф
+                    </Button>
+                  </Flex>
+                ) : (
+                  tariffs.map(tariff => (
+                    <Box
+                      key={tariff.id}
+                      p={styles.listItem.padding}
+                      borderRadius={styles.listItem.borderRadius}
+                      border={styles.listItem.border}
+                      borderColor={styles.listItem.borderColor}
+                      bg={styles.listItem.bg}
+                      cursor={styles.listItem.cursor}
+                      _hover={styles.listItem.hover}
+                      transition={styles.listItem.transition}
+                      onClick={() => openDetailModal(tariff, 'tariff')}
+                    >
+                      <HStack justify="space-between">
+                        <VStack align="start" spacing={1}>
+                          <HStack spacing={3}>
+                            <Text fontWeight="bold" fontSize="lg">{tariff.name}</Text>
+                            <Badge colorScheme={getStatusColor(tariff.is_active ? 'active' : 'inactive')}>
+                              {tariff.is_active ? 'Активен' : 'Неактивен'}
+                            </Badge>
+                          </HStack>
+                          <HStack spacing={4} fontSize="sm" color="gray.600">
+                            <Text>Цена: <strong>{tariff.price} ₽</strong></Text>
+                            <Text>Тип: <strong>{getPurposeLabel(tariff.purpose)}</strong></Text>
+                            {tariff.service_id && (
+                              <Text>Service ID: <strong>{tariff.service_id}</strong></Text>
+                            )}
+                          </HStack>
+                          <Text fontSize="sm" color="gray.500" noOfLines={1}>
+                            {tariff.description}
+                          </Text>
+                        </VStack>
+                        <Icon as={FiEye} color="purple.500" />
+                      </HStack>
+                    </Box>
+                  ))
+                )}
+              </VStack>
+            </CardBody>
+          </Card>
+        </VStack>
       </Box>
 
       <CreateTariffModal

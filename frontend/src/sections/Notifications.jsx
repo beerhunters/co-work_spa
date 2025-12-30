@@ -36,7 +36,13 @@ import {
   AccordionItem,
   AccordionButton,
   AccordionPanel,
-  AccordionIcon
+  AccordionIcon,
+  Divider,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText
 } from '@chakra-ui/react';
 import {
   FiSearch,
@@ -49,7 +55,10 @@ import {
   FiMessageSquare,
   FiExternalLink,
   FiCheckSquare,
-  FiSquare
+  FiSquare,
+  FiBell,
+  FiMail,
+  FiEye
 } from 'react-icons/fi';
 import { sizes, styles, colors, getStatusColor, spacing, typography } from '../styles/styles';
 import { notificationApi } from '../utils/api';
@@ -570,19 +579,102 @@ const Notifications = ({
   const isIndeterminate = selectedNotifications.size > 0 && selectedNotifications.size < currentNotifications.length;
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
+  // Статистика
+  const stats = useMemo(() => {
+    const ticketNotifications = notifications.filter(n => n.ticket_id).length;
+    const bookingNotifications = notifications.filter(n => n.booking_id).length;
+    const userNotifications = notifications.filter(n => n.user_id && !n.ticket_id && !n.booking_id).length;
+    const readCount = notifications.filter(n => n.is_read).length;
+
+    return {
+      total: notifications.length,
+      unread: unreadCount,
+      read: readCount,
+      tickets: ticketNotifications,
+      bookings: bookingNotifications,
+      users: userNotifications
+    };
+  }, [notifications, unreadCount]);
+
   return (
     <>
       <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
-        <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
-          <CardHeader>
-            <VStack align="stretch" spacing={4}>
-              <HStack justify="space-between">
-                <Heading size="md">
-                  Уведомления {unreadCount > 0 && (
-                    <Badge colorScheme="red" ml={2}>{unreadCount} новых</Badge>
-                  )}
-                </Heading>
-                <HStack spacing={2} data-tour="notifications-actions">
+        <VStack align="stretch" spacing={6}>
+          {/* Header */}
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiBell} color="purple.500" mr={3} />
+              Уведомления {stats.unread > 0 && (
+                <Badge colorScheme="red" ml={2}>{stats.unread} новых</Badge>
+              )}
+            </Heading>
+            <Text color="gray.600">
+              Системные уведомления и оповещения о событиях
+            </Text>
+          </Box>
+
+          {/* Statistics Cards */}
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Всего уведомлений</StatLabel>
+                  <StatNumber>{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiBell} mr={1} />
+                    Общее количество
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Непрочитанные</StatLabel>
+                  <StatNumber color="red.500">{stats.unread}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiMail} mr={1} />
+                    Требуют внимания
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Прочитанные</StatLabel>
+                  <StatNumber color="green.500">{stats.read}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiEye} mr={1} />
+                    Просмотрены
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>По заявкам</StatLabel>
+                  <StatNumber color="orange.500">{stats.tickets}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiMessageSquare} mr={1} />
+                    Тикеты поддержки
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+
+          <Divider />
+
+          {/* Controls and Filters Card */}
+          <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
+            <CardHeader>
+              <VStack align="stretch" spacing={4}>
+                <HStack justify="flex-end" spacing={2} data-tour="notifications-actions">
                   <Button
                     leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
                     onClick={handleToggleSelectionMode}
@@ -615,7 +707,6 @@ const Notifications = ({
                     Очистить все
                   </Button>
                 </HStack>
-              </HStack>
 
               {/* Фильтры и поиск */}
               <HStack spacing={4} data-tour="notifications-filters">
@@ -674,16 +765,6 @@ const Notifications = ({
                 </Select>
               </HStack>
 
-              {/* Статистика */}
-              <Alert status="info" bg="blue.50" borderRadius="md">
-                <AlertIcon />
-                <AlertDescription>
-                  Всего уведомлений: {notifications.length} |
-                  Найдено: {filteredNotifications.length} |
-                  Непрочитанных: {unreadCount}
-                </AlertDescription>
-              </Alert>
-
               {/* Панель массовых действий */}
               {isSelectionMode && (
                 <Box
@@ -731,14 +812,23 @@ const Notifications = ({
           <CardBody>
             <VStack align="stretch" spacing={2}>
               {currentNotifications.length === 0 ? (
-                <Box textAlign="center" py={8}>
-                  <Text color="gray.500">
-                    {searchQuery || statusFilter !== 'all'
-                      ? 'Уведомлений по заданным критериям не найдено'
-                      : 'Уведомлений пока нет'
-                    }
-                  </Text>
-                </Box>
+                <Flex direction="column" align="center" justify="center" py={12} gap={4}>
+                  <Icon as={FiBell} boxSize={16} color="gray.300" />
+                  <VStack spacing={2}>
+                    <Text fontSize="lg" fontWeight="medium" color="gray.600">
+                      {searchQuery || statusFilter !== 'all'
+                        ? 'Уведомлений по заданным критериям не найдено'
+                        : 'Уведомлений пока нет'
+                      }
+                    </Text>
+                    <Text fontSize="sm" color="gray.500">
+                      {searchQuery || statusFilter !== 'all'
+                        ? 'Попробуйте изменить параметры фильтрации'
+                        : 'Новые уведомления появятся здесь'
+                      }
+                    </Text>
+                  </VStack>
+                </Flex>
               ) : groupBy === 'none' ? (
                 // Плоский список без группировки
                 currentNotifications.map(notification => renderNotification(notification))
@@ -837,6 +927,7 @@ const Notifications = ({
             )}
           </CardBody>
         </Card>
+        </VStack>
       </Box>
 
       {/* Диалог подтверждения очистки */}

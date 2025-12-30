@@ -28,7 +28,7 @@ const Sidebar = ({ section, setSection, handleLogout, currentAdmin, isCollapsed,
     { icon: FiBell, label: 'Уведомления', section: 'notifications', color: 'pink' },
     { icon: FiSend, label: 'Рассылка (Telegram)', section: 'newsletters', color: 'teal' },
     // { icon: FiMail, label: 'Email Рассылки', section: 'emails', color: 'blue' },
-    { icon: FiBell, label: 'Подписки на офисы', section: 'office-subscriptions', color: 'orange' },
+    { icon: FiBell, label: 'Подписки на офисы', section: 'officesubscriptions', color: 'orange' },
   ];
 
   // Административные функции для super_admin

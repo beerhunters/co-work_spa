@@ -46,10 +46,12 @@ const Navbar = ({
     users: 'Пользователи',
     bookings: 'Бронирования',
     tariffs: 'Тарифы',
+    offices: 'Офисы',
     promocodes: 'Промокоды',
-    tickets: 'Заявки',
+    tickets: 'Заявки поддержки',
     notifications: 'Уведомления',
-    newsletters: 'Рассылка'
+    newsletters: 'Рассылки',
+    officesubscriptions: 'Подписки на офисы'
   };
 
   const handleTestNotification = async () => {

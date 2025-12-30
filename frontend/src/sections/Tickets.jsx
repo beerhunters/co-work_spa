@@ -28,7 +28,20 @@ import {
   AlertDialogHeader,
   AlertDialogBody,
   AlertDialogFooter,
-  useToast
+  useToast,
+  Card,
+  CardHeader,
+  CardBody,
+  Heading,
+  Divider,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Spinner,
+  Alert,
+  AlertIcon
 } from '@chakra-ui/react';
 import {
   FiImage,
@@ -41,7 +54,10 @@ import {
   FiSquare,
   FiDownload,
   FiCheckCircle,
-  FiEdit
+  FiEdit,
+  FiAlertCircle,
+  FiClock,
+  FiXCircle
 } from 'react-icons/fi';
 import { getStatusColor } from '../styles/styles';
 import { ticketApi } from '../utils/api';
@@ -346,49 +362,108 @@ const Tickets = ({
   const isIndeterminate = selectedTickets.size > 0 && selectedTickets.size < displayedTickets.length;
 
   return (
-    <Box p={6}>
+    <Box p={6} bg="gray.50" minH="100vh">
       <VStack spacing={6} align="stretch">
-        {/* Заголовок и статистика */}
-        <VStack align="stretch" spacing={4}>
-          <HStack justify="space-between" align="center" wrap="wrap">
-            <VStack align="start" spacing={1}>
-              <Text fontSize="2xl" fontWeight="bold">
-                Тикеты поддержки
-              </Text>
-              <HStack spacing={4} fontSize="sm" color="gray.600">
-                <Text>Всего: {stats.total}</Text>
-                <Text>На странице - Открыто: {stats.open}</Text>
-                <Text>В работе: {stats.inProgress}</Text>
-                <Text>Закрыто: {stats.closed}</Text>
-              </HStack>
-            </VStack>
+        {/* Header */}
+        <Box>
+          <Heading size="lg" mb={2}>
+            <Icon as={FiAlertCircle} color="purple.500" mr={3} />
+            Заявки поддержки
+          </Heading>
+          <Text color="gray.600">
+            Управление тикетами и обращениями пользователей
+          </Text>
+        </Box>
 
-            <HStack spacing={3}>
-              <Text fontSize="sm" color="gray.500">
-                Показано: {displayedTickets.length} из {totalCount}
-              </Text>
-              <Button
-                size="sm"
-                leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
-                onClick={handleToggleSelectionMode}
-                colorScheme={isSelectionMode ? "gray" : "purple"}
-                variant="outline"
-                isDisabled={isLoading || displayedTickets.length === 0}
-              >
-                {isSelectionMode ? 'Отменить' : 'Выбрать'}
-              </Button>
-              <Button
-                size="sm"
-                onClick={onRefresh}
-                colorScheme="blue"
-                variant="outline"
-                isLoading={isLoading}
-                loadingText="Загрузка..."
-              >
-                Обновить
-              </Button>
-            </HStack>
-          </HStack>
+        {/* Statistics Cards */}
+        <SimpleGrid columns={{ base: 1, md: 2, lg: 4 }} spacing={4}>
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Всего заявок</StatLabel>
+                <StatNumber>{stats.total}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiAlertCircle} mr={1} />
+                  Общее количество
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Открытые</StatLabel>
+                <StatNumber color="orange.500">{stats.open}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiAlertCircle} mr={1} />
+                  Ожидают ответа
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>В работе</StatLabel>
+                <StatNumber color="blue.500">{stats.inProgress}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiClock} mr={1} />
+                  Обрабатываются
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardBody>
+              <Stat>
+                <StatLabel>Закрытые</StatLabel>
+                <StatNumber color="green.500">{stats.closed}</StatNumber>
+                <StatHelpText>
+                  <Icon as={FiCheckCircle} mr={1} />
+                  Решены
+                </StatHelpText>
+              </Stat>
+            </CardBody>
+          </Card>
+        </SimpleGrid>
+
+        <Divider />
+
+        {/* Controls and Filters Card */}
+        <Card>
+          <CardBody>
+            <VStack align="stretch" spacing={4}>
+              <HStack justify="space-between" align="center" wrap="wrap">
+                <Text fontSize="sm" color="gray.600">
+                  Показано: {displayedTickets.length} из {totalCount}
+                </Text>
+
+                <HStack spacing={3}>
+                  <Button
+                    size="sm"
+                    leftIcon={<Icon as={isSelectionMode ? FiSquare : FiCheckSquare} />}
+                    onClick={handleToggleSelectionMode}
+                    colorScheme={isSelectionMode ? "gray" : "purple"}
+                    variant="outline"
+                    isDisabled={isLoading || displayedTickets.length === 0}
+                  >
+                    {isSelectionMode ? 'Отменить' : 'Выбрать'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={onRefresh}
+                    colorScheme="blue"
+                    variant="outline"
+                    isLoading={isLoading}
+                    loadingText="Загрузка..."
+                  >
+                    Обновить
+                  </Button>
+                </HStack>
+              </HStack>
 
           {/* Фильтры */}
           <HStack spacing={4} wrap="wrap" data-tour="tickets-filters">
@@ -496,22 +571,23 @@ const Tickets = ({
               )}
             </VStack>
           )}
-        </VStack>
+            </VStack>
+          </CardBody>
+        </Card>
 
         {/* Таблица тикетов */}
         {isLoading ? (
-          <Box textAlign="center" py={10}>
-            <Text>Загрузка...</Text>
-          </Box>
+          <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
+            <Spinner size="xl" color="purple.500" thickness="4px" />
+            <Text color="gray.500">Загрузка заявок...</Text>
+          </Flex>
         ) : displayedTickets.length > 0 ? (
-          <Box
-            bg={tableBg}
-            borderWidth="1px"
-            borderColor={borderColor}
-            borderRadius="lg"
-            overflow="hidden"
-            data-tour="tickets-list"
-          >
+          <Card>
+            <CardBody p={0}>
+              <Box
+                overflow="hidden"
+                data-tour="tickets-list"
+              >
             <Table variant="simple">
               <Thead bg={useColorModeValue('gray.50', 'gray.700')}>
                 <Tr>
@@ -629,28 +705,38 @@ const Tickets = ({
                 })}
               </Tbody>
             </Table>
-          </Box>
+              </Box>
+            </CardBody>
+          </Card>
         ) : (
-          <Box textAlign="center" py={10} color="gray.500">
-            <VStack spacing={2}>
-              <Text fontSize="lg">Тикетов не найдено</Text>
-              <Text fontSize="sm">
-                {hasActiveFilters
-                  ? 'Попробуйте изменить фильтры или сбросить их'
-                  : 'Попробуйте обновить страницу'
-                }
-              </Text>
-              {hasActiveFilters && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleResetFilters}
-                >
-                  Сбросить фильтры
-                </Button>
-              )}
-            </VStack>
-          </Box>
+          <Card>
+            <CardBody>
+              <Flex direction="column" align="center" justify="center" py={12} gap={4}>
+                <Icon as={FiAlertCircle} boxSize={16} color="gray.300" />
+                <VStack spacing={2}>
+                  <Text fontSize="lg" fontWeight="medium" color="gray.600">
+                    Заявок не найдено
+                  </Text>
+                  <Text fontSize="sm" color="gray.500">
+                    {hasActiveFilters
+                      ? 'Попробуйте изменить фильтры или сбросить их'
+                      : 'Попробуйте обновить страницу'
+                    }
+                  </Text>
+                  {hasActiveFilters && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleResetFilters}
+                      mt={2}
+                    >
+                      Сбросить фильтры
+                    </Button>
+                  )}
+                </VStack>
+              </Flex>
+            </CardBody>
+          </Card>
         )}
 
         {/* Пагинация */}
@@ -672,12 +758,20 @@ const Tickets = ({
           <AlertDialogOverlay>
             <AlertDialogContent>
               <AlertDialogHeader fontSize="lg" fontWeight="bold">
-                Удалить выбранные тикеты
+                <HStack>
+                  <Icon as={FiTrash2} color="red.500" />
+                  <Text>Удалить выбранные заявки</Text>
+                </HStack>
               </AlertDialogHeader>
 
               <AlertDialogBody>
-                Вы уверены, что хотите удалить {selectedTickets.size} выбранных тикетов? 
-                Это действие нельзя отменить.
+                <Alert status="warning" borderRadius="md" mb={4}>
+                  <AlertIcon />
+                  Это действие нельзя отменить!
+                </Alert>
+                <Text>
+                  Вы уверены, что хотите удалить {selectedTickets.size} выбранных заявок?
+                </Text>
               </AlertDialogBody>
 
               <AlertDialogFooter>

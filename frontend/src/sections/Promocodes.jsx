@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box,
   Card,
@@ -32,9 +32,17 @@ import {
   useToast,
   Alert,
   AlertIcon,
-  AlertDescription
+  AlertDescription,
+  Divider,
+  SimpleGrid,
+  Stat,
+  StatLabel,
+  StatNumber,
+  StatHelpText,
+  Spinner,
+  Flex
 } from '@chakra-ui/react';
-import { FiEye, FiPlus, FiSave, FiX } from 'react-icons/fi';
+import { FiEye, FiPlus, FiSave, FiX, FiGift, FiPercent, FiCheckCircle, FiXCircle, FiClock } from 'react-icons/fi';
 import { sizes, styles, getStatusColor, colors, spacing, typography } from '../styles/styles';
 import { promocodeApi } from '../utils/api';
 
@@ -281,7 +289,7 @@ const CreatePromocodeModal = ({ isOpen, onClose, onUpdate }) => {
   );
 };
 
-const Promocodes = ({ promocodes, openDetailModal, onUpdate }) => {
+const Promocodes = ({ promocodes, openDetailModal, onUpdate, isLoading = false }) => {
   const { isOpen, onOpen, onClose } = useDisclosure();
 
   const formatDate = (dateString) => {
@@ -302,38 +310,166 @@ const Promocodes = ({ promocodes, openDetailModal, onUpdate }) => {
     }
   };
 
+  const stats = useMemo(() => {
+    const expired = promocodes.filter(p => isExpired(p.expiration_date)).length;
+    const exhausted = promocodes.filter(p => p.usage_quantity === 0 && !isExpired(p.expiration_date)).length;
+    const active = promocodes.filter(p => {
+      const notExpired = !isExpired(p.expiration_date);
+      const hasUsages = p.usage_quantity > 0;
+      return p.is_active && notExpired && hasUsages;
+    }).length;
+    const avgDiscount = promocodes.length > 0
+      ? Math.round(promocodes.reduce((sum, p) => sum + p.discount, 0) / promocodes.length)
+      : 0;
+
+    return {
+      total: promocodes.length,
+      active,
+      inactive: promocodes.filter(p => !p.is_active).length,
+      expired,
+      exhausted,
+      avgDiscount
+    };
+  }, [promocodes]);
+
+  if (isLoading && promocodes.length === 0) {
+    return (
+      <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
+        <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
+          <Spinner size="xl" color="purple.500" thickness="4px" />
+          <Text color="gray.500">Загрузка промокодов...</Text>
+        </Flex>
+      </Box>
+    );
+  }
+
   return (
     <>
       <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
-        <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
-          <CardHeader>
-            <HStack justify="space-between">
-              <Heading size="md">Промокоды</Heading>
-              <Button
-                leftIcon={<FiPlus />}
-                colorScheme="blue"
-                onClick={onOpen}
-                size="sm"
-              >
-                Добавить промокод
-              </Button>
-            </HStack>
-          </CardHeader>
-          <CardBody>
-            <VStack align="stretch" spacing={2}>
-              {promocodes.length === 0 ? (
-                <Box textAlign="center" py={8}>
-                  <Text color="gray.500" mb={4}>Промокодов пока нет</Text>
-                  <Button
-                    leftIcon={<FiPlus />}
-                    colorScheme="blue"
-                    variant="outline"
-                    onClick={onOpen}
-                  >
-                    Создать первый промокод
-                  </Button>
-                </Box>
-              ) : (
+        <VStack align="stretch" spacing={6}>
+          {/* Header */}
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiGift} color="purple.500" mr={3} />
+              Промокоды
+            </Heading>
+            <Text color="gray.600">
+              Управление промокодами и скидками для пользователей
+            </Text>
+          </Box>
+
+          {/* Statistics Cards */}
+          <SimpleGrid columns={{ base: 1, md: 2, lg: 5 }} spacing={4}>
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Всего промокодов</StatLabel>
+                  <StatNumber>{stats.total}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiGift} mr={1} />
+                    Общее количество
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Активные</StatLabel>
+                  <StatNumber color="green.500">{stats.active}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiCheckCircle} mr={1} />
+                    Доступны для использования
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Истекшие</StatLabel>
+                  <StatNumber color="red.500">{stats.expired}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiClock} mr={1} />
+                    Срок истек
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Исчерпанные</StatLabel>
+                  <StatNumber color="orange.500">{stats.exhausted}</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiXCircle} mr={1} />
+                    Нет использований
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardBody>
+                <Stat>
+                  <StatLabel>Средняя скидка</StatLabel>
+                  <StatNumber color="purple.500">{stats.avgDiscount}%</StatNumber>
+                  <StatHelpText>
+                    <Icon as={FiPercent} mr={1} />
+                    По всем промокодам
+                  </StatHelpText>
+                </Stat>
+              </CardBody>
+            </Card>
+          </SimpleGrid>
+
+          <Divider />
+
+          {/* Promocodes Card */}
+          <Card bg={colors.background.card} borderRadius={styles.card.borderRadius} boxShadow="lg">
+            <CardHeader>
+              <HStack justify="flex-end">
+                <Button
+                  leftIcon={<FiPlus />}
+                  colorScheme="blue"
+                  onClick={onOpen}
+                  size="sm"
+                >
+                  Добавить промокод
+                </Button>
+              </HStack>
+            </CardHeader>
+            <CardBody>
+              <VStack align="stretch" spacing={2}>
+                {isLoading ? (
+                  <Flex justify="center" align="center" py={8}>
+                    <Spinner size="lg" color="purple.500" />
+                  </Flex>
+                ) : promocodes.length === 0 ? (
+                  <Flex direction="column" align="center" justify="center" py={12} gap={4}>
+                    <Icon as={FiGift} boxSize={16} color="gray.300" />
+                    <VStack spacing={2}>
+                      <Text fontSize="lg" fontWeight="medium" color="gray.600">
+                        Промокодов пока нет
+                      </Text>
+                      <Text fontSize="sm" color="gray.500">
+                        Создайте первый промокод для предоставления скидок
+                      </Text>
+                    </VStack>
+                    <Button
+                      leftIcon={<FiPlus />}
+                      colorScheme="blue"
+                      variant="outline"
+                      onClick={onOpen}
+                      mt={2}
+                    >
+                      Создать первый промокод
+                    </Button>
+                  </Flex>
+                ) : (
                 promocodes.map(promocode => {
                   const expired = isExpired(promocode.expiration_date);
                   const isActive = promocode.is_active && !expired && promocode.usage_quantity > 0;
@@ -370,10 +506,11 @@ const Promocodes = ({ promocodes, openDetailModal, onUpdate }) => {
                     </Box>
                   );
                 })
-              )}
-            </VStack>
-          </CardBody>
-        </Card>
+                )}
+              </VStack>
+            </CardBody>
+          </Card>
+        </VStack>
       </Box>
 
       <CreatePromocodeModal

@@ -7,7 +7,7 @@ import {
   Modal, ModalOverlay, ModalContent, ModalHeader, ModalBody, ModalCloseButton, ModalFooter,
   Table, Thead, Tbody, Tr, Th, Td, TableContainer,
   Input, InputGroup, InputLeftElement, Tag, TagLabel, TagCloseButton, Wrap, WrapItem,
-  Menu, MenuButton, MenuList, MenuItem
+  Menu, MenuButton, MenuList, MenuItem, Divider
 } from '@chakra-ui/react';
 import { FiUsers, FiShoppingBag, FiMessageCircle, FiDollarSign, FiTrendingUp, FiTrendingDown, FiCalendar, FiChevronDown, FiChevronRight, FiChevronLeft, FiRefreshCw, FiSearch, FiX, FiDownload, FiZap } from 'react-icons/fi';
 import Chart from 'chart.js/auto';
@@ -1225,9 +1225,15 @@ const Dashboard = ({
       <VStack spacing={8} align="stretch">
         {/* Заголовок с кнопкой обновления и timestamp */}
         <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
-          <Heading size="lg" color={colors.text.primary}>
-            Дашборд
-          </Heading>
+          <Box>
+            <Heading size="lg" mb={2}>
+              <Icon as={FiTrendingUp} color="purple.500" mr={3} />
+              Дашборд
+            </Heading>
+            <Text color="gray.600">
+              Обзор ключевых метрик и статистики системы
+            </Text>
+          </Box>
           <HStack spacing={3}>
             <VStack spacing={0} align="flex-end">
               <Text fontSize="xs" color={colors.text.secondary}>
@@ -1501,6 +1507,8 @@ const Dashboard = ({
           </SimpleGrid>
         )}
 
+        <Divider />
+
         {/* Аккордеон с графиком */}
         <Card
           bg={styles.card.bg}
@@ -1741,6 +1749,8 @@ const Dashboard = ({
             </CardBody>
           </Collapse>
         </Card>
+
+        <Divider />
 
         {/* Аккордеон с календарем бронирований */}
         <Card
