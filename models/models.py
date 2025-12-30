@@ -532,6 +532,10 @@ class Permission(enum.Enum):
     SEND_EMAIL_CAMPAIGNS = "send_email_campaigns"
     MANAGE_EMAIL_TEMPLATES = "manage_email_templates"
 
+    # Подписки на офисы
+    VIEW_OFFICE_SUBSCRIPTIONS = "view_office_subscriptions"
+    MANAGE_OFFICE_SUBSCRIPTIONS = "manage_office_subscriptions"
+
 
 class Admin(Base):
     __tablename__ = "admins"

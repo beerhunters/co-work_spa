@@ -16,6 +16,9 @@ from models.models import (
     Notification,
     DatabaseManager,
     Permission,
+    ScheduledTask,
+    TaskType,
+    TaskStatus,
 )
 from dependencies import (
     get_db,
@@ -693,24 +696,48 @@ async def create_booking_admin(
                     )
                 else:
                     # Планируем задачу на 00:05 следующего дня
-                    task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"], True],  # is_daily_tariff=True
-                        eta=notification_datetime
-                    )
-                    logger.info(
-                        f"📅 [ADMIN] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
-                        f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
-                    )
+                    # Создаем запись в БД и задачу в Celery
+                    def _create_expiration_task_daily(session):
+                        # 1. Создаем запись в БД
+                        scheduled_task = ScheduledTask(
+                            task_type=TaskType.BOOKING_EXPIRATION,
+                            booking_id=result["id"],
+                            scheduled_datetime=notification_datetime,
+                            created_by='admin',
+                            status=TaskStatus.PENDING,
+                            params={
+                                'is_daily_tariff': True,
+                                'tariff_name': tariff_name
+                            }
+                        )
+                        session.add(scheduled_task)
+                        session.flush()
 
-                    # Сохранение expiration_task_id в БД
-                    def _save_expiration_task_id(session):
+                        # 2. Создаем задачу в Celery
+                        task_result = send_booking_expiration_notification.apply_async(
+                            args=[result["id"], True],  # is_daily_tariff=True
+                            eta=notification_datetime
+                        )
+
+                        # 3. Обновляем celery_task_id
+                        scheduled_task.celery_task_id = task_result.id
+
+                        # 4. Сохраняем task_id в бронировании
                         booking = session.query(Booking).filter(Booking.id == result["id"]).first()
                         if booking:
                             booking.expiration_task_id = task_result.id
-                            session.commit()
-                            logger.info(f"Saved expiration task ID {task_result.id} for booking #{result['id']}")
 
-                    DatabaseManager.safe_execute(_save_expiration_task_id)
+                        session.commit()
+
+                        logger.info(
+                            f"📅 [ADMIN] Запланировано уведомление о завершении дневного тарифа #{result['id']} "
+                            f"на {notification_datetime.strftime('%Y-%m-%d %H:%M:%S')} "
+                            f"(Celery task: {task_result.id}, DB task: #{scheduled_task.id})"
+                        )
+
+                        return task_result.id
+
+                    DatabaseManager.safe_execute(_create_expiration_task_daily)
             elif result.get("visit_time") and result.get("duration") and not is_excluded_from_timer:
                 # Почасовые тарифы - уведомление по окончании времени
                 visit_datetime_naive = datetime.combine(
@@ -722,33 +749,59 @@ async def create_booking_admin(
                 end_datetime = visit_datetime + timedelta(hours=result["duration"])
                 now = datetime.now(MOSCOW_TZ)
 
-                if end_datetime <= now:
-                    logger.info(
-                        f"⚡ [ADMIN] Бронирование #{result['id']} уже завершилось "
-                        f"({end_datetime.strftime('%Y-%m-%d %H:%M:%S')}), отправляем уведомление немедленно"
+                # Создаем запись в БД и задачу в Celery
+                def _create_expiration_task_hourly(session):
+                    # 1. Создаем запись в БД
+                    scheduled_task = ScheduledTask(
+                        task_type=TaskType.BOOKING_EXPIRATION,
+                        booking_id=result["id"],
+                        scheduled_datetime=end_datetime,
+                        created_by='admin',
+                        status=TaskStatus.PENDING if end_datetime > now else TaskStatus.COMPLETED,
+                        params={
+                            'is_daily_tariff': False,
+                            'tariff_name': tariff_name,
+                            'duration': result["duration"]
+                        }
                     )
-                    task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"], False]  # is_daily_tariff=False
-                    )
-                else:
-                    task_result = send_booking_expiration_notification.apply_async(
-                        args=[result["id"], False],  # is_daily_tariff=False
-                        eta=end_datetime
-                    )
-                    logger.info(
-                        f"📅 [ADMIN] Запланировано уведомление о завершении бронирования #{result['id']} "
-                        f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
-                    )
+                    session.add(scheduled_task)
+                    session.flush()
 
-                # Сохранение expiration_task_id в БД (для почасовых тарифов)
-                def _save_expiration_task_id_hourly(session):
+                    # 2. Создаем задачу в Celery
+                    if end_datetime <= now:
+                        logger.info(
+                            f"⚡ [ADMIN] Бронирование #{result['id']} уже завершилось "
+                            f"({end_datetime.strftime('%Y-%m-%d %H:%M:%S')}), отправляем уведомление немедленно"
+                        )
+                        task_result = send_booking_expiration_notification.apply_async(
+                            args=[result["id"], False]  # is_daily_tariff=False
+                        )
+                        scheduled_task.executed_at = datetime.now(MOSCOW_TZ)
+                    else:
+                        task_result = send_booking_expiration_notification.apply_async(
+                            args=[result["id"], False],  # is_daily_tariff=False
+                            eta=end_datetime
+                        )
+                        logger.info(
+                            f"📅 [ADMIN] Запланировано уведомление о завершении бронирования #{result['id']} "
+                            f"на {end_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
+                        )
+
+                    # 3. Обновляем celery_task_id
+                    scheduled_task.celery_task_id = task_result.id
+
+                    # 4. Сохраняем task_id в бронировании
                     booking = session.query(Booking).filter(Booking.id == result["id"]).first()
                     if booking:
                         booking.expiration_task_id = task_result.id
-                        session.commit()
-                        logger.info(f"Saved expiration task ID {task_result.id} for booking #{result['id']}")
 
-                DatabaseManager.safe_execute(_save_expiration_task_id_hourly)
+                    session.commit()
+
+                    logger.info(f"Saved expiration task ID {task_result.id} for booking #{result['id']} (DB task: #{scheduled_task.id})")
+
+                    return task_result.id
+
+                DatabaseManager.safe_execute(_create_expiration_task_hourly)
             elif is_excluded_from_timer:
                 logger.info(f"ℹ️ [ADMIN] Бронирование #{result['id']} ({tariff_name}) - уведомление об окончании времени отключено.")
         except Exception as e:
@@ -769,24 +822,48 @@ async def create_booking_admin(
                 now = datetime.now(MOSCOW_TZ)
 
                 if reminder_datetime > now:
-                    task_result = send_rental_reminder.apply_async(
-                        args=[result["id"]],
-                        eta=reminder_datetime
-                    )
-                    logger.info(
-                        f"📅 [ADMIN] Запланировано напоминание о завершении аренды #{result['id']} "
-                        f"на {reminder_datetime.strftime('%Y-%m-%d %H:%M:%S')} (Celery task: {task_result.id})"
-                    )
+                    # Создаем запись в БД и задачу в Celery
+                    def _create_reminder_task(session):
+                        # 1. Создаем запись в БД
+                        scheduled_task = ScheduledTask(
+                            task_type=TaskType.BOOKING_RENTAL_REMINDER,
+                            booking_id=result["id"],
+                            scheduled_datetime=reminder_datetime,
+                            created_by='admin',
+                            status=TaskStatus.PENDING,
+                            params={
+                                'reminder_days': booking_data.reminder_days,
+                                'end_date': end_date.isoformat()
+                            }
+                        )
+                        session.add(scheduled_task)
+                        session.flush()  # Получаем ID
 
-                    # Сохранение reminder_task_id в БД
-                    def _save_reminder_task_id(session):
+                        # 2. Создаем задачу в Celery
+                        task_result = send_rental_reminder.apply_async(
+                            args=[result["id"]],
+                            eta=reminder_datetime
+                        )
+
+                        # 3. Обновляем celery_task_id в ScheduledTask
+                        scheduled_task.celery_task_id = task_result.id
+
+                        # 4. Сохраняем task_id в бронировании
                         booking = session.query(Booking).filter(Booking.id == result["id"]).first()
                         if booking:
                             booking.reminder_task_id = task_result.id
-                            session.commit()
-                            logger.info(f"Saved reminder task ID {task_result.id} for booking #{result['id']}")
 
-                    DatabaseManager.safe_execute(_save_reminder_task_id)
+                        session.commit()
+
+                        logger.info(
+                            f"📅 [ADMIN] Запланировано напоминание о завершении аренды #{result['id']} "
+                            f"на {reminder_datetime.strftime('%Y-%m-%d %H:%M:%S')} "
+                            f"(Celery task: {task_result.id}, DB task: #{scheduled_task.id})"
+                        )
+
+                        return task_result.id
+
+                    DatabaseManager.safe_execute(_create_reminder_task)
                 else:
                     logger.warning(
                         f"⚠️  [ADMIN] Дата напоминания уже прошла для бронирования #{result['id']}, напоминание не запланировано"
@@ -2296,8 +2373,12 @@ async def update_booking_full(
                 "visit_date": booking.visit_date,
                 "visit_time": booking.visit_time,
                 "duration": booking.duration,
-                "amount": booking.amount
+                "amount": booking.amount,
+                "reminder_days": booking.reminder_days
             }
+
+            # Сохраняем старый reminder_task_id для возможной отмены
+            old_reminder_task_id = booking.reminder_task_id
 
             # Обновить поля
             if "visit_date" in update_data:
@@ -2311,14 +2392,17 @@ async def update_booking_full(
             if "visit_time" in update_data:
                 # Конвертировать строку в time если нужно
                 if isinstance(update_data["visit_time"], str):
-                    from datetime import datetime
-                    # booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M:%S").time()
-                    try:
-                        # Пытаемся распарсить с секундами (17:30:00)
-                        booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M:%S").time()
-                    except ValueError:
-                        # Если не вышло, пробуем без секунд (17:30)
-                        booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M").time()
+                    # Если пустая строка - устанавливаем None (для месячных тарифов)
+                    if update_data["visit_time"].strip() == "":
+                        booking.visit_time = None
+                    else:
+                        from datetime import datetime
+                        try:
+                            # Пытаемся распарсить с секундами (17:30:00)
+                            booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M:%S").time()
+                        except ValueError:
+                            # Если не вышло, пробуем без секунд (17:30)
+                            booking.visit_time = datetime.strptime(update_data["visit_time"], "%H:%M").time()
                 else:
                     booking.visit_time = update_data["visit_time"]
 
@@ -2328,14 +2412,117 @@ async def update_booking_full(
             if "amount" in update_data:
                 booking.amount = update_data["amount"]
 
+            # Обновить reminder_days (может быть null для отмены напоминания)
+            if "reminder_days" in update_data:
+                booking.reminder_days = update_data["reminder_days"]
+
             session.commit()
 
             # Получить тариф для Rubitime
             tariff = session.query(Tariff).filter(Tariff.id == booking.tariff_id).first()
 
-            return booking, tariff, old_values
+            return booking, tariff, old_values, old_reminder_task_id
 
-        updated_booking, tariff, old_values = DatabaseManager.safe_execute(_update)
+        updated_booking, tariff, old_values, old_reminder_task_id = DatabaseManager.safe_execute(_update)
+
+        # Проверяем изменение reminder_days и управляем задачей напоминания
+        reminder_changed = "reminder_days" in update_data and old_values["reminder_days"] != updated_booking.reminder_days
+
+        if reminder_changed:
+            # Если был старый reminder_task_id - отменяем его
+            if old_reminder_task_id:
+                try:
+                    from celery import current_app as celery_app
+                    celery_app.control.revoke(old_reminder_task_id, terminate=True)
+                    logger.info(f"Revoked old reminder task {old_reminder_task_id} for booking #{booking_id}")
+
+                    # Обновляем статус в БД и очищаем task_id
+                    def _cancel_old_reminder_task(session):
+                        # Обновляем статус в ScheduledTask
+                        old_scheduled_task = session.query(ScheduledTask).filter(
+                            ScheduledTask.celery_task_id == old_reminder_task_id
+                        ).first()
+                        if old_scheduled_task:
+                            old_scheduled_task.status = TaskStatus.CANCELLED
+                            old_scheduled_task.executed_at = datetime.now(MOSCOW_TZ)
+                            logger.info(f"Cancelled old ScheduledTask #{old_scheduled_task.id} in DB")
+
+                        # Очищаем task_id из бронирования
+                        booking = session.query(Booking).filter(Booking.id == booking_id).first()
+                        if booking:
+                            booking.reminder_task_id = None
+
+                        session.commit()
+
+                    DatabaseManager.safe_execute(_cancel_old_reminder_task)
+
+                except Exception as e:
+                    logger.error(f"Error revoking old reminder task: {e}")
+
+            # Если установлено новое значение reminder_days - создаем новую задачу
+            if updated_booking.reminder_days:
+                try:
+                    from tasks.booking_tasks import send_rental_reminder
+                    from dateutil.relativedelta import relativedelta
+
+                    tariff_name = tariff.name.lower() if tariff else ""
+                    is_monthly_tariff = 'месяц' in tariff_name
+
+                    if is_monthly_tariff:
+                        # Вычисляем дату напоминания
+                        end_date = updated_booking.visit_date + relativedelta(months=updated_booking.duration or 1)
+                        reminder_date = end_date - timedelta(days=updated_booking.reminder_days)
+                        reminder_datetime = datetime.combine(reminder_date, time_type(10, 0))
+                        reminder_datetime = MOSCOW_TZ.localize(reminder_datetime)
+                        now = datetime.now(MOSCOW_TZ)
+
+                        if reminder_datetime > now:
+                            # Создаем запись в БД и задачу в Celery
+                            def _create_new_reminder_task(session):
+                                # 1. Создаем запись в БД
+                                scheduled_task = ScheduledTask(
+                                    task_type=TaskType.BOOKING_RENTAL_REMINDER,
+                                    booking_id=booking_id,
+                                    scheduled_datetime=reminder_datetime,
+                                    created_by='admin',
+                                    status=TaskStatus.PENDING,
+                                    params={
+                                        'reminder_days': updated_booking.reminder_days,
+                                        'end_date': end_date.isoformat()
+                                    }
+                                )
+                                session.add(scheduled_task)
+                                session.flush()
+
+                                # 2. Создаем задачу в Celery
+                                task_result = send_rental_reminder.apply_async(
+                                    args=[updated_booking.id],
+                                    eta=reminder_datetime
+                                )
+
+                                # 3. Обновляем celery_task_id
+                                scheduled_task.celery_task_id = task_result.id
+
+                                # 4. Сохраняем task_id в бронировании
+                                booking = session.query(Booking).filter(Booking.id == booking_id).first()
+                                if booking:
+                                    booking.reminder_task_id = task_result.id
+
+                                session.commit()
+
+                                logger.info(
+                                    f"📅 Created reminder task for booking #{updated_booking.id} "
+                                    f"on {reminder_datetime.strftime('%Y-%m-%d %H:%M:%S')} "
+                                    f"(Celery task: {task_result.id}, DB task: #{scheduled_task.id})"
+                                )
+
+                                return task_result.id
+
+                            DatabaseManager.safe_execute(_create_new_reminder_task)
+                        else:
+                            logger.warning(f"Reminder date already passed for booking #{booking_id}, not scheduling")
+                except Exception as e:
+                    logger.error(f"Error creating reminder task for booking #{booking_id}: {e}", exc_info=True)
 
         # Если подтверждено и есть rubitime_id - обновить в Rubitime
         if updated_booking.confirmed and updated_booking.rubitime_id:

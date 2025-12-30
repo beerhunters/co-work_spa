@@ -113,6 +113,11 @@ const getParamLabel = (key) => {
     message: 'Сообщение',
     telegram_id: 'Telegram ID',
     admin_id: 'ID администратора',
+    reminder_days: 'Напомнить за',
+    end_date: 'Дата окончания аренды',
+    is_daily_tariff: 'Дневной тариф',
+    tariff_name: 'Тариф',
+    duration: 'Длительность',
   };
   return labels[key] || key;
 };
@@ -121,9 +126,36 @@ const getParamLabel = (key) => {
 const formatParamValue = (key, value) => {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'boolean') return value ? 'Да' : 'Нет';
+
+  // Специальные форматирования для разных типов параметров
   if (key === 'reminder_type') {
     return value === 'admin' ? 'Администратору' : value === 'tenant' ? 'Постояльцу' : value;
   }
+
+  if (key === 'reminder_days') {
+    const days = parseInt(value);
+    return `${days} ${days === 1 ? 'день' : days < 5 ? 'дня' : 'дней'}`;
+  }
+
+  if (key === 'end_date') {
+    // Форматируем дату в человекочитаемый вид
+    try {
+      const date = new Date(value);
+      return date.toLocaleDateString('ru-RU', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (e) {
+      return value;
+    }
+  }
+
+  if (key === 'duration') {
+    const hours = parseFloat(value);
+    return `${hours} ${hours === 1 ? 'час' : hours < 5 ? 'часа' : 'часов'}`;
+  }
+
   return String(value);
 };
 

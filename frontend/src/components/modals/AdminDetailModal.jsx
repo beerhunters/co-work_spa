@@ -375,6 +375,9 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
       'manage_logging': 'Управление логированием',
       // Бэкапы
       'manage_backups': 'Управление бэкапами',
+      // Подписки на офисы
+      'view_office_subscriptions': 'Просмотр подписок на офисы',
+      'manage_office_subscriptions': 'Управление подписками на офисы',
       // Системные
       'view_analytics': 'Просмотр аналитики',
       'export_data': 'Экспорт данных',
@@ -402,11 +405,12 @@ const AdminDetailModal = ({ isOpen, onClose, admin, onUpdate, currentAdmin }) =>
     const simplePermissions = permissions.map(p => typeof p === 'string' ? p : p.value || p);
 
     const categorized = {
-      'Пользователи': simplePermissions.filter(p => p.includes('users')),
+      'Пользователи': simplePermissions.filter(p => p.includes('users') && !p.includes('office_subscriptions')),
       'Бронирования': simplePermissions.filter(p => p.includes('bookings')),
       'Тарифы': simplePermissions.filter(p => p.includes('tariffs')),
       'Промокоды': simplePermissions.filter(p => p.includes('promocodes')),
       'Тикеты': simplePermissions.filter(p => p.includes('tickets')),
+      'Подписки на офисы': simplePermissions.filter(p => p.includes('office_subscriptions')),
       'Telegram рассылки': simplePermissions.filter(p => p.includes('telegram_newsletters')),
       'Email рассылки': simplePermissions.filter(p => p.includes('email_campaigns') || p.includes('email_templates')),
       'Уведомления': simplePermissions.filter(p => p.includes('notifications')),

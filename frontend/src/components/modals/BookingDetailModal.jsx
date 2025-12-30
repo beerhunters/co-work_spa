@@ -28,6 +28,8 @@ import {
   Input,
   FormControl,
   FormLabel,
+  FormHelperText,
+  Select,
   NumberInput,
   NumberInputField,
   NumberInputStepper,
@@ -73,7 +75,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
   const [editData, setEditData] = useState({
     visit_date: null,
     visit_time: null,
-    duration: null
+    duration: null,
+    reminder_days: null  // Напоминание за N дней
   });
   const [recalculatedAmount, setRecalculatedAmount] = useState(null);
   const [isRecalculating, setIsRecalculating] = useState(false);
@@ -453,7 +456,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
     setEditData({
       visit_date: detailedBooking.visit_date || '',
       visit_time: detailedBooking.visit_time || '',
-      duration: detailedBooking.duration || ''
+      duration: detailedBooking.duration || '',
+      reminder_days: detailedBooking.reminder_days || null
     });
     setRecalculatedAmount(detailedBooking.amount);
     setIsEditing(true);
@@ -462,7 +466,7 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
   // Отменить редактирование
   const handleCancelEdit = () => {
     setIsEditing(false);
-    setEditData({ visit_date: null, visit_time: null, duration: null });
+    setEditData({ visit_date: null, visit_time: null, duration: null, reminder_days: null });
     setRecalculatedAmount(null);
   };
 
@@ -500,7 +504,8 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
         visit_date: editData.visit_date,
         visit_time: editData.visit_time,
         duration: parsedDuration,
-        amount: finalAmount
+        amount: finalAmount,
+        reminder_days: editData.reminder_days  // Добавляем напоминание
       });
 
       toast({
@@ -812,6 +817,28 @@ const BookingDetailModal = ({ isOpen, onClose, booking, onUpdate, currentAdmin }
                             )}
                           </FormControl>
                         </>
+                      )}
+
+                      {/* Напоминание о завершении аренды - для месячных тарифов */}
+                      {tariff.name?.toLowerCase().includes('месяц') && (
+                        <FormControl>
+                          <FormLabel fontSize="sm">Напоминание о завершении аренды</FormLabel>
+                          <Select
+                            value={editData.reminder_days || ''}
+                            onChange={(e) => setEditData({ ...editData, reminder_days: e.target.value ? parseInt(e.target.value) : null })}
+                            placeholder="Не напоминать"
+                          >
+                            <option value="3">За 3 дня</option>
+                            <option value="7">За 7 дней</option>
+                            <option value="14">За 14 дней</option>
+                            <option value="30">За 30 дней</option>
+                          </Select>
+                          <FormHelperText>
+                            {editData.reminder_days
+                              ? `Напоминание будет отправлено за ${editData.reminder_days} дней до окончания аренды`
+                              : 'Выберите срок для напоминания или оставьте пустым'}
+                          </FormHelperText>
+                        </FormControl>
                       )}
 
                       <Divider />

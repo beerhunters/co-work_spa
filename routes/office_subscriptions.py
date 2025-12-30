@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 @router.get("/", response_model=List[OfficeSubscriptionResponse])
 async def get_all_subscriptions(
     office_size: Optional[int] = None,
-    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS]))
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_OFFICE_SUBSCRIPTIONS]))
 ):
     """
     Получить все подписки на офисы.
@@ -60,7 +60,7 @@ async def get_all_subscriptions(
 @router.get("/{subscription_id}", response_model=OfficeSubscriptionResponse)
 async def get_subscription(
     subscription_id: int,
-    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_USERS]))
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.VIEW_OFFICE_SUBSCRIPTIONS]))
 ):
     """Получить подписку по ID."""
     def _get_subscription(session: Session):
@@ -205,7 +205,7 @@ async def delete_user_subscription(telegram_id: int):
 @router.delete("/{subscription_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_subscription(
     subscription_id: int,
-    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.DELETE_USERS]))
+    current_admin: CachedAdmin = Depends(verify_token_with_permissions([Permission.MANAGE_OFFICE_SUBSCRIPTIONS]))
 ):
     """Удалить подписку (администратор)."""
     def _delete_subscription(session: Session):

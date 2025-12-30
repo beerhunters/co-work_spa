@@ -76,6 +76,10 @@ class PermissionEnum(str, Enum):
     EDIT_OFFICES = "edit_offices"
     DELETE_OFFICES = "delete_offices"
 
+    # Подписки на офисы
+    VIEW_OFFICE_SUBSCRIPTIONS = "view_office_subscriptions"
+    MANAGE_OFFICE_SUBSCRIPTIONS = "manage_office_subscriptions"
+
 
 class AdminBase(BaseModel):
     id: int
@@ -207,6 +211,9 @@ class AvailablePermissions(BaseModel):
             "create_offices": "Создание офисов",
             "edit_offices": "Редактирование офисов",
             "delete_offices": "Удаление офисов",
+            # Подписки на офисы
+            "view_office_subscriptions": "Просмотр подписок на офисы",
+            "manage_office_subscriptions": "Управление подписками на офисы",
         }
         return labels.get(permission, permission)
 
@@ -252,5 +259,7 @@ class AvailablePermissions(BaseModel):
             "create_offices": "Офисы",
             "edit_offices": "Офисы",
             "delete_offices": "Офисы",
+            "view_office_subscriptions": "Подписки на офисы",
+            "manage_office_subscriptions": "Подписки на офисы",
         }
         return categories.get(permission, "Другое")
