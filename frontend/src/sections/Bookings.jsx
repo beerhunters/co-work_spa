@@ -323,13 +323,15 @@ const Bookings = ({
     setSelectedBookings(newSelected);
   };
 
-  const handleSelectAll = (isSelected) => {
-    if (isSelected) {
-      const allIds = new Set(displayedBookings.map(booking => booking.id));
-      setSelectedBookings(allIds);
-    } else {
-      setSelectedBookings(new Set());
-    }
+  // Выбрать все бронирования на текущей странице
+  const handleSelectAllOnPage = () => {
+    const allIds = new Set(displayedBookings.map(booking => booking.id));
+    setSelectedBookings(allIds);
+  };
+
+  // Снять выбор со всех бронирований
+  const handleDeselectAll = () => {
+    setSelectedBookings(new Set());
   };
 
   const handleBulkDelete = async () => {
@@ -663,8 +665,8 @@ const Bookings = ({
                   isLoading: isExporting
                 }
               ]}
-              onSelectAll={handleSelectAll}
-              onDeselectAll={() => setSelectedBookings(new Set())}
+              onSelectAll={handleSelectAllOnPage}
+              onDeselectAll={handleDeselectAll}
               isAllSelected={isAllSelected}
               isIndeterminate={isIndeterminate}
               entityName="бронирований"
