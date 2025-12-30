@@ -405,7 +405,7 @@ const Backups = ({ currentAdmin }) => {
   // Проверка прав доступа
   if (currentAdmin?.role !== 'super_admin') {
     return (
-      <Container maxW="container.xl" py={8}>
+      <Container maxW="container.xl" py={6}>
         <Alert status="error">
           <AlertIcon />
           Доступ запрещен. Только главный администратор может управлять бэкапами.
@@ -415,7 +415,7 @@ const Backups = ({ currentAdmin }) => {
   }
 
   return (
-    <Container maxW="container.xl" py={8}>
+    <Container maxW="container.xl" py={6}>
       <VStack spacing={6} align="stretch">
         {/* Заголовок */}
         <Box>

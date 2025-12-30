@@ -334,7 +334,7 @@ const Promocodes = ({ promocodes, openDetailModal, onUpdate, isLoading = false }
 
   if (isLoading && promocodes.length === 0) {
     return (
-      <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
+      <Box p={6} bg="gray.50" minH={sizes.content.minHeight}>
         <Flex justify="center" align="center" h="400px" direction="column" gap={4}>
           <Spinner size="xl" color="purple.500" thickness="4px" />
           <Text color="gray.500">Загрузка промокодов...</Text>
@@ -345,7 +345,7 @@ const Promocodes = ({ promocodes, openDetailModal, onUpdate, isLoading = false }
 
   return (
     <>
-      <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
+      <Box p={6} bg="gray.50" minH={sizes.content.minHeight}>
         <VStack align="stretch" spacing={6}>
           {/* Header */}
           <Box>

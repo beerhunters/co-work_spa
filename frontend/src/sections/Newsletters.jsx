@@ -262,7 +262,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   // Если нет прав на просмотр, показываем сообщение об ошибке
   if (!canViewNewsletters) {
     return (
-      <Box p={8} textAlign="center">
+      <Box p={6} textAlign="center">
         <Text fontSize="xl" color="red.500" mb={4}>
           Доступ запрещен
         </Text>

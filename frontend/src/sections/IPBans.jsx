@@ -305,7 +305,7 @@ const IPBans = ({ currentAdmin }) => {
   }
 
   return (
-    <Box p={8}>
+    <Box p={6}>
       <VStack spacing={6} align="stretch">
         {/* Заголовок */}
         <Box>

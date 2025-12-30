@@ -598,7 +598,7 @@ const Notifications = ({
 
   return (
     <>
-      <Box p={sizes.content.padding} bg="gray.50" minH={sizes.content.minHeight}>
+      <Box p={6} bg="gray.50" minH={sizes.content.minHeight}>
         <VStack align="stretch" spacing={6}>
           {/* Header */}
           <Box>
