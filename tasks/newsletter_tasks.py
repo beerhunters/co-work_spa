@@ -490,3 +490,230 @@ async def _cleanup_photos(photo_paths: List[str]):
                 logger.debug(f"Cleaned up photo: {photo_path}")
         except Exception as e:
             logger.warning(f"Failed to cleanup photo {photo_path}: {e}")
+
+
+@celery_app.task(
+    bind=True,
+    base=CallbackTask,
+    name='tasks.newsletter_tasks.resend_newsletter_task',
+    max_retries=3,
+    default_retry_delay=60
+)
+def resend_newsletter_task(
+    self,
+    newsletter_id: int,
+    message: str,
+    photo_paths: List[str],
+    recipients: List[Dict[str, any]]
+):
+    """
+    Celery task для повторной отправки рассылки failed recipients.
+    Обновляет существующие записи NewsletterRecipient вместо создания новых.
+
+    Args:
+        newsletter_id: ID рассылки
+        message: Текст сообщения
+        photo_paths: Пути к фотографиям (обычно пустой для resend)
+        recipients: Список словарей с recipient_id, user_id, telegram_id, full_name
+
+    Returns:
+        Dict with results
+    """
+    try:
+        total = len(recipients)
+
+        # Update task state
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'current': 0,
+                'total': total,
+                'status': 'Повторная отправка...'
+            }
+        )
+
+        # Get event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # Run async send
+        result = loop.run_until_complete(
+            _resend_newsletter_async(self, newsletter_id, message, photo_paths, recipients, total)
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error in resend_newsletter_task: {e}", exc_info=True)
+        raise self.retry(exc=e)
+
+
+async def _resend_newsletter_async(
+    task: Task,
+    newsletter_id: int,
+    message: str,
+    photo_paths: List[str],
+    recipients: List[Dict[str, any]],
+    total: int
+) -> Dict[str, any]:
+    """Async function to resend newsletter."""
+    bot = get_bot()
+    if not bot:
+        raise RuntimeError("Bot not available")
+
+    prepared_message = prepare_message_for_telegram(message)
+    success_count = 0
+    failed_count = 0
+
+    # Список для обновления в БД
+    updated_recipients = []
+
+    for idx, recipient in enumerate(recipients, 1):
+        recipient_id = recipient['recipient_id']  # ID записи NewsletterRecipient
+        telegram_id = recipient['telegram_id']
+        full_name = recipient.get('full_name', 'Unknown')
+
+        send_status = 'success'
+        error_message = None
+
+        try:
+            # Send message (same logic as original send)
+            if photo_paths and len(photo_paths) == 1:
+                async with aiofiles.open(photo_paths[0], 'rb') as photo_file:
+                    photo_content = await photo_file.read()
+
+                photo_file_obj = BufferedInputFile(photo_content, filename=Path(photo_paths[0]).name)
+
+                await bot.send_photo(
+                    chat_id=telegram_id,
+                    photo=photo_file_obj,
+                    caption=prepared_message,
+                    parse_mode='HTML'
+                )
+            elif photo_paths and len(photo_paths) > 1:
+                # Media group
+                media_group = []
+                for photo_idx, photo_path in enumerate(photo_paths):
+                    async with aiofiles.open(photo_path, 'rb') as photo_file:
+                        photo_content = await photo_file.read()
+
+                    media = InputMediaPhoto(
+                        media=BufferedInputFile(photo_content, filename=f"photo_{photo_idx}.jpg"),
+                        caption=prepared_message if photo_idx == 0 else None,
+                        parse_mode='HTML' if photo_idx == 0 else None
+                    )
+                    media_group.append(media)
+
+                await bot.send_media_group(chat_id=telegram_id, media=media_group)
+            else:
+                # Text only
+                await bot.send_message(
+                    chat_id=telegram_id,
+                    text=prepared_message,
+                    parse_mode='HTML'
+                )
+
+            success_count += 1
+            await asyncio.sleep(0.05)
+
+        except TelegramForbiddenError:
+            failed_count += 1
+            send_status = 'bot_blocked'
+            error_message = "Пользователь заблокировал бота"
+
+        except TelegramBadRequest as e:
+            failed_count += 1
+            send_status = 'chat_not_found'
+            error_message = f"Чат не найден: {str(e)}"
+
+        except Exception as e:
+            failed_count += 1
+            send_status = 'failed'
+            error_message = str(e)
+
+        # Сохраняем для обновления в БД
+        updated_recipients.append({
+            'recipient_id': recipient_id,
+            'status': send_status,
+            'error_message': error_message,
+            'sent_at': datetime.now(MOSCOW_TZ)
+        })
+
+        # Update progress
+        task.update_state(
+            state='PROGRESS',
+            meta={
+                'current': idx,
+                'total': total,
+                'success': success_count,
+                'failed': failed_count,
+                'status': f'Повторная отправка {idx}/{total}...'
+            }
+        )
+
+    # Update database
+    _update_recipients_in_db(newsletter_id, updated_recipients, success_count, failed_count)
+
+    logger.info(f"Resend completed for newsletter {newsletter_id}: {success_count}/{total} delivered")
+
+    return {
+        'success_count': success_count,
+        'failed_count': failed_count,
+        'total_count': total,
+        'newsletter_id': newsletter_id,
+        'status': 'success' if success_count == total else 'partial' if success_count > 0 else 'failed'
+    }
+
+
+def _update_recipients_in_db(
+    newsletter_id: int,
+    updated_recipients: List[Dict[str, any]],
+    success_count: int,
+    failed_count: int
+):
+    """Обновляет статусы recipients в БД и обновляет счетчики в Newsletter."""
+    from models.models import Newsletter, NewsletterRecipient
+
+    def _update(session):
+        # Обновляем каждого recipient
+        for update_data in updated_recipients:
+            recipient = session.query(NewsletterRecipient).filter(
+                NewsletterRecipient.id == update_data['recipient_id']
+            ).first()
+
+            if recipient:
+                recipient.status = update_data['status']
+                recipient.error_message = update_data['error_message']
+                recipient.sent_at = update_data['sent_at']
+
+        # Пересчитываем счетчики Newsletter
+        newsletter = session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        if newsletter:
+            all_recipients = session.query(NewsletterRecipient).filter(
+                NewsletterRecipient.newsletter_id == newsletter_id
+            ).all()
+
+            newsletter.success_count = sum(1 for r in all_recipients if r.status == 'success')
+            newsletter.failed_count = sum(1 for r in all_recipients if r.status != 'success')
+
+            # Обновляем общий статус
+            total = len(all_recipients)
+            if newsletter.success_count == total:
+                newsletter.status = 'success'
+            elif newsletter.success_count == 0:
+                newsletter.status = 'failed'
+            else:
+                newsletter.status = 'partial'
+
+        session.commit()
+
+    try:
+        DatabaseManager.safe_execute(_update)
+    except Exception as e:
+        logger.error(f"Failed to update recipients in DB: {e}")

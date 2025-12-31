@@ -1549,6 +1549,46 @@ export const newsletterApi = {
 
       throw new Error(error.response?.data?.detail || 'Не удалось загрузить получателей');
     }
+  },
+
+  // Повторная отправка failed recipients
+  resend: async (newsletterId, recipientIds = null) => {
+    try {
+      const res = await apiClient.post(`/newsletters/${newsletterId}/resend`, {
+        recipient_ids: recipientIds
+      });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка повторной отправки:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Рассылка не найдена');
+      } else if (error.response?.status === 400) {
+        throw new Error(error.response?.data?.detail || 'Нет получателей для повторной отправки');
+      } else if (error.response?.status === 503) {
+        throw new Error('Telegram бот недоступен');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось запустить повторную отправку');
+    }
+  },
+
+  // Экспорт recipients в CSV
+  exportRecipients: async (newsletterId) => {
+    try {
+      const res = await apiClient.get(`/newsletters/${newsletterId}/recipients/export`, {
+        responseType: 'blob'
+      });
+      return res.data;
+    } catch (error) {
+      console.error('Ошибка экспорта получателей:', error);
+
+      if (error.response?.status === 404) {
+        throw new Error('Рассылка не найдена');
+      }
+
+      throw new Error(error.response?.data?.detail || 'Не удалось экспортировать получателей');
+    }
   }
 };
 // -------------------- API: Дашборд --------------------

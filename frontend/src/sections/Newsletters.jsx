@@ -130,6 +130,18 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const [recipientDetails, setRecipientDetails] = useState(null);
   const [isLoadingRecipients, setIsLoadingRecipients] = useState(false);
 
+  // Progress tracking для отправки
+  const [sendingTaskId, setSendingTaskId] = useState(null);
+  const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
+  const [progressData, setProgressData] = useState({
+    current: 0,
+    total: 0,
+    success: 0,
+    failed: 0,
+    status: '',
+    state: 'PENDING'
+  });
+
   // Состояния для аккордеонов
   const [isNewNewsletterOpen, setIsNewNewsletterOpen] = useState(() => {
     const saved = localStorage.getItem('newsletter_form_open');
@@ -627,16 +639,12 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
 
       const result = await newsletterApi.send(formData);
 
+      // Сохраняем task_id для polling
+      setSendingTaskId(result.task_id);
+
       setIsSending(false);
 
-      toast({
-        title: 'Рассылка запущена',
-        description: `Отправка ${result.total_count} сообщений в процессе... Результаты будут доступны в истории рассылок.`,
-        status: 'info',
-        duration: 5000,
-        isClosable: true,
-      });
-
+      // НЕ показываем toast сразу - покажем после завершения
       // Очищаем форму
       setMessage('');
       setPhotos([]);
@@ -649,9 +657,6 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-
-      // Обновляем историю
-      await fetchNewsletters();
 
     } catch (error) {
       console.error('Ошибка отправки:', error);
@@ -674,6 +679,87 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       });
     }
   };
+
+  // Polling task progress
+  const pollTaskProgress = useCallback(async (taskId) => {
+    try {
+      const response = await newsletterApi.getTaskStatus(taskId);
+
+      setProgressData({
+        current: response.current || 0,
+        total: response.total || 0,
+        success: response.success || 0,
+        failed: response.failed || 0,
+        status: response.status || '',
+        state: response.state
+      });
+
+      // Если задача завершена
+      if (response.state === 'SUCCESS' || response.state === 'FAILURE') {
+        setSendingTaskId(null);
+
+        // Обновляем список рассылок
+        await fetchNewsletters();
+
+        // Показываем результат
+        if (response.state === 'SUCCESS') {
+          const result = response.result || {};
+          toast({
+            title: 'Рассылка завершена',
+            description: `Доставлено: ${result.success_count}/${result.total_count}`,
+            status: result.success_count === result.total_count ? 'success' : 'warning',
+            duration: 5000,
+            isClosable: true,
+          });
+
+          // Автоматически открываем статистику последней рассылки
+          if (result.newsletter_id) {
+            const newsletter = newsletters.find(n => n.id === result.newsletter_id);
+            if (newsletter) {
+              setTimeout(() => handleOpenStats(newsletter), 1000);
+            }
+          }
+        } else {
+          toast({
+            title: 'Ошибка рассылки',
+            description: response.error || 'Неизвестная ошибка',
+            status: 'error',
+            duration: 5000,
+            isClosable: true,
+          });
+        }
+
+        setIsProgressModalOpen(false);
+      }
+
+    } catch (error) {
+      console.error('Error polling task:', error);
+      // Продолжаем polling даже при ошибках
+    }
+  }, [newsletters, toast, handleOpenStats, fetchNewsletters]);
+
+  // Effect для polling
+  useEffect(() => {
+    let intervalId;
+
+    if (sendingTaskId) {
+      setIsProgressModalOpen(true);
+
+      // Немедленный первый запрос
+      pollTaskProgress(sendingTaskId);
+
+      // Затем каждые 2 секунды
+      intervalId = setInterval(() => {
+        pollTaskProgress(sendingTaskId);
+      }, 2000);
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [sendingTaskId, pollTaskProgress]);
 
   // Мемоизированный компонент выбора пользователей с изолированным поиском
   const UserSelectionModal = React.memo(({
@@ -1878,6 +1964,68 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
               Закрыть
             </Button>
           </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* Progress Modal */}
+      <Modal isOpen={isProgressModalOpen} onClose={() => {}} closeOnOverlayClick={false} size="md">
+        <ModalOverlay />
+        <ModalContent>
+          <ModalHeader>
+            <HStack>
+              <Spinner size="sm" color="blue.500" />
+              <Text>Отправка рассылки</Text>
+            </HStack>
+          </ModalHeader>
+          <ModalBody pb={6}>
+            <VStack spacing={4} align="stretch">
+              {/* Progress bar */}
+              <Box>
+                <HStack justify="space-between" mb={2}>
+                  <Text fontSize="sm" fontWeight="medium">
+                    {progressData.status || 'Инициализация...'}
+                  </Text>
+                  <Text fontSize="sm" fontWeight="bold" color="blue.600">
+                    {progressData.current}/{progressData.total}
+                  </Text>
+                </HStack>
+                <Box w="full" bg="gray.200" borderRadius="full" h="8px">
+                  <Box
+                    w={progressData.total > 0 ? `${(progressData.current / progressData.total) * 100}%` : '0%'}
+                    bg="blue.500"
+                    borderRadius="full"
+                    h="8px"
+                    transition="width 0.3s"
+                  />
+                </Box>
+                <HStack justify="space-between" mt={2}>
+                  <Text fontSize="xs" color="gray.600">
+                    {progressData.total > 0
+                      ? `${((progressData.current / progressData.total) * 100).toFixed(1)}%`
+                      : '0%'}
+                  </Text>
+                  <HStack spacing={3}>
+                    <HStack spacing={1}>
+                      <Icon as={FiCheck} color="green.500" boxSize={3} />
+                      <Text fontSize="xs" color="gray.600">{progressData.success}</Text>
+                    </HStack>
+                    <HStack spacing={1}>
+                      <Icon as={FiX} color="red.500" boxSize={3} />
+                      <Text fontSize="xs" color="gray.600">{progressData.failed}</Text>
+                    </HStack>
+                  </HStack>
+                </HStack>
+              </Box>
+
+              {/* Status message */}
+              <Alert status="info" borderRadius="md">
+                <AlertIcon />
+                <AlertDescription fontSize="sm">
+                  Пожалуйста, не закрывайте это окно. Рассылка выполняется в фоновом режиме.
+                </AlertDescription>
+              </Alert>
+            </VStack>
+          </ModalBody>
         </ModalContent>
       </Modal>
 

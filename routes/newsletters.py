@@ -666,6 +666,156 @@ async def get_newsletter_recipients(
         )
 
 
+@router.post("/{newsletter_id}/resend")
+async def resend_newsletter_to_failed(
+    newsletter_id: int,
+    recipient_ids: Optional[List[int]] = None,
+    _: str = Depends(verify_token_with_permissions([Permission.SEND_TELEGRAM_NEWSLETTERS])),
+):
+    """
+    Повторная отправка рассылки получателям с ошибками.
+
+    Args:
+        newsletter_id: ID рассылки
+        recipient_ids: Список ID получателей для повторной отправки (из NewsletterRecipient.id)
+                       Если None - отправляет всем с status != 'success'
+
+    Returns:
+        task_id для отслеживания прогресса
+    """
+    bot = get_bot()
+    if not bot:
+        raise HTTPException(status_code=503, detail="Bot not available")
+
+    def _get_failed_recipients(session):
+        from models.models import NewsletterRecipient
+
+        # Проверяем существование рассылки
+        newsletter = session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        if not newsletter:
+            return None, None
+
+        # Получаем failed recipients
+        query = session.query(NewsletterRecipient).filter(
+            NewsletterRecipient.newsletter_id == newsletter_id
+        )
+
+        if recipient_ids:
+            query = query.filter(NewsletterRecipient.id.in_(recipient_ids))
+        else:
+            query = query.filter(NewsletterRecipient.status != 'success')
+
+        failed_recipients = query.all()
+
+        return newsletter, failed_recipients
+
+    try:
+        newsletter, failed_recipients = DatabaseManager.safe_execute(_get_failed_recipients)
+
+        if newsletter is None:
+            raise HTTPException(status_code=404, detail="Newsletter not found")
+
+        if not failed_recipients:
+            raise HTTPException(status_code=400, detail="No failed recipients to resend")
+
+        # Подготавливаем данные для Celery задачи
+        recipient_data = [
+            {
+                "recipient_id": r.id,  # ID записи NewsletterRecipient для обновления
+                "user_id": r.user_id,
+                "telegram_id": r.telegram_id,
+                "full_name": r.full_name,
+            }
+            for r in failed_recipients
+        ]
+
+        # Запускаем Celery задачу для повторной отправки
+        from tasks.newsletter_tasks import resend_newsletter_task
+
+        task = resend_newsletter_task.apply_async(
+            args=[newsletter_id, newsletter.message, [], recipient_data],  # photo_paths пусто - фото не пересылаем
+            queue='newsletters'
+        )
+
+        logger.info(f"Resend task queued: {task.id} for {len(failed_recipients)} recipients from newsletter {newsletter_id}")
+
+        return {
+            "task_id": task.id,
+            "status": "queued",
+            "total_count": len(failed_recipients),
+            "message": "Повторная отправка поставлена в очередь"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error queueing resend task: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue resend: {str(e)}")
+
+
+@router.get("/{newsletter_id}/recipients/export")
+async def export_newsletter_recipients(
+    newsletter_id: int,
+    _: str = Depends(verify_token_with_permissions([Permission.VIEW_TELEGRAM_NEWSLETTERS])),
+):
+    """Экспорт получателей рассылки в CSV формате."""
+
+    def _get_recipients_for_export(session):
+        from models.models import NewsletterRecipient
+
+        newsletter = session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+        if not newsletter:
+            return None
+
+        recipients = (
+            session.query(NewsletterRecipient)
+            .filter(NewsletterRecipient.newsletter_id == newsletter_id)
+            .order_by(NewsletterRecipient.sent_at.desc())
+            .all()
+        )
+
+        return recipients
+
+    try:
+        recipients = DatabaseManager.safe_execute(_get_recipients_for_export)
+        if recipients is None:
+            raise HTTPException(status_code=404, detail="Newsletter not found")
+
+        # Создаем CSV в памяти
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Заголовки
+        writer.writerow(['ID', 'Имя', 'Telegram ID', 'Статус', 'Ошибка', 'Дата отправки'])
+
+        # Данные
+        for r in recipients:
+            writer.writerow([
+                r.id,
+                r.full_name or 'Неизвестно',
+                r.telegram_id,
+                r.status,
+                r.error_message or '',
+                r.sent_at.strftime('%Y-%m-%d %H:%M:%S') if r.sent_at else ''
+            ])
+
+        # Возвращаем как streaming response
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=newsletter_{newsletter_id}_recipients.csv"
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting recipients: {e}")
+        raise HTTPException(status_code=500, detail="Failed to export recipients")
+
+
 @router.delete("/{newsletter_id}")
 async def delete_newsletter(
     newsletter_id: int,
