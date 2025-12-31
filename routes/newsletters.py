@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Query
+from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Query, Body
 from fastapi.responses import StreamingResponse
 from pathlib import Path
 import time
@@ -10,6 +10,7 @@ import json
 import csv
 import io
 from celery.result import AsyncResult
+from pydantic import BaseModel
 from utils.async_file_utils import AsyncFileManager
 from utils.file_validation import FileValidator
 from utils.file_security import validate_upload_file
@@ -22,6 +23,10 @@ from tasks.newsletter_tasks import send_newsletter_task
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/newsletters", tags=["newsletters"])
+
+
+class ResendRequest(BaseModel):
+    recipient_ids: Optional[List[int]] = None
 
 
 def get_users_by_segment(session, segment_type: str, params: dict = None):
@@ -669,7 +674,7 @@ async def get_newsletter_recipients(
 @router.post("/{newsletter_id}/resend")
 async def resend_newsletter_to_failed(
     newsletter_id: int,
-    recipient_ids: Optional[List[int]] = None,
+    request: ResendRequest,
     _: str = Depends(verify_token_with_permissions([Permission.SEND_TELEGRAM_NEWSLETTERS])),
 ):
     """
@@ -677,8 +682,8 @@ async def resend_newsletter_to_failed(
 
     Args:
         newsletter_id: ID рассылки
-        recipient_ids: Список ID получателей для повторной отправки (из NewsletterRecipient.id)
-                       Если None - отправляет всем с status != 'success'
+        request: Запрос с опциональным списком recipient_ids
+                 Если recipient_ids None - отправляет всем с status != 'success'
 
     Returns:
         task_id для отслеживания прогресса
@@ -700,8 +705,8 @@ async def resend_newsletter_to_failed(
             NewsletterRecipient.newsletter_id == newsletter_id
         )
 
-        if recipient_ids:
-            query = query.filter(NewsletterRecipient.id.in_(recipient_ids))
+        if request.recipient_ids:
+            query = query.filter(NewsletterRecipient.id.in_(request.recipient_ids))
         else:
             query = query.filter(NewsletterRecipient.status != 'success')
 

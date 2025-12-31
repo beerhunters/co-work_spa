@@ -130,6 +130,12 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const [recipientDetails, setRecipientDetails] = useState(null);
   const [isLoadingRecipients, setIsLoadingRecipients] = useState(false);
 
+  // Фильтр recipients по статусу
+  const [recipientStatusFilter, setRecipientStatusFilter] = useState('all');
+
+  // Resend tracking
+  const [isResending, setIsResending] = useState(false);
+
   // Progress tracking для отправки
   const [sendingTaskId, setSendingTaskId] = useState(null);
   const [isProgressModalOpen, setIsProgressModalOpen] = useState(false);
@@ -270,6 +276,8 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     (currentAdmin?.permissions && currentAdmin.permissions.includes('manage_telegram_newsletters')),
     [currentAdmin]
   );
+
+  const [pollInterval, setPollInterval] = useState(2000);
 
   // Если нет прав на просмотр, показываем сообщение об ошибке
   if (!canViewNewsletters) {
@@ -492,7 +500,136 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
     setSelectedNewsletter(null);
     setIsStatsModalOpen(false);
     setRecipientDetails(null);
+    setRecipientStatusFilter('all');
   };
+
+  // Повторная отправка failed recipients
+  const handleResendToFailed = async () => {
+    if (!selectedNewsletter) return;
+
+    setIsResending(true);
+
+    try {
+      // Отправляем запрос на resend
+      const response = await newsletterApi.resend(selectedNewsletter.id);
+
+      toast({
+        title: 'Повторная отправка запущена',
+        description: `Отправка ${response.total_count} сообщений...`,
+        status: 'info',
+        duration: 3000,
+        isClosable: true,
+      });
+
+      // Закрываем модальное окно статистики
+      handleCloseStats();
+
+      // Открываем progress modal для отслеживания
+      setSendingTaskId(response.task_id);
+
+    // } catch (error) {
+    //   console.error('Resend error:', error);
+    //
+    //   setIsResending(false);
+    //
+    //   toast({
+    //     title: 'Ошибка повторной отправки',
+    //     description: error.message || 'Не удалось отправить',
+    //     status: 'error',
+    //     duration: 5000,
+    //     isClosable: true,
+    //   });
+    // }
+    } catch (error) {
+      console.error('Resend error:', error.response?.data); // Смотрите детали ошибки в консоли браузера
+
+      // Достаем сообщение об ошибке из структуры FastAPI
+      const errorDetail = error.response?.data?.detail;
+      const errorMessage = Array.isArray(errorDetail)
+        ? errorDetail.map(err => `${err.loc.join('.')}: ${err.msg}`).join(', ')
+        : (typeof errorDetail === 'string' ? errorDetail : error.message);
+
+      toast({
+        title: 'Ошибка повторной отправки',
+        description: errorMessage,
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Экспорт получателей конкретной рассылки
+  const handleExportRecipients = async () => {
+    if (!selectedNewsletter) return;
+
+    try {
+      const blob = await newsletterApi.exportRecipients(selectedNewsletter.id);
+
+      // Создаем ссылку для скачивания
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `newsletter_${selectedNewsletter.id}_recipients.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: 'Экспорт завершен',
+        description: 'Файл сохранен',
+        status: 'success',
+        duration: 3000,
+        isClosable: true,
+      });
+
+    } catch (error) {
+      console.error('Export error:', error);
+
+      toast({
+        title: 'Ошибка экспорта',
+        description: error.message || 'Не удалось экспортировать данные',
+        status: 'error',
+        duration: 3000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Группировка recipients по статусам
+  const recipientsByStatus = useMemo(() => {
+    if (!recipientDetails || !recipientDetails.recipients) return {};
+
+    const grouped = {
+      success: [],
+      failed: [],
+      bot_blocked: [],
+      chat_not_found: []
+    };
+
+    recipientDetails.recipients.forEach(r => {
+      if (grouped[r.status]) {
+        grouped[r.status].push(r);
+      } else {
+        // Fallback для других статусов
+        grouped.failed.push(r);
+      }
+    });
+
+    return grouped;
+  }, [recipientDetails]);
+
+  // Фильтрованные recipients
+  const filteredRecipients = useMemo(() => {
+    if (!recipientDetails || !recipientDetails.recipients) return [];
+
+    if (recipientStatusFilter === 'all') {
+      return recipientDetails.recipients;
+    }
+
+    return recipientsByStatus[recipientStatusFilter] || [];
+  }, [recipientDetails, recipientStatusFilter, recipientsByStatus]);
 
   // Экспорт в CSV
   const handleExportCSV = async () => {
@@ -684,6 +821,8 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
   const pollTaskProgress = useCallback(async (taskId) => {
     try {
       const response = await newsletterApi.getTaskStatus(taskId);
+      // Если запрос прошел успешно, можно вернуть стандартный интервал (опционально)
+      // setPollInterval(2000);
 
       setProgressData({
         current: response.current || 0,
@@ -697,6 +836,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       // Если задача завершена
       if (response.state === 'SUCCESS' || response.state === 'FAILURE') {
         setSendingTaskId(null);
+        setIsProgressModalOpen(false);
 
         // Обновляем список рассылок
         await fetchNewsletters();
@@ -733,33 +873,90 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
       }
 
     } catch (error) {
+      if (error.response?.status === 429) {
+      console.warn("Polling rate limited, slowing down...");
+      // ПРАВКА: Увеличиваем интервал опроса, если получили 429
+      // Например, ждем 10 секунд перед следующей попыткой
+      setPollInterval(10000);
+
+      toast({
+        title: "Замедление опроса",
+        description: "Слишком много запросов. Обновление статуса замедлено.",
+        status: "warning",
+        duration: 3000,
+      });
+      }
       console.error('Error polling task:', error);
       // Продолжаем polling даже при ошибках
     }
   }, [newsletters, toast, handleOpenStats, fetchNewsletters]);
 
   // Effect для polling
+  // useEffect(() => {
+  //   let intervalId;
+  //
+  //   if (sendingTaskId) {
+  //     setIsProgressModalOpen(true);
+  //
+  //     // Немедленный первый запрос
+  //     pollTaskProgress(sendingTaskId);
+  //
+  //     // Затем каждые 2 секунды
+  //     intervalId = setInterval(() => {
+  //       pollTaskProgress(sendingTaskId);
+  //     }, 2000);
+  //   }
+  //
+  //   return () => {
+  //     if (intervalId) {
+  //       clearInterval(intervalId);
+  //     }
+  //   };
+  // }, [sendingTaskId, pollTaskProgress]);
+  // useEffect(() => {
+  //   let timeoutId;
+  //
+  //   if (sendingTaskId) {
+  //     setIsProgressModalOpen(true);
+  //
+  //     const tick = async () => {
+  //       await pollTaskProgress(sendingTaskId);
+  //       // Рекурсивный вызов через setTimeout позволяет динамически менять время
+  //       timeoutId = setTimeout(tick, pollInterval);
+  //     };
+  //
+  //     tick();
+  //   }
+  //
+  //   return () => {
+  //     if (timeoutId) clearTimeout(timeoutId);
+  //   };
+  // }, [sendingTaskId, pollTaskProgress, pollInterval]); // Добавьте pollInterval в зависимости
   useEffect(() => {
-    let intervalId;
+    let timerId;
+    let isMounted = true;
+
+    const tick = async () => {
+      if (!sendingTaskId || !isMounted) return;
+
+      await pollTaskProgress(sendingTaskId);
+
+      // Планируем следующий запрос только если задача еще выполняется
+      if (sendingTaskId && isMounted) {
+        timerId = setTimeout(tick, pollInterval);
+      }
+    };
 
     if (sendingTaskId) {
       setIsProgressModalOpen(true);
-
-      // Немедленный первый запрос
-      pollTaskProgress(sendingTaskId);
-
-      // Затем каждые 2 секунды
-      intervalId = setInterval(() => {
-        pollTaskProgress(sendingTaskId);
-      }, 2000);
+      timerId = setTimeout(tick, 500); // Первый запуск
     }
 
     return () => {
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
+      isMounted = false;
+      if (timerId) clearTimeout(timerId);
     };
-  }, [sendingTaskId, pollTaskProgress]);
+  }, [sendingTaskId, pollInterval]); // Убрали pollTaskProgress из зависимостей, чтобы не перезапускать таймер
 
   // Мемоизированный компонент выбора пользователей с изолированным поиском
   const UserSelectionModal = React.memo(({
@@ -1884,9 +2081,60 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                     </Box>
                   ) : recipientDetails && recipientDetails.recipients ? (
                     <Box>
-                      <Text fontSize="xs" color="gray.600" mb={2}>
-                        Всего получателей: {recipientDetails.total_count}
-                      </Text>
+                      {/* Группировка по статусам */}
+                      <SimpleGrid columns={4} spacing={2} mb={3}>
+                        <Box textAlign="center" p={2} bg={useColorModeValue('green.50', 'green.900')} borderRadius="md">
+                          <Text fontSize="xl" fontWeight="bold" color="green.600">
+                            {recipientsByStatus.success?.length || 0}
+                          </Text>
+                          <Text fontSize="xs" color="gray.600">Успешно</Text>
+                        </Box>
+                        <Box textAlign="center" p={2} bg={useColorModeValue('red.50', 'red.900')} borderRadius="md">
+                          <Text fontSize="xl" fontWeight="bold" color="red.600">
+                            {recipientsByStatus.failed?.length || 0}
+                          </Text>
+                          <Text fontSize="xs" color="gray.600">Ошибка</Text>
+                        </Box>
+                        <Box textAlign="center" p={2} bg={useColorModeValue('orange.50', 'orange.900')} borderRadius="md">
+                          <Text fontSize="xl" fontWeight="bold" color="orange.600">
+                            {recipientsByStatus.bot_blocked?.length || 0}
+                          </Text>
+                          <Text fontSize="xs" color="gray.600">Бот заблокирован</Text>
+                        </Box>
+                        <Box textAlign="center" p={2} bg={useColorModeValue('purple.50', 'purple.900')} borderRadius="md">
+                          <Text fontSize="xl" fontWeight="bold" color="purple.600">
+                            {recipientsByStatus.chat_not_found?.length || 0}
+                          </Text>
+                          <Text fontSize="xs" color="gray.600">Чат не найден</Text>
+                        </Box>
+                      </SimpleGrid>
+
+                      {/* Фильтр и кнопка экспорта */}
+                      <HStack spacing={2} mb={3}>
+                        <Text fontSize="xs" color="gray.600">Фильтр:</Text>
+                        <Select
+                          size="sm"
+                          value={recipientStatusFilter}
+                          onChange={(e) => setRecipientStatusFilter(e.target.value)}
+                          maxW="200px"
+                        >
+                          <option value="all">Все ({recipientDetails.total_count})</option>
+                          <option value="success">Успешно ({recipientsByStatus.success?.length || 0})</option>
+                          <option value="failed">Ошибка ({recipientsByStatus.failed?.length || 0})</option>
+                          <option value="bot_blocked">Бот заблокирован ({recipientsByStatus.bot_blocked?.length || 0})</option>
+                          <option value="chat_not_found">Чат не найден ({recipientsByStatus.chat_not_found?.length || 0})</option>
+                        </Select>
+                        <Tooltip label="Экспортировать в CSV">
+                          <IconButton
+                            icon={<FiDownload />}
+                            size="sm"
+                            variant="ghost"
+                            colorScheme="blue"
+                            onClick={handleExportRecipients}
+                            aria-label="Экспорт"
+                          />
+                        </Tooltip>
+                      </HStack>
 
                       {/* Таблица получателей */}
                       <TableContainer maxH="300px" overflowY="auto">
@@ -1900,7 +2148,7 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                             </Tr>
                           </Thead>
                           <Tbody>
-                            {recipientDetails.recipients.map((recipient, idx) => (
+                            {filteredRecipients.map((recipient, idx) => (
                               <Tr key={recipient.id || idx}>
                                 <Td>{recipient.full_name || 'Неизвестно'}</Td>
                                 <Td>
@@ -1908,12 +2156,22 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                                 </Td>
                                 <Td>
                                   <Badge
-                                    colorScheme={recipient.status === 'success' ? 'green' : 'red'}
+                                    colorScheme={
+                                      recipient.status === 'success' ? 'green' :
+                                      recipient.status === 'bot_blocked' ? 'orange' :
+                                      recipient.status === 'chat_not_found' ? 'purple' :
+                                      'red'
+                                    }
                                     fontSize="xs"
                                   >
                                     <HStack spacing={1}>
                                       <Icon as={recipient.status === 'success' ? FiCheck : FiX} />
-                                      <Text>{recipient.status === 'success' ? 'Доставлено' : 'Ошибка'}</Text>
+                                      <Text>
+                                        {recipient.status === 'success' ? 'Доставлено' :
+                                         recipient.status === 'bot_blocked' ? 'Бот заблокирован' :
+                                         recipient.status === 'chat_not_found' ? 'Чат не найден' :
+                                         'Ошибка'}
+                                      </Text>
                                     </HStack>
                                   </Badge>
                                 </Td>
@@ -1934,21 +2192,28 @@ const Newsletters = ({ newsletters: initialNewsletters = [], currentAdmin }) => 
                         </Table>
                       </TableContainer>
 
-                      {/* Сводка по статусам */}
-                      <HStack mt={3} spacing={4} justify="center">
-                        <HStack spacing={1}>
-                          <Icon as={FiCheck} color="green.500" />
-                          <Text fontSize="xs" color="gray.600">
-                            Успешно: {recipientDetails.recipients.filter(r => r.status === 'success').length}
-                          </Text>
-                        </HStack>
-                        <HStack spacing={1}>
-                          <Icon as={FiX} color="red.500" />
-                          <Text fontSize="xs" color="gray.600">
-                            Ошибки: {recipientDetails.recipients.filter(r => r.status === 'failed').length}
-                          </Text>
-                        </HStack>
-                      </HStack>
+                      {/* Кнопка повторной отправки */}
+                      {((recipientsByStatus.failed?.length || 0) +
+                        (recipientsByStatus.bot_blocked?.length || 0) +
+                        (recipientsByStatus.chat_not_found?.length || 0)) > 0 && (
+                        <Box mt={3}>
+                          <Button
+                            size="sm"
+                            colorScheme="orange"
+                            leftIcon={<FiRefreshCw />}
+                            onClick={handleResendToFailed}
+                            isLoading={isResending}
+                            loadingText="Повторная отправка..."
+                            width="full"
+                          >
+                            Повторить отправку для ошибок ({
+                              (recipientsByStatus.failed?.length || 0) +
+                              (recipientsByStatus.bot_blocked?.length || 0) +
+                              (recipientsByStatus.chat_not_found?.length || 0)
+                            })
+                          </Button>
+                        </Box>
+                      )}
                     </Box>
                   ) : (
                     <Text fontSize="sm" color="gray.500" textAlign="center">

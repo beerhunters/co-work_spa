@@ -636,6 +636,7 @@ async def _resend_newsletter_async(
             failed_count += 1
             send_status = 'failed'
             error_message = str(e)
+            logger.error(f"RESEND ERROR for {telegram_id}: {error_message}")
 
         # Сохраняем для обновления в БД
         updated_recipients.append({
@@ -671,45 +672,85 @@ async def _resend_newsletter_async(
     }
 
 
-def _update_recipients_in_db(
-    newsletter_id: int,
-    updated_recipients: List[Dict[str, any]],
-    success_count: int,
-    failed_count: int
-):
-    """Обновляет статусы recipients в БД и обновляет счетчики в Newsletter."""
+# def _update_recipients_in_db(
+#     newsletter_id: int,
+#     updated_recipients: List[Dict[str, any]],
+#     success_count: int,
+#     failed_count: int
+# ):
+#     """Обновляет статусы recipients в БД и обновляет счетчики в Newsletter."""
+#     from models.models import Newsletter, NewsletterRecipient
+#
+#     def _update(session):
+#         # Обновляем каждого recipient
+#         for update_data in updated_recipients:
+#             recipient = session.query(NewsletterRecipient).filter(
+#                 NewsletterRecipient.id == update_data['recipient_id']
+#             ).first()
+#
+#             if recipient:
+#                 recipient.status = update_data['status']
+#                 recipient.error_message = update_data['error_message']
+#                 recipient.sent_at = update_data['sent_at']
+#
+#         # Пересчитываем счетчики Newsletter
+#         newsletter = session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
+#         if newsletter:
+#             all_recipients = session.query(NewsletterRecipient).filter(
+#                 NewsletterRecipient.newsletter_id == newsletter_id
+#             ).all()
+#
+#             newsletter.success_count = sum(1 for r in all_recipients if r.status == 'success')
+#             newsletter.failed_count = sum(1 for r in all_recipients if r.status != 'success')
+#
+#             # Обновляем общий статус
+#             total = len(all_recipients)
+#             if newsletter.success_count == total:
+#                 newsletter.status = 'success'
+#             elif newsletter.success_count == 0:
+#                 newsletter.status = 'failed'
+#             else:
+#                 newsletter.status = 'partial'
+#
+#         session.commit()
+#
+#     try:
+#         DatabaseManager.safe_execute(_update)
+#     except Exception as e:
+#         logger.error(f"Failed to update recipients in DB: {e}")
+def _update_recipients_in_db(newsletter_id: int, updated_recipients: List[Dict[str, any]], success_count: int, failed_count: int):
     from models.models import Newsletter, NewsletterRecipient
 
     def _update(session):
-        # Обновляем каждого recipient
+        # 1. Массовое обновление статусов (вместо цикла с query)
         for update_data in updated_recipients:
-            recipient = session.query(NewsletterRecipient).filter(
+            session.query(NewsletterRecipient).filter(
                 NewsletterRecipient.id == update_data['recipient_id']
-            ).first()
+            ).update({
+                'status': update_data['status'],
+                'error_message': update_data['error_message'],
+                'sent_at': update_data['sent_at']
+            }, synchronize_session=False)
 
-            if recipient:
-                recipient.status = update_data['status']
-                recipient.error_message = update_data['error_message']
-                recipient.sent_at = update_data['sent_at']
-
-        # Пересчитываем счетчики Newsletter
+        # 2. Обновляем основную таблицу рассылки одним запросом
         newsletter = session.query(Newsletter).filter(Newsletter.id == newsletter_id).first()
         if newsletter:
-            all_recipients = session.query(NewsletterRecipient).filter(
+            # Считаем итоги прямо в базе, это быстрее
+            total_success = session.query(NewsletterRecipient).filter(
+                NewsletterRecipient.newsletter_id == newsletter_id,
+                NewsletterRecipient.status == 'success'
+            ).count()
+
+            total_count = session.query(NewsletterRecipient).filter(
                 NewsletterRecipient.newsletter_id == newsletter_id
-            ).all()
+            ).count()
 
-            newsletter.success_count = sum(1 for r in all_recipients if r.status == 'success')
-            newsletter.failed_count = sum(1 for r in all_recipients if r.status != 'success')
+            newsletter.success_count = total_success
+            newsletter.failed_count = total_count - total_success
 
-            # Обновляем общий статус
-            total = len(all_recipients)
-            if newsletter.success_count == total:
-                newsletter.status = 'success'
-            elif newsletter.success_count == 0:
-                newsletter.status = 'failed'
-            else:
-                newsletter.status = 'partial'
+            if total_success == total_count: newsletter.status = 'success'
+            elif total_success == 0: newsletter.status = 'failed'
+            else: newsletter.status = 'partial'
 
         session.commit()
 
